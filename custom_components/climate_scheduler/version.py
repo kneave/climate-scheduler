@@ -1,4 +1,4 @@
 """Version information for Climate Scheduler."""
 
-VERSION = "1.0.0"
-BUILD = 37
+VERSION = "1.0.2"
+BUILD = 0

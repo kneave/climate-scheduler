@@ -18,23 +18,18 @@ async function initApp() {
         // Initialize Home Assistant API
         haAPI = new HomeAssistantAPI();
         await haAPI.connect();
-        console.log('Connected to Home Assistant');
         
         // Get Home Assistant configuration for temperature unit
         const config = await haAPI.getConfig();
         if (config && config.unit_system && config.unit_system.temperature) {
             temperatureUnit = config.unit_system.temperature === '°F' ? '°F' : '°C';
-            console.log(`Temperature unit: ${temperatureUnit}`);
         }
         
-        // Graph will be initialized when an entity or group is selected
-        // (graph is created dynamically for each inline editor)
-        graph = null;
+        // Note: graph is initialized when entity/group is selected for editing
+        // No need to initialize it on page load
         
         // Load climate entities
-        console.log('ABOUT TO CALL loadClimateEntities');
         await loadClimateEntities();
-        console.log('AFTER loadClimateEntities');
         
         // Load all schedules from backend
         await loadAllSchedules();
@@ -48,8 +43,6 @@ async function initApp() {
         
         // Set up UI event listeners
         setupEventListeners();
-        
-        console.log('Application initialized');
     } catch (error) {
         console.error('Failed to initialize app:', error);
         console.error('Error stack:', error.stack);
@@ -60,10 +53,8 @@ async function initApp() {
 
 // Load all climate entities
 async function loadClimateEntities() {
-    console.log('=== loadClimateEntities CALLED ===');
     try {
         climateEntities = await haAPI.getClimateEntities();
-        console.log('Got climate entities:', climateEntities.length);
         await renderEntityList();
         console.log('renderEntityList completed');
     } catch (error) {
@@ -358,8 +349,6 @@ async function editGroupSchedule(groupName) {
     
     // Reattach event listeners
     attachEditorEventListeners(editor);
-    
-    console.log(`Editing schedule for group: ${groupName}`);
 }
 
 // Create group members table element
@@ -397,16 +386,16 @@ function createGroupMembersTable(entityIds) {
         
         const currentCell = document.createElement('span');
         const currentTemp = entity.attributes?.current_temperature;
-        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}°C` : '--';
+        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
         
         const targetCell = document.createElement('span');
         const targetTemp = entity.attributes?.temperature;
-        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}°C` : '--';
+        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
         
         const scheduledCell = document.createElement('span');
         if (groupSchedule.length > 0) {
             const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
         } else {
             scheduledCell.textContent = '--';
         }
@@ -498,8 +487,6 @@ async function deleteGroup(groupName) {
         
         // Reload entity list (entities should reappear)
         await renderEntityList();
-        
-        console.log(`Deleted group: ${groupName}`);
     } catch (error) {
         console.error('Failed to delete group:', error);
         alert('Failed to delete group');
@@ -508,8 +495,6 @@ async function deleteGroup(groupName) {
 
 // Render entity list
 async function renderEntityList() {
-    console.log('=== renderEntityList CALLED ===');
-    
     try {
         const entityList = document.getElementById('entity-list');
         const ignoredEntityContainer = document.getElementById('ignored-entities-container');
@@ -534,10 +519,6 @@ async function renderEntityList() {
         
         // Use local state to check which entities are included
         const includedEntities = new Set(entitySchedules.keys());
-        console.log('entitySchedules Map size:', entitySchedules.size);
-        console.log('entitySchedules Map keys:', Array.from(entitySchedules.keys()));
-        console.log('includedEntities Set:', Array.from(includedEntities));
-        console.log('entitiesInGroups Set:', Array.from(entitiesInGroups));
     
         let activeEntitiesCount = 0;
         let ignoredEntitiesCount = 0;
@@ -586,9 +567,6 @@ async function renderEntityList() {
         const activeSection = document.querySelector('.active-section');
         const ignoredSection = document.querySelector('.ignored-section');
         
-        console.log('renderEntityList: activeCount =', activeEntitiesCount, 'ignoredCount =', ignoredEntitiesCount);
-        console.log('activeSection element:', activeSection);
-        
         if (!activeSection) {
             alert('ERROR: active-section element not found!');
             return;
@@ -596,8 +574,6 @@ async function renderEntityList() {
         
         activeSection.style.display = 'block';
         ignoredSection.style.display = 'block';
-        
-        console.log('Set activeSection.style.display to block');
         
         // Show message if no active entities
         if (activeEntitiesCount === 0) {
@@ -657,7 +633,7 @@ function createEntityCard(entity, isIncluded = false) {
     const currentTemp = entity.attributes.current_temperature;
     const targetTemp = entity.attributes.temperature;
     temp.textContent = currentTemp !== undefined 
-        ? `${targetTemp.toFixed(1)}°C (${currentTemp.toFixed(1)}°C)` 
+        ? `${targetTemp.toFixed(1)}${temperatureUnit} (${currentTemp.toFixed(1)}${temperatureUnit})` 
         : 'N/A';
     
     content.appendChild(name);
@@ -1017,8 +993,6 @@ async function clearScheduleForEntity(entityId) {
         collapseAllEditors();
         currentEntityId = null;
         await renderEntityList();
-        
-        console.log('Schedule cleared successfully');
     } catch (error) {
         console.error('Failed to clear schedule:', error);
         alert('Failed to clear schedule. Please try again.');
@@ -1069,7 +1043,6 @@ async function loadHistoryData(entityId) {
         const historyResult = await haAPI.getHistory(entityId, today, now);
         
         if (!historyResult || historyResult.length === 0) {
-            console.log('No history data available');
             graph.setHistoryData([]);
             return;
         }
@@ -1093,7 +1066,6 @@ async function loadHistoryData(entityId) {
             }
         }
         
-        console.log(`Loaded ${historyData.length} history points`);
         graph.setHistoryData(historyData);
     } catch (error) {
         console.error('Failed to load history data:', error);
@@ -1110,8 +1082,6 @@ async function saveSchedule() {
             
             // Save to group schedule
             await haAPI.setGroupSchedule(currentGroup, nodes);
-            
-            console.log('Group schedule auto-saved for', currentGroup);
         } catch (error) {
             console.error('Failed to auto-save group schedule:', error);
         }
@@ -1137,8 +1107,6 @@ async function saveSchedule() {
         } else {
             await haAPI.disableSchedule(currentEntityId);
         }
-        
-        console.log('Schedule auto-saved for', currentEntityId);
     } catch (error) {
         console.error('Failed to auto-save schedule:', error);
     }
@@ -1194,7 +1162,6 @@ async function handleGraphChange(event, force = false) {
                 
                 // If scheduled temp is different from current target, update immediately
                 if (Math.abs(scheduledTemp - currentTarget) > 0.1) {
-                    console.log(`Group ${currentGroup}: Scheduled temp (${scheduledTemp}°C) differs from ${entityId} target (${currentTarget}°C), updating immediately`);
                     try {
                         await haAPI.callService('climate', 'set_temperature', {
                             entity_id: entityId,
@@ -1284,13 +1251,11 @@ async function handleGraphChange(event, force = false) {
     
     // If scheduled temp is different from current target, update immediately
     if (Math.abs(scheduledTemp - currentTarget) > 0.1) {
-        console.log(`Scheduled temp (${scheduledTemp}°C) differs from target (${currentTarget}°C), updating immediately`);
         try {
             await haAPI.callService('climate', 'set_temperature', {
                 entity_id: currentEntityId,
                 temperature: scheduledTemp
             });
-            console.log(`Updated ${currentEntityId} to ${scheduledTemp}°C`);
         } catch (error) {
             console.error('Failed to update thermostat:', error);
         }
@@ -1300,7 +1265,6 @@ async function handleGraphChange(event, force = false) {
     if (activeNode.hvac_mode) {
         const currentHvacMode = entity.state || entity.attributes.hvac_mode;
         if (force || currentHvacMode !== activeNode.hvac_mode) {
-            console.log(`Setting HVAC mode to ${activeNode.hvac_mode}`);
             try {
                 await haAPI.callService('climate', 'set_hvac_mode', {
                     entity_id: currentEntityId,
@@ -1314,7 +1278,6 @@ async function handleGraphChange(event, force = false) {
     
     // Apply fan mode if specified
     if (activeNode.fan_mode && (force || entity.attributes.fan_mode !== activeNode.fan_mode)) {
-        console.log(`Setting fan mode to ${activeNode.fan_mode}`);
         try {
             await haAPI.callService('climate', 'set_fan_mode', {
                 entity_id: currentEntityId,
@@ -1327,7 +1290,6 @@ async function handleGraphChange(event, force = false) {
     
     // Apply swing mode if specified
     if (activeNode.swing_mode && (force || entity.attributes.swing_mode !== activeNode.swing_mode)) {
-        console.log(`Setting swing mode to ${activeNode.swing_mode}`);
         try {
             await haAPI.callService('climate', 'set_swing_mode', {
                 entity_id: currentEntityId,
@@ -1340,7 +1302,6 @@ async function handleGraphChange(event, force = false) {
     
     // Apply preset mode if specified
     if (activeNode.preset_mode && (force || entity.attributes.preset_mode !== activeNode.preset_mode)) {
-        console.log(`Setting preset mode to ${activeNode.preset_mode}`);
         try {
             await haAPI.callService('climate', 'set_preset_mode', {
                 entity_id: currentEntityId,
@@ -1511,12 +1472,12 @@ function updateGroupMemberRow(entityId, entityState) {
     
     if (currentCell) {
         const currentTemp = entityState.attributes?.current_temperature;
-        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}°C` : '--';
+        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
     }
     
     if (targetCell) {
         const targetTemp = entityState.attributes?.temperature;
-        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}°C` : '--';
+        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
     }
     
     // Update scheduled temp if we're viewing a group
@@ -1527,7 +1488,7 @@ function updateGroupMemberRow(entityId, entityState) {
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
         } else {
             scheduledCell.textContent = '--';
         }
@@ -1550,7 +1511,7 @@ function updateAllGroupMemberScheduledTemps() {
         if (scheduledCell) {
             if (nodes.length > 0) {
                 const scheduledTemp = interpolateTemperature(nodes, currentTime);
-                scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+                scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
             } else {
                 scheduledCell.textContent = '--';
             }
@@ -1560,7 +1521,6 @@ function updateAllGroupMemberScheduledTemps() {
 
 // Toggle entity inclusion in scheduler
 async function toggleEntityInclusion(entityId, include) {
-    console.log('=== toggleEntityInclusion ===', entityId, include);
     try {
         if (include) {
             // Check if entity already has a schedule in backend
@@ -1570,20 +1530,15 @@ async function toggleEntityInclusion(entityId, include) {
                 const schedule = result?.response || result;
                 if (schedule && schedule.nodes && schedule.nodes.length > 0) {
                     existingSchedule = schedule.nodes;
-                    console.log('Found existing schedule for', entityId);
                 }
             } catch (err) {
-                console.log('No existing schedule found:', err);
             }
             
             // Use existing schedule or create default
             const scheduleToUse = existingSchedule || [{ time: "00:00", temp: 18 }];
-            console.log('Setting schedule for', entityId);
             
             // Add to local state immediately with a unique copy for each entity
             entitySchedules.set(entityId, JSON.parse(JSON.stringify(scheduleToUse)));
-            console.log('Added to entitySchedules Map. Size now:', entitySchedules.size);
-            console.log('Map now contains:', Array.from(entitySchedules.keys()));
             
             // If no existing schedule, persist the default to HA
             if (!existingSchedule) {
@@ -1594,11 +1549,9 @@ async function toggleEntityInclusion(entityId, include) {
             
             // Re-render to move to active list
             await renderEntityList();
-            console.log('toggleEntityInclusion complete');
         } else {
             // When disabling, just disable it but keep the schedule data
             entitySchedules.delete(entityId);
-            console.log('Removed from entitySchedules Map');
             
             // Disable the schedule in HA (but don't clear the data)
             haAPI.disableSchedule(entityId).catch(err => {
@@ -1693,12 +1646,9 @@ function setupEventListeners() {
     
     // Create group button
     const createGroupBtn = document.getElementById('create-group-btn');
-    console.log('Setting up create-group-btn listener, element:', createGroupBtn);
     if (createGroupBtn) {
         createGroupBtn.addEventListener('click', () => {
-            console.log('Create group button clicked!');
             const modal = document.getElementById('create-group-modal');
-            console.log('Modal element:', modal);
             if (modal) {
                 modal.style.display = 'flex';
             }
@@ -1707,8 +1657,6 @@ function setupEventListeners() {
                 nameInput.value = '';
             }
         });
-    } else {
-        console.error('create-group-btn element not found!');
     }
     
     // Create group modal - cancel
@@ -1744,8 +1692,6 @@ function setupEventListeners() {
                 
                 // Reload groups
                 await loadGroups();
-                
-                console.log(`Created group: ${groupName}`);
             } catch (error) {
                 console.error('Failed to create group:', error);
                 alert('Failed to create group');
@@ -1787,8 +1733,6 @@ function setupEventListeners() {
                 
                 // Reload entity list (entity should disappear from active/disabled)
                 await renderEntityList();
-                
-                console.log(`Added ${entityId} to group ${groupName}`);
             } catch (error) {
                 console.error('Failed to add entity to group:', error);
                 alert('Failed to add entity to group');

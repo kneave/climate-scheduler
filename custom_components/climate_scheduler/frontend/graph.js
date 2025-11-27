@@ -4,7 +4,7 @@
  */
 
 class TemperatureGraph {
-    constructor(svgElement) {
+    constructor(svgElement, temperatureUnit = '°C') {
         this.svg = svgElement;
         this.nodes = [];
         this.historyData = [];
@@ -13,15 +13,21 @@ class TemperatureGraph {
         this.lastTapTime = 0;
         this.lastTapNode = null;
         this.tooltip = null;
+        this.temperatureUnit = temperatureUnit;
         
         // Graph dimensions
         this.width = 800;
         this.height = 400;
         this.padding = { top: 40, right: 40, bottom: 60, left: 60 };
         
-        // Temperature range
-        this.minTemp = 5;
-        this.maxTemp = 30;
+        // Temperature range (5°C to 30°C or 41°F to 86°F)
+        if (temperatureUnit === '°F') {
+            this.minTemp = 41;  // 5°C in Fahrenheit
+            this.maxTemp = 86;  // 30°C in Fahrenheit
+        } else {
+            this.minTemp = 5;
+            this.maxTemp = 30;
+        }
         
         // Time settings (24 hours in 15-minute intervals = 96 slots)
         this.timeSlots = 96;
@@ -335,7 +341,7 @@ class TemperatureGraph {
             'font-weight': 'bold',
             transform: `rotate(-90, 20, ${this.padding.top + graphHeight / 2})`
         });
-        yLabel.textContent = 'Temperature (°C)';
+        yLabel.textContent = `Temperature (${this.temperatureUnit})`;
         g.appendChild(yLabel);
     }
     
