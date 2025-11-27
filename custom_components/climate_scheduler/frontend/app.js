@@ -9,6 +9,8 @@ let currentEntityId = null;
 let climateEntities = [];
 let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
+let allGroups = {}; // Store all groups data
+let currentGroup = null; // Currently selected group
 
 // Initialize application
 async function initApp() {
@@ -25,13 +27,9 @@ async function initApp() {
             console.log(`Temperature unit: ${temperatureUnit}`);
         }
         
-        // Initialize temperature graph
-        const svgElement = document.getElementById('temperature-graph');
-        graph = new TemperatureGraph(svgElement);
-        
-        // Listen for graph changes
-        svgElement.addEventListener('nodesChanged', handleGraphChange);
-        svgElement.addEventListener('nodeSettings', handleNodeSettings);
+        // Graph will be initialized when an entity or group is selected
+        // (graph is created dynamically for each inline editor)
+        graph = null;
         
         // Load climate entities
         console.log('ABOUT TO CALL loadClimateEntities');
@@ -40,6 +38,9 @@ async function initApp() {
         
         // Load all schedules from backend
         await loadAllSchedules();
+        
+        // Load groups
+        await loadGroups();
         
         // Subscribe to state changes
         await haAPI.subscribeToStateChanges();
@@ -51,7 +52,9 @@ async function initApp() {
         console.log('Application initialized');
     } catch (error) {
         console.error('Failed to initialize app:', error);
-        alert('Failed to connect to Home Assistant. Please refresh the page.');
+        console.error('Error stack:', error.stack);
+        console.error('Error message:', error.message);
+        alert(`Failed to connect to Home Assistant: ${error.message}\n\nPlease refresh the page.`);
     }
 }
 
@@ -83,12 +86,13 @@ async function loadAllSchedules() {
             const schedule = result?.response || result;
             console.log(`Extracted schedule for ${entity.entity_id}:`, schedule);
             
-            if (schedule && schedule.nodes && schedule.nodes.length > 0) {
-                // Entity has a schedule - add to Map
+            // Only add to entitySchedules if it has nodes AND is enabled
+            if (schedule && schedule.nodes && schedule.nodes.length > 0 && schedule.enabled) {
+                // Entity has an enabled schedule - add to Map
                 entitySchedules.set(entity.entity_id, schedule.nodes);
                 console.log(`Added schedule for ${entity.entity_id}:`, schedule.nodes);
             } else {
-                console.log(`No valid schedule for ${entity.entity_id}`);
+                console.log(`No valid enabled schedule for ${entity.entity_id}`);
             }
         }
         
@@ -101,38 +105,449 @@ async function loadAllSchedules() {
     }
 }
 
+// Load all groups from backend
+async function loadGroups() {
+    console.log('Loading groups from backend...');
+    try {
+        const result = await haAPI.getGroups();
+        console.log('Raw result from getGroups:', result);
+        
+        // Extract groups from response - may be wrapped in response.groups
+        let groups = result?.response || result || {};
+        
+        // If there's a 'groups' key, use that instead
+        if (groups.groups && typeof groups.groups === 'object') {
+            groups = groups.groups;
+        }
+        
+        console.log('Parsed groups object:', groups);
+        allGroups = groups;
+        console.log('allGroups after assignment:', allGroups);
+        console.log('Group names:', Object.keys(allGroups));
+        
+        // Render groups section
+        renderGroups();
+    } catch (error) {
+        console.error('Failed to load groups:', error);
+        allGroups = {};
+    }
+}
+
+// Render groups in the groups section
+function renderGroups() {
+    const groupsList = document.getElementById('groups-list');
+    const groupsCount = document.getElementById('groups-count');
+    if (!groupsList) return;
+    
+    // Clear existing groups
+    groupsList.innerHTML = '';
+    
+    const groupNames = Object.keys(allGroups);
+    
+    // Update count
+    if (groupsCount) {
+        groupsCount.textContent = groupNames.length;
+    }
+    
+    if (groupNames.length === 0) {
+        groupsList.innerHTML = '<p style="color: var(--secondary-text-color); padding: 16px; text-align: center;">No groups created yet</p>';
+        return;
+    }
+    
+    // Create container for each group
+    groupNames.forEach(groupName => {
+        const groupContainer = createGroupContainer(groupName, allGroups[groupName]);
+        groupsList.appendChild(groupContainer);
+    });
+}
+
+// Create a group container element
+function createGroupContainer(groupName, groupData) {
+    const container = document.createElement('div');
+    container.className = 'group-container';
+    container.dataset.groupName = groupName;
+    
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'group-header';
+    
+    const leftSide = document.createElement('div');
+    leftSide.style.display = 'flex';
+    leftSide.style.alignItems = 'center';
+    leftSide.style.gap = '8px';
+    
+    const toggleIcon = document.createElement('span');
+    toggleIcon.className = 'group-toggle-icon';
+    toggleIcon.textContent = '▼';
+    
+    const title = document.createElement('span');
+    title.className = 'group-title';
+    title.textContent = groupName;
+    
+    const count = document.createElement('span');
+    count.className = 'group-count';
+    count.textContent = `${groupData.entities?.length || 0} entities`;
+    
+    leftSide.appendChild(toggleIcon);
+    leftSide.appendChild(title);
+    leftSide.appendChild(count);
+    
+    // Create action buttons
+    const actions = document.createElement('div');
+    actions.className = 'group-actions';
+    
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit Schedule';
+    editBtn.onclick = (e) => {
+        e.stopPropagation();
+        // Toggle edit - if already editing this group, collapse; otherwise expand
+        if (currentGroup === groupName && container.classList.contains('expanded')) {
+            collapseAllEditors();
+            currentGroup = null;
+        } else {
+            editGroupSchedule(groupName);
+        }
+    };
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete Group';
+    deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        confirmDeleteGroup(groupName);
+    };
+    
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    
+    header.appendChild(leftSide);
+    header.appendChild(actions);
+    
+    // Create entities container
+    const entitiesContainer = document.createElement('div');
+    entitiesContainer.className = 'group-entities';
+    
+    if (groupData.entities && groupData.entities.length > 0) {
+        groupData.entities.forEach(entityId => {
+            const entityCard = createGroupEntityCard(entityId, groupName);
+            if (entityCard) {
+                entitiesContainer.appendChild(entityCard);
+            }
+        });
+    } else {
+        entitiesContainer.innerHTML = '<p style="color: var(--secondary-text-color); padding: 8px;">No entities in this group</p>';
+    }
+    
+    // Toggle collapse/expand and edit schedule on header click
+    header.onclick = (e) => {
+        // Don't trigger if clicking on action buttons
+        if (e.target.closest('.group-actions')) return;
+        
+        // Check if we're currently editing this group
+        const isCurrentlyExpanded = currentGroup === groupName && container.classList.contains('expanded');
+        
+        if (isCurrentlyExpanded) {
+            // Collapse the editor
+            collapseAllEditors();
+            currentGroup = null;
+        } else {
+            // Expand the editor
+            editGroupSchedule(groupName);
+        }
+        
+        // Also toggle the entities list visibility
+        container.classList.toggle('collapsed');
+        toggleIcon.style.transform = container.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+    };
+    
+    container.appendChild(header);
+    container.appendChild(entitiesContainer);
+    
+    return container;
+}function createGroupEntityCard(entityId, groupName) {
+    const entity = climateEntities.find(e => e.entity_id === entityId);
+    if (!entity) return null;
+    
+    const card = document.createElement('div');
+    card.className = 'entity-card';
+    card.dataset.entityId = entityId;
+    
+    const name = document.createElement('span');
+    name.textContent = entity.attributes?.friendly_name || entityId;
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.marginLeft = 'auto';
+    removeBtn.onclick = () => removeEntityFromGroup(groupName, entityId);
+    
+    card.appendChild(name);
+    card.appendChild(removeBtn);
+    
+    return card;
+}
+
+// Edit group schedule - load group schedule into editor
+async function editGroupSchedule(groupName) {
+    const groupData = allGroups[groupName];
+    if (!groupData) return;
+    
+    // Collapse all other editors first
+    collapseAllEditors();
+    
+    // Set current group and clear entity selection
+    currentGroup = groupName;
+    currentEntityId = null;
+    
+    // Find the group container
+    const groupContainer = document.querySelector(`.group-container[data-group-name="${groupName}"]`);
+    if (!groupContainer) return;
+    
+    // Mark as expanded
+    groupContainer.classList.add('expanded');
+    
+    // Create and insert editor inside the group container (append to the end)
+    const editor = createScheduleEditor();
+    groupContainer.appendChild(editor);
+    
+    // Hide entity status section (replaced by group table)
+    const entityStatus = editor.querySelector('.entity-status');
+    if (entityStatus) {
+        entityStatus.style.display = 'none';
+    }
+    
+    // Show group members table at the top of the editor
+    const editorHeader = editor.querySelector('.editor-header-inline');
+    if (editorHeader) {
+        const groupTable = createGroupMembersTable(groupData.entities);
+        if (groupTable) {
+            editorHeader.before(groupTable);
+        }
+    }
+    
+    // Recreate graph with the new SVG element
+    const svgElement = editor.querySelector('#temperature-graph');
+    if (svgElement) {
+        graph = new TemperatureGraph(svgElement);
+        
+        // Attach graph event listeners
+        svgElement.addEventListener('nodesChanged', handleGraphChange);
+        svgElement.addEventListener('nodeSettings', handleNodeSettings);
+    }
+    
+    // Load schedule nodes into editor
+    if (groupData.nodes && groupData.nodes.length > 0) {
+        currentSchedule = groupData.nodes.map(n => ({...n}));
+        graph.setNodes(currentSchedule);
+    } else {
+        // Start with empty schedule
+        currentSchedule = [];
+        graph.setNodes([{ time: '00:00', temp: 18 }]);
+    }
+    
+    // Group schedules don't have enabled/disabled state - hide the toggle
+    const scheduleEnabled = editor.querySelector('#schedule-enabled');
+    if (scheduleEnabled) {
+        scheduleEnabled.checked = true;
+        scheduleEnabled.closest('.toggle-switch').style.display = 'none';
+    }
+    
+    updateScheduledTemp();
+    
+    // Reattach event listeners
+    attachEditorEventListeners(editor);
+    
+    console.log(`Editing schedule for group: ${groupName}`);
+}
+
+// Create group members table element
+function createGroupMembersTable(entityIds) {
+    if (!entityIds || entityIds.length === 0) return null;
+    
+    // Create table
+    const table = document.createElement('div');
+    table.className = 'group-members-table';
+    
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'group-members-header';
+    header.innerHTML = '<span>Name</span><span>Current</span><span>Target</span><span>Scheduled</span>';
+    table.appendChild(header);
+    
+    // Get current time for scheduled temp calculation
+    const now = new Date();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    // Get the group's schedule if it exists
+    const groupSchedule = graph ? graph.getNodes() : [];
+    
+    // Create rows for each entity
+    entityIds.forEach(entityId => {
+        const entity = climateEntities.find(e => e.entity_id === entityId);
+        if (!entity) return;
+        
+        const row = document.createElement('div');
+        row.className = 'group-members-row';
+        row.dataset.entityId = entityId;
+        
+        const nameCell = document.createElement('span');
+        nameCell.textContent = entity.attributes?.friendly_name || entityId;
+        
+        const currentCell = document.createElement('span');
+        const currentTemp = entity.attributes?.current_temperature;
+        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}°C` : '--';
+        
+        const targetCell = document.createElement('span');
+        const targetTemp = entity.attributes?.temperature;
+        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}°C` : '--';
+        
+        const scheduledCell = document.createElement('span');
+        if (groupSchedule.length > 0) {
+            const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
+            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+        } else {
+            scheduledCell.textContent = '--';
+        }
+        
+        row.appendChild(nameCell);
+        row.appendChild(currentCell);
+        row.appendChild(targetCell);
+        row.appendChild(scheduledCell);
+        table.appendChild(row);
+    });
+    
+    return table;
+}
+
+// Display group members table above graph (deprecated - use createGroupMembersTable instead)
+function displayGroupMembersTable(entityIds) {
+    // Remove existing table if present
+    const existingTable = document.querySelector('.group-members-table');
+    if (existingTable) {
+        existingTable.remove();
+    }
+    
+    const table = createGroupMembersTable(entityIds);
+    if (!table) return;
+    
+    // Insert table before graph container
+    const graphContainer = document.querySelector('.graph-container');
+    if (graphContainer) {
+        graphContainer.parentNode.insertBefore(table, graphContainer);
+    }
+}
+
+// Remove entity from group
+async function removeEntityFromGroup(groupName, entityId) {
+    if (!confirm(`Remove entity from group "${groupName}"?`)) return;
+    
+    try {
+        await haAPI.removeFromGroup(groupName, entityId);
+        
+        // Reload groups
+        await loadGroups();
+        
+        // Reload entity list (entity should reappear in active/disabled)
+        await renderEntityList();
+        
+        console.log(`Removed ${entityId} from group ${groupName}`);
+    } catch (error) {
+        console.error('Failed to remove entity from group:', error);
+        alert('Failed to remove entity from group');
+    }
+}
+
+// Show add to group modal
+function showAddToGroupModal(entityId) {
+    const modal = document.getElementById('add-to-group-modal');
+    const select = document.getElementById('add-to-group-select');
+    
+    if (!modal || !select) return;
+    
+    // Store entity ID on modal
+    modal.dataset.entityId = entityId;
+    
+    // Populate group select
+    select.innerHTML = '<option value="">Select a group...</option>';
+    Object.keys(allGroups).forEach(groupName => {
+        const option = document.createElement('option');
+        option.value = groupName;
+        option.textContent = groupName;
+        select.appendChild(option);
+    });
+    
+    modal.style.display = 'flex';
+}
+
+// Confirm delete group
+function confirmDeleteGroup(groupName) {
+    if (!confirm(`Delete group "${groupName}"? All entities will be moved back to the entity list.`)) return;
+    
+    deleteGroup(groupName);
+}
+
+// Delete group
+async function deleteGroup(groupName) {
+    try {
+        await haAPI.deleteGroup(groupName);
+        
+        // Reload groups
+        await loadGroups();
+        
+        // Reload entity list (entities should reappear)
+        await renderEntityList();
+        
+        console.log(`Deleted group: ${groupName}`);
+    } catch (error) {
+        console.error('Failed to delete group:', error);
+        alert('Failed to delete group');
+    }
+}
+
 // Render entity list
 async function renderEntityList() {
     console.log('=== renderEntityList CALLED ===');
     
     try {
         const entityList = document.getElementById('entity-list');
-        const disabledEntityContainer = document.getElementById('disabled-entities-container');
+        const ignoredEntityContainer = document.getElementById('ignored-entities-container');
         const activeCount = document.getElementById('active-count');
-        const disabledCount = document.getElementById('disabled-count');
+        const ignoredCount = document.getElementById('ignored-count');
         
         entityList.innerHTML = '';
-        disabledEntityContainer.innerHTML = '';
+        ignoredEntityContainer.innerHTML = '';
         
         if (climateEntities.length === 0) {
             entityList.innerHTML = '<p style="color: #b0b0b0; padding: 20px; text-align: center;">No climate entities found</p>';
             return;
         }
         
+        // Get set of entities that are in groups (should be hidden from this list)
+        const entitiesInGroups = new Set();
+        Object.values(allGroups).forEach(group => {
+            if (group.entities) {
+                group.entities.forEach(entityId => entitiesInGroups.add(entityId));
+            }
+        });
+        
         // Use local state to check which entities are included
         const includedEntities = new Set(entitySchedules.keys());
         console.log('entitySchedules Map size:', entitySchedules.size);
         console.log('entitySchedules Map keys:', Array.from(entitySchedules.keys()));
         console.log('includedEntities Set:', Array.from(includedEntities));
+        console.log('entitiesInGroups Set:', Array.from(entitiesInGroups));
     
         let activeEntitiesCount = 0;
-        let disabledEntitiesCount = 0;
+        let ignoredEntitiesCount = 0;
         
         // Get filter value
-        const filterInput = document.getElementById('disabled-filter');
+        const filterInput = document.getElementById('ignored-filter');
         const filterText = filterInput ? filterInput.value.toLowerCase() : '';
         
         climateEntities.forEach(entity => {
+            // Skip entities that are in groups
+            if (entitiesInGroups.has(entity.entity_id)) {
+                return;
+            }
+            
             const isIncluded = includedEntities.has(entity.entity_id);
             const card = createEntityCard(entity, isIncluded);
             
@@ -145,12 +560,12 @@ async function renderEntityList() {
                     card.classList.add('selected');
                 }
             } else {
-                // Apply filter to disabled entities
+                // Apply filter to ignored entities
                 const entityName = (entity.attributes.friendly_name || entity.entity_id).toLowerCase();
                 if (!filterText || entityName.includes(filterText)) {
-                    disabledEntityContainer.appendChild(card);
+                    ignoredEntityContainer.appendChild(card);
                 }
-                disabledEntitiesCount++;
+                ignoredEntitiesCount++;
                 
                 // Update selection state if this is the current entity
                 if (currentEntityId === entity.entity_id) {
@@ -161,13 +576,13 @@ async function renderEntityList() {
         
         // Update counts
         activeCount.textContent = activeEntitiesCount;
-        disabledCount.textContent = disabledEntitiesCount;
+        ignoredCount.textContent = ignoredEntitiesCount;
         
         // Show/hide sections based on content
         const activeSection = document.querySelector('.active-section');
-        const disabledSection = document.querySelector('.disabled-section');
+        const ignoredSection = document.querySelector('.ignored-section');
         
-        console.log('renderEntityList: activeCount =', activeEntitiesCount, 'disabledCount =', disabledEntitiesCount);
+        console.log('renderEntityList: activeCount =', activeEntitiesCount, 'ignoredCount =', ignoredEntitiesCount);
         console.log('activeSection element:', activeSection);
         
         if (!activeSection) {
@@ -176,7 +591,7 @@ async function renderEntityList() {
         }
         
         activeSection.style.display = 'block';
-        disabledSection.style.display = 'block';
+        ignoredSection.style.display = 'block';
         
         console.log('Set activeSection.style.display to block');
         
@@ -206,30 +621,25 @@ function createEntityCard(entity, isIncluded = false) {
         card.classList.add('excluded');
     }
     
-    // Checkbox for inclusion
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'entity-checkbox';
-    checkbox.checked = isIncluded;
-    checkbox.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent card selection when clicking checkbox
-    });
-    checkbox.addEventListener('change', async (e) => {
-        e.stopPropagation(); // Prevent any bubbling
-        const willBeIncluded = e.target.checked;
+    // For disabled entities, show + button instead of checkbox
+    if (!isIncluded) {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'entity-add-btn';
+        addBtn.textContent = '+';
+        addBtn.title = 'Enable thermostat';
+        addBtn.style.cssText = 'padding: 4px 10px; font-size: 18px; font-weight: bold;';
+        addBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            addBtn.disabled = true;
+            await toggleEntityInclusion(entity.entity_id, true);
+            addBtn.disabled = false;
+        });
         
-        // Temporarily disable checkbox to prevent double-clicks
-        checkbox.disabled = true;
-        
-        await toggleEntityInclusion(entity.entity_id, willBeIncluded);
-        
-        // Re-enable after operation completes
-        checkbox.disabled = false;
-    });
-    
-    const checkboxWrapper = document.createElement('div');
-    checkboxWrapper.className = 'entity-checkbox-wrapper';
-    checkboxWrapper.appendChild(checkbox);
+        const btnWrapper = document.createElement('div');
+        btnWrapper.className = 'entity-checkbox-wrapper';
+        btnWrapper.appendChild(addBtn);
+        card.appendChild(btnWrapper);
+    }
     
     const content = document.createElement('div');
     content.className = 'entity-content';
@@ -249,39 +659,200 @@ function createEntityCard(entity, isIncluded = false) {
     content.appendChild(name);
     content.appendChild(temp);
     
-    card.appendChild(checkboxWrapper);
     card.appendChild(content);
     
+    // For active entities, add "Add to group" button
+    if (isIncluded) {
+        const addToGroupBtn = document.createElement('button');
+        addToGroupBtn.className = 'add-to-group-btn';
+        addToGroupBtn.textContent = '+';
+        addToGroupBtn.title = 'Add to group';
+        addToGroupBtn.style.cssText = 'margin-left: 8px; padding: 4px 8px; font-size: 16px;';
+        addToGroupBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showAddToGroupModal(entity.entity_id);
+        });
+        card.appendChild(addToGroupBtn);
+    }
+    
     content.addEventListener('click', () => {
-        // Allow selection for any entity (clicking to edit)
-        selectEntity(entity.entity_id);
+        // Toggle expansion - if already selected, collapse; otherwise expand
+        if (currentEntityId === entity.entity_id) {
+            // Collapse
+            collapseAllEditors();
+            currentEntityId = null;
+        } else {
+            // Expand with editor
+            selectEntity(entity.entity_id);
+        }
     });
     
     return card;
 }
 
+// Create the schedule editor element
+function createScheduleEditor() {
+    const editor = document.createElement('div');
+    editor.className = 'schedule-editor-inline';
+    editor.innerHTML = `
+        <div class="editor-header-inline">
+            <div class="editor-controls">
+                <button id="ignore-entity-btn" class="btn-secondary-outline" title="Disable this thermostat">Ignore</button>
+                <button id="clear-schedule-btn" class="btn-danger-outline" title="Clear entire schedule">Clear Schedule</button>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="schedule-enabled">
+                    <span class="slider"></span>
+                    <span class="toggle-label">Enabled</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="entity-status">
+            <div class="status-item">
+                <span class="status-label">Current Temp:</span>
+                <span id="current-temp" class="status-value">--°C</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Target Temp:</span>
+                <span id="target-temp" class="status-value">--°C</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Scheduled Temp:</span>
+                <span id="scheduled-temp" class="status-value">--°C</span>
+            </div>
+        </div>
+
+        <div class="graph-container">
+            <div class="graph-wrapper">
+                <svg id="temperature-graph" viewBox="0 0 800 400">
+                    <!-- Dynamically generated -->
+                </svg>
+                
+                <!-- Node Settings Panel (inline below graph) -->
+                <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
+                    <div class="settings-header">
+                        <h3>Node Settings</h3>
+                        <button id="close-settings" class="btn-close-settings">✕</button>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label>Time:</label>
+                            <span id="node-time" class="setting-value">--:--</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>Temperature:</label>
+                            <span id="node-temp" class="setting-value">--°C</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>HVAC Mode:</label>
+                            <select id="node-hvac-mode" disabled title="Coming soon">
+                                <option value="heat">Heat</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Fan Mode:</label>
+                            <select id="node-fan-mode" disabled title="Coming soon">
+                                <option value="auto">Auto</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Swing Mode:</label>
+                            <select id="node-swing-mode" disabled title="Coming soon">
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Preset Mode:</label>
+                            <select id="node-preset-mode" disabled title="Coming soon">
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-actions">
+                        <button id="save-node-settings" class="btn-primary">Save Changes</button>
+                        <button id="delete-node" class="btn-danger">Delete Node</button>
+                    </div>
+                </div>
+            </div>
+            <div class="graph-instructions">
+                <p>📍 <strong>Tap</strong> on the graph to add a temperature point</p>
+                <p>👆 <strong>Drag</strong> points to adjust time/temperature</p>
+                <p>⚙️ <strong>Tap</strong> a point to edit settings</p>
+            </div>
+        </div>
+    `;
+    return editor;
+}
+
+// Collapse all editors
+function collapseAllEditors() {
+    const allEditors = document.querySelectorAll('.schedule-editor-inline');
+    allEditors.forEach(editor => editor.remove());
+    
+    // Remove all close buttons
+    const allCloseButtons = document.querySelectorAll('.close-entity-btn');
+    allCloseButtons.forEach(btn => btn.remove());
+    
+    const allCards = document.querySelectorAll('.entity-card');
+    allCards.forEach(card => card.classList.remove('selected', 'expanded'));
+    
+    const allGroupContainers = document.querySelectorAll('.group-container');
+    allGroupContainers.forEach(container => container.classList.remove('expanded'));
+}
+
 // Select an entity to edit
 async function selectEntity(entityId) {
+    // Collapse all other editors first
+    collapseAllEditors();
+    
     currentEntityId = entityId;
+    currentGroup = null; // Clear group selection when selecting entity
     
-    // Update UI
-    const entityCards = document.querySelectorAll('.entity-card');
-    entityCards.forEach(card => {
-        if (card.dataset.entityId === entityId) {
-            card.classList.add('selected');
-        } else {
-            card.classList.remove('selected');
-        }
-    });
+    // Find the entity card
+    const entityCard = document.querySelector(`.entity-card[data-entity-id="${entityId}"]`);
+    if (!entityCard) return;
     
-    // Show schedule editor
-    const editor = document.getElementById('schedule-editor');
-    editor.style.display = 'block';
+    // Mark as selected and expanded
+    entityCard.classList.add('selected', 'expanded');
     
-    // Update entity name
+    // Add close button to the first row (same level as checkbox)
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'close-entity-btn';
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Close editor';
+    closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        collapseAllEditors();
+    };
+    
+    // Insert close button before the editor (it will be in the flex row with checkbox and content)
+    const entityContent = entityCard.querySelector('.entity-content');
+    if (entityContent) {
+        entityContent.parentNode.insertBefore(closeBtn, entityContent.nextSibling);
+    }
+    
+    // Create and insert editor inside the card (append to the end)
+    const editor = createScheduleEditor();
+    entityCard.appendChild(editor);
+    
+    // Show entity status section (for single entities)
+    const entityStatus = editor.querySelector('.entity-status');
+    if (entityStatus) {
+        entityStatus.style.display = 'flex';
+    }
+    
+    // Get the entity
     const entity = climateEntities.find(e => e.entity_id === entityId);
-    const entityName = document.getElementById('current-entity-name');
-    entityName.textContent = entity ? entity.attributes.friendly_name : entityId;
+    
+    // Recreate graph with the new SVG element
+    const svgElement = editor.querySelector('#temperature-graph');
+    if (svgElement) {
+        graph = new TemperatureGraph(svgElement);
+        
+        // Attach graph event listeners
+        svgElement.addEventListener('nodesChanged', handleGraphChange);
+        svgElement.addEventListener('nodeSettings', handleNodeSettings);
+    }
     
     // Load schedule
     await loadEntitySchedule(entityId);
@@ -291,6 +862,126 @@ async function selectEntity(entityId) {
     
     // Update entity status
     updateEntityStatus(entity);
+    
+    // Reattach event listeners for the new editor elements
+    attachEditorEventListeners(editor);
+}
+
+// Attach event listeners to editor elements (for dynamically created editors)
+function attachEditorEventListeners(editorElement) {
+    // Ignore button
+    const ignoreBtn = editorElement.querySelector('#ignore-entity-btn');
+    if (ignoreBtn) {
+        ignoreBtn.onclick = async () => {
+            if (!currentEntityId) return;
+            
+            await toggleEntityInclusion(currentEntityId, false);
+            collapseAllEditors();
+            currentEntityId = null;
+        };
+    }
+    
+    // Clear schedule button
+    const clearBtn = editorElement.querySelector('#clear-schedule-btn');
+    if (clearBtn) {
+        clearBtn.onclick = () => {
+            if (!currentEntityId) return;
+            
+            const entity = climateEntities.find(e => e.entity_id === currentEntityId);
+            const entityName = entity ? entity.attributes.friendly_name : currentEntityId;
+            
+            if (confirm(`Clear schedule for ${entityName}?`)) {
+                clearScheduleForEntity(currentEntityId);
+            }
+        };
+    }
+    
+    // Schedule enabled toggle
+    const enabledToggle = editorElement.querySelector('#schedule-enabled');
+    if (enabledToggle) {
+        enabledToggle.onchange = () => saveSchedule();
+    }
+    
+    // Node settings panel close
+    const closeSettings = editorElement.querySelector('#close-settings');
+    if (closeSettings) {
+        closeSettings.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            if (panel) panel.style.display = 'none';
+        };
+    }
+    
+    // Delete node button
+    const deleteNode = editorElement.querySelector('#delete-node');
+    if (deleteNode) {
+        deleteNode.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (!isNaN(nodeIndex) && graph) {
+                graph.removeNodeByIndex(nodeIndex);
+                panel.style.display = 'none';
+            }
+        };
+    }
+    
+    // Save node settings button  
+    const saveNodeSettings = editorElement.querySelector('#save-node-settings');
+    if (saveNodeSettings) {
+        saveNodeSettings.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const nodes = graph.getNodes();
+            const node = nodes[nodeIndex];
+            if (!node) return;
+            
+            // Update node with new settings (only if available)
+            const hvacModeSelect = editorElement.querySelector('#node-hvac-mode');
+            const fanModeSelect = editorElement.querySelector('#node-fan-mode');
+            
+            if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
+                const hvacMode = hvacModeSelect.value;
+                if (hvacMode) node.hvac_mode = hvacMode;
+            }
+            
+            if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
+                const fanMode = fanModeSelect.value;
+                if (fanMode) node.fan_mode = fanMode;
+            }
+            
+            panel.style.display = 'none';
+            
+            // This will trigger save and immediate update if needed
+            graph.notifyChange();
+        };
+    }
+}
+
+// Clear schedule for an entity
+async function clearScheduleForEntity(entityId) {
+    try {
+        // Clear schedule from HA
+        await haAPI.clearSchedule(entityId);
+        
+        // Remove from local state
+        entitySchedules.delete(entityId);
+        
+        // Set default empty schedule
+        if (graph) {
+            graph.setNodes([{ time: '00:00', temp: 18 }]);
+        }
+        
+        // Close editor and refresh list
+        collapseAllEditors();
+        currentEntityId = null;
+        await renderEntityList();
+        
+        console.log('Schedule cleared successfully');
+    } catch (error) {
+        console.error('Failed to clear schedule:', error);
+        alert('Failed to clear schedule. Please try again.');
+    }
 }
 
 // Load schedule for entity
@@ -371,6 +1062,22 @@ async function loadHistoryData(entityId) {
 
 // Save schedule (auto-save, no alerts)
 async function saveSchedule() {
+    // Check if we're editing a group schedule
+    if (currentGroup) {
+        try {
+            const nodes = graph.getNodes();
+            
+            // Save to group schedule
+            await haAPI.setGroupSchedule(currentGroup, nodes);
+            
+            console.log('Group schedule auto-saved for', currentGroup);
+        } catch (error) {
+            console.error('Failed to auto-save group schedule:', error);
+        }
+        return;
+    }
+    
+    // Otherwise save individual entity schedule
     if (!currentEntityId) return;
     
     try {
@@ -401,7 +1108,7 @@ async function handleGraphChange(event) {
     updateScheduledTemp();
     await saveSchedule();
     
-    // Check if we need to update the thermostat immediately
+    // Check if we need to update thermostats immediately
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const nodes = graph.getNodes();
@@ -426,6 +1133,38 @@ async function handleGraphChange(event) {
     
     const scheduledTemp = activeNode.temp;
     
+    // Handle group schedule updates
+    if (currentGroup) {
+        updateAllGroupMemberScheduledTemps();
+        
+        // Update all thermostats in the group
+        const groupData = allGroups[currentGroup];
+        if (groupData && groupData.entities) {
+            for (const entityId of groupData.entities) {
+                const entity = climateEntities.find(e => e.entity_id === entityId);
+                if (!entity) continue;
+                
+                const currentTarget = entity.attributes.temperature;
+                
+                // If scheduled temp is different from current target, update immediately
+                if (Math.abs(scheduledTemp - currentTarget) > 0.1) {
+                    console.log(`Group ${currentGroup}: Scheduled temp (${scheduledTemp}°C) differs from ${entityId} target (${currentTarget}°C), updating immediately`);
+                    try {
+                        await haAPI.callService('climate', 'set_temperature', {
+                            entity_id: entityId,
+                            temperature: scheduledTemp
+                        });
+                        console.log(`Updated ${entityId} to ${scheduledTemp}°C`);
+                    } catch (error) {
+                        console.error(`Failed to update ${entityId}:`, error);
+                    }
+                }
+            }
+        }
+        return;
+    }
+    
+    // Handle individual entity schedule updates
     // Get current entity
     const entity = climateEntities.find(e => e.entity_id === currentEntityId);
     if (!entity) return;
@@ -501,15 +1240,20 @@ async function handleGraphChange(event) {
 
 // Update scheduled temperature display
 function updateScheduledTemp() {
+    const scheduledTempEl = document.getElementById('scheduled-temp');
+    
+    // Element may not exist if entity card is collapsed
+    if (!scheduledTempEl) return;
+    
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const nodes = graph.getNodes();
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
-        document.getElementById('scheduled-temp').textContent = `${temp.toFixed(1)}${temperatureUnit}`;
+        scheduledTempEl.textContent = `${temp.toFixed(1)}${temperatureUnit}`;
     } else {
-        document.getElementById('scheduled-temp').textContent = '--';
+        scheduledTempEl.textContent = '--';
     }
 }
 
@@ -549,18 +1293,23 @@ function timeToMinutes(timeStr) {
 function updateEntityStatus(entity) {
     if (!entity) return;
     
+    const currentTempEl = document.getElementById('current-temp');
+    const targetTempEl = document.getElementById('target-temp');
+    
+    // Elements may not exist if entity card is collapsed
+    if (!currentTempEl || !targetTempEl) return;
+    
     const currentTemp = entity.attributes.current_temperature;
     const targetTemp = entity.attributes.temperature;
     
-    document.getElementById('current-temp').textContent = 
+    currentTempEl.textContent = 
         currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
-    document.getElementById('target-temp').textContent = 
+    targetTempEl.textContent = 
         targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
 }
 
 // Handle state updates from Home Assistant
 function handleStateUpdate(data) {
-    console.log('=== handleStateUpdate ===', data.entity_id);
     const entityId = data.entity_id;
     const newState = data.new_state;
     
@@ -570,7 +1319,6 @@ function handleStateUpdate(data) {
     const entityIndex = climateEntities.findIndex(e => e.entity_id === entityId);
     if (entityIndex !== -1) {
         climateEntities[entityIndex] = newState;
-        console.log('Calling renderEntityList from handleStateUpdate');
         renderEntityList();
     }
     
@@ -578,6 +1326,72 @@ function handleStateUpdate(data) {
     if (entityId === currentEntityId) {
         updateEntityStatus(newState);
     }
+    
+    // Update group members table if showing group and entity is in the group
+    if (currentGroup) {
+        const groupData = allGroups[currentGroup];
+        if (groupData && groupData.entities && groupData.entities.includes(entityId)) {
+            updateGroupMemberRow(entityId, newState);
+        }
+    }
+}
+
+// Update a single row in the group members table
+function updateGroupMemberRow(entityId, entityState) {
+    const row = document.querySelector(`.group-members-row[data-entity-id="${entityId}"]`);
+    if (!row) return;
+    
+    const currentCell = row.children[1];
+    const targetCell = row.children[2];
+    const scheduledCell = row.children[3];
+    
+    if (currentCell) {
+        const currentTemp = entityState.attributes?.current_temperature;
+        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}°C` : '--';
+    }
+    
+    if (targetCell) {
+        const targetTemp = entityState.attributes?.temperature;
+        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}°C` : '--';
+    }
+    
+    // Update scheduled temp if we're viewing a group
+    if (scheduledCell && currentGroup && graph) {
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const nodes = graph.getNodes();
+        
+        if (nodes.length > 0) {
+            const scheduledTemp = interpolateTemperature(nodes, currentTime);
+            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+        } else {
+            scheduledCell.textContent = '--';
+        }
+    }
+}
+
+// Update all rows in the group members table with current scheduled temperature
+function updateAllGroupMemberScheduledTemps() {
+    if (!currentGroup || !graph) return;
+    
+    const rows = document.querySelectorAll('.group-members-row');
+    if (rows.length === 0) return;
+    
+    const now = new Date();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const nodes = graph.getNodes();
+    
+    rows.forEach(row => {
+        const scheduledCell = row.children[3];
+        if (scheduledCell) {
+            if (nodes.length > 0) {
+                const scheduledTemp = interpolateTemperature(nodes, currentTime);
+                scheduledCell.textContent = `${scheduledTemp.toFixed(1)}°C`;
+            } else {
+                scheduledCell.textContent = '--';
+            }
+        }
+    });
 }
 
 // Toggle entity inclusion in scheduler
@@ -647,162 +1461,195 @@ function setupEventListeners() {
     const menuButton = document.getElementById('menu-button');
     const dropdownMenu = document.getElementById('dropdown-menu');
     
-    menuButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
-    });
+    if (menuButton && dropdownMenu) {
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
+        });
     
-    // Close menu when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!menuButton.contains(e.target) && !dropdownMenu.contains(e.target)) {
-            dropdownMenu.style.display = 'none';
-        }
-    });
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!menuButton.contains(e.target) && !dropdownMenu.contains(e.target)) {
+                dropdownMenu.style.display = 'none';
+            }
+        });
+    }
     
     // Menu items
-    document.getElementById('refresh-entities-menu').addEventListener('click', () => {
-        dropdownMenu.style.display = 'none';
-        loadClimateEntities();
-    });
+    const refreshEntitiesMenu = document.getElementById('refresh-entities-menu');
+    if (refreshEntitiesMenu) {
+        refreshEntitiesMenu.addEventListener('click', () => {
+            if (dropdownMenu) dropdownMenu.style.display = 'none';
+            loadClimateEntities();
+        });
+    }
     
-    document.getElementById('sync-all-menu').addEventListener('click', () => {
-        dropdownMenu.style.display = 'none';
-        syncAllTemperatures();
-    });
+    const syncAllMenu = document.getElementById('sync-all-menu');
+    if (syncAllMenu) {
+        syncAllMenu.addEventListener('click', () => {
+            if (dropdownMenu) dropdownMenu.style.display = 'none';
+            syncAllTemperatures();
+        });
+    }
     
-    document.getElementById('schedule-enabled').addEventListener('change', () => {
-        // Auto-save when enabled state changes
-        saveSchedule();
-    });
-    
-    // Toggle disabled entities section
-    document.getElementById('toggle-disabled').addEventListener('click', () => {
-        const disabledList = document.getElementById('disabled-entity-list');
-        const toggleIcon = document.querySelector('.toggle-icon');
-        
-        if (disabledList.style.display === 'none') {
-            disabledList.style.display = 'flex';
-            toggleIcon.classList.add('expanded');
-        } else {
-            disabledList.style.display = 'none';
-            toggleIcon.classList.remove('expanded');
-        }
-    });
-    
-    // Filter disabled entities
-    document.getElementById('disabled-filter').addEventListener('input', () => {
-        renderEntityList();
-    });
-    
-    // Clear schedule button and confirmation modal
-    document.getElementById('clear-schedule-btn').addEventListener('click', () => {
-        if (!currentEntityId) return;
-        
-        const entity = climateEntities.find(e => e.entity_id === currentEntityId);
-        const entityName = entity ? entity.attributes.friendly_name : currentEntityId;
-        
-        document.getElementById('confirm-entity-name').textContent = entityName;
-        document.getElementById('confirm-modal').style.display = 'flex';
-    });
-    
-    document.getElementById('confirm-cancel').addEventListener('click', () => {
-        document.getElementById('confirm-modal').style.display = 'none';
-    });
-    
-    document.getElementById('confirm-clear').addEventListener('click', async () => {
-        document.getElementById('confirm-modal').style.display = 'none';
-        
-        if (!currentEntityId) return;
-        
-        try {
-            // Clear schedule from HA
-            await haAPI.clearSchedule(currentEntityId);
+    // Toggle ignored entities section
+    const toggleIgnored = document.getElementById('toggle-ignored');
+    const ignoredList = document.getElementById('ignored-entity-list');
+    if (toggleIgnored && ignoredList) {
+        toggleIgnored.addEventListener('click', () => {
+            const toggleIcon = toggleIgnored.querySelector('.toggle-icon');
             
-            // Remove from local state
-            entitySchedules.delete(currentEntityId);
+            if (ignoredList.style.display === 'none') {
+                ignoredList.style.display = 'flex';
+                if (toggleIcon) toggleIcon.textContent = '▼';
+            } else {
+                ignoredList.style.display = 'none';
+                if (toggleIcon) toggleIcon.textContent = '▶';
+            }
+        });
+    }
+    
+    // Filter ignored entities
+    const ignoredFilter = document.getElementById('ignored-filter');
+    if (ignoredFilter) {
+        ignoredFilter.addEventListener('input', () => {
+            renderEntityList();
+        });
+    }
+    
+    // NOTE: The following elements are now dynamically created in inline editors
+    // and have their event listeners attached in attachEditorEventListeners():
+    // - #clear-schedule-btn
+    // - #schedule-enabled
+    // - #close-settings
+    // - #delete-node
+    // - #save-node-settings
+    
+    // Group management event listeners
+    
+    // Create group button
+    const createGroupBtn = document.getElementById('create-group-btn');
+    console.log('Setting up create-group-btn listener, element:', createGroupBtn);
+    if (createGroupBtn) {
+        createGroupBtn.addEventListener('click', () => {
+            console.log('Create group button clicked!');
+            const modal = document.getElementById('create-group-modal');
+            console.log('Modal element:', modal);
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+            const nameInput = document.getElementById('new-group-name');
+            if (nameInput) {
+                nameInput.value = '';
+            }
+        });
+    } else {
+        console.error('create-group-btn element not found!');
+    }
+    
+    // Create group modal - cancel
+    const createGroupCancel = document.getElementById('create-group-cancel');
+    if (createGroupCancel) {
+        createGroupCancel.addEventListener('click', () => {
+            const modal = document.getElementById('create-group-modal');
+            if (modal) modal.style.display = 'none';
+        });
+    }
+    
+    // Create group modal - confirm
+    const createGroupConfirm = document.getElementById('create-group-confirm');
+    if (createGroupConfirm) {
+        createGroupConfirm.addEventListener('click', async () => {
+            const groupName = document.getElementById('new-group-name').value.trim();
+            if (!groupName) {
+                alert('Please enter a group name');
+                return;
+            }
             
-            // Set default empty schedule
-            graph.setNodes([{ time: '00:00', temp: 18 }]);
+            if (allGroups[groupName]) {
+                alert('A group with this name already exists');
+                return;
+            }
             
-            // Close editor and refresh list
-            currentEntityId = null;
-            document.getElementById('schedule-editor').style.display = 'none';
-            await renderEntityList();
+            try {
+                await haAPI.createGroup(groupName);
+                
+                // Close modal
+                const modal = document.getElementById('create-group-modal');
+                if (modal) modal.style.display = 'none';
+                
+                // Reload groups
+                await loadGroups();
+                
+                console.log(`Created group: ${groupName}`);
+            } catch (error) {
+                console.error('Failed to create group:', error);
+                alert('Failed to create group');
+            }
+        });
+    }
+    
+    // Add to group modal - cancel
+    const addToGroupCancel = document.getElementById('add-to-group-cancel');
+    if (addToGroupCancel) {
+        addToGroupCancel.addEventListener('click', () => {
+            const modal = document.getElementById('add-to-group-modal');
+            if (modal) modal.style.display = 'none';
+        });
+    }
+    
+    // Add to group modal - confirm
+    const addToGroupConfirm = document.getElementById('add-to-group-confirm');
+    if (addToGroupConfirm) {
+        addToGroupConfirm.addEventListener('click', async () => {
+            const modal = document.getElementById('add-to-group-modal');
+            const entityId = modal ? modal.dataset.entityId : null;
+            const selectElement = document.getElementById('add-to-group-select');
+            const groupName = selectElement ? selectElement.value : null;
+        
+            if (!groupName) {
+                alert('Please select a group');
+                return;
+            }
             
-            console.log('Schedule cleared successfully');
-        } catch (error) {
-            console.error('Failed to clear schedule:', error);
-            alert('Failed to clear schedule. Please try again.');
-        }
-    });
+            try {
+                await haAPI.addToGroup(groupName, entityId);
+                
+                // Close modal
+                if (modal) modal.style.display = 'none';
+                
+                // Reload groups
+                await loadGroups();
+                
+                // Reload entity list (entity should disappear from active/disabled)
+                await renderEntityList();
+                
+                console.log(`Added ${entityId} to group ${groupName}`);
+            } catch (error) {
+                console.error('Failed to add entity to group:', error);
+                alert('Failed to add entity to group');
+            }
+        });
+    }
     
-    // Close modal when clicking outside
-    document.getElementById('confirm-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'confirm-modal') {
-            document.getElementById('confirm-modal').style.display = 'none';
-        }
-    });
+    // Close modals when clicking outside
+    const createGroupModal = document.getElementById('create-group-modal');
+    if (createGroupModal) {
+        createGroupModal.addEventListener('click', (e) => {
+            if (e.target.id === 'create-group-modal') {
+                createGroupModal.style.display = 'none';
+            }
+        });
+    }
     
-    // Settings panel close handler
-    document.getElementById('close-settings').addEventListener('click', () => {
-        document.getElementById('node-settings-panel').style.display = 'none';
-    });
-    
-    // Delete node from settings panel
-    document.getElementById('delete-node').addEventListener('click', () => {
-        const panel = document.getElementById('node-settings-panel');
-        const nodeIndex = parseInt(panel.dataset.nodeIndex);
-        if (!isNaN(nodeIndex) && graph) {
-            graph.removeNodeByIndex(nodeIndex);
-            panel.style.display = 'none';
-        }
-    });
-    
-    // Save node settings
-    document.getElementById('save-node-settings').addEventListener('click', () => {
-        const panel = document.getElementById('node-settings-panel');
-        const nodeIndex = parseInt(panel.dataset.nodeIndex);
-        if (isNaN(nodeIndex) || !graph) return;
-        
-        const nodes = graph.getNodes();
-        const node = nodes[nodeIndex];
-        if (!node) return;
-        
-        // Update node with new settings (only if available)
-        const hvacModeSelect = document.getElementById('node-hvac-mode');
-        const fanModeSelect = document.getElementById('node-fan-mode');
-        
-        if (hvacModeSelect.closest('.setting-item').style.display !== 'none') {
-            const hvacMode = hvacModeSelect.value;
-            if (hvacMode) node.hvac_mode = hvacMode;
-        }
-        
-        if (fanModeSelect.closest('.setting-item').style.display !== 'none') {
-            const fanMode = fanModeSelect.value;
-            if (fanMode) node.fan_mode = fanMode;
-        }
-        
-        const swingModeSelect = document.getElementById('node-swing-mode');
-        if (swingModeSelect.closest('.setting-item').style.display !== 'none') {
-            const swingMode = swingModeSelect.value;
-            if (swingMode) node.swing_mode = swingMode;
-        }
-        
-        const presetModeSelect = document.getElementById('node-preset-mode');
-        if (presetModeSelect.closest('.setting-item').style.display !== 'none') {
-            const presetMode = presetModeSelect.value;
-            if (presetMode) node.preset_mode = presetMode;
-        }
-        
-        // Update graph
-        graph.setNodes(nodes);
-        
-        // Close panel
-        panel.style.display = 'none';
-        
-        // This will trigger save and immediate update if needed
-        graph.notifyChange();
-    });
+    const addToGroupModal = document.getElementById('add-to-group-modal');
+    if (addToGroupModal) {
+        addToGroupModal.addEventListener('click', (e) => {
+            if (e.target.id === 'add-to-group-modal') {
+                addToGroupModal.style.display = 'none';
+            }
+        });
+    }
 }
 
 // Handle node settings panel
@@ -928,7 +1775,10 @@ async function syncAllTemperatures() {
 }
 
 // Update scheduled temp every minute
-setInterval(updateScheduledTemp, 60000);
+setInterval(() => {
+    updateScheduledTemp();
+    updateAllGroupMemberScheduledTemps();
+}, 60000);
 
 // Initialize app when DOM is ready
 if (document.readyState === 'loading') {

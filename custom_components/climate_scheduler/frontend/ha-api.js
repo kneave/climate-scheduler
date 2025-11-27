@@ -210,6 +210,50 @@ class HomeAssistantAPI {
         });
     }
     
+    // Group management methods
+    async createGroup(groupName) {
+        return await this.callService('climate_scheduler', 'create_group', {
+            group_name: groupName
+        });
+    }
+    
+    async deleteGroup(groupName) {
+        return await this.callService('climate_scheduler', 'delete_group', {
+            group_name: groupName
+        });
+    }
+    
+    async addToGroup(groupName, entityId) {
+        return await this.callService('climate_scheduler', 'add_to_group', {
+            group_name: groupName,
+            entity_id: entityId
+        });
+    }
+    
+    async removeFromGroup(groupName, entityId) {
+        return await this.callService('climate_scheduler', 'remove_from_group', {
+            group_name: groupName,
+            entity_id: entityId
+        });
+    }
+    
+    async getGroups() {
+        try {
+            const result = await this.callService('climate_scheduler', 'get_groups', {}, true);
+            return result;
+        } catch (error) {
+            console.error('Failed to get groups:', error);
+            return { groups: {} };
+        }
+    }
+    
+    async setGroupSchedule(groupName, nodes) {
+        return await this.callService('climate_scheduler', 'set_group_schedule', {
+            group_name: groupName,
+            nodes: nodes
+        });
+    }
+    
     async getHistory(entityId, startTime, endTime) {
         try {
             // Format times as ISO strings

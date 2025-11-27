@@ -130,8 +130,7 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 12px;
-    max-height: 400px;
-    overflow-y: auto;
+    overflow-y: visible;
 }
 
 .active-section {
@@ -147,11 +146,113 @@ body {
     border-bottom: 1px solid var(--border);
 }
 
-.disabled-section {
+/* Groups Section */
+.groups-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+.groups-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.group-container {
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.group-header {
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.group-header:hover {
+    background: var(--surface-light);
+}
+
+.group-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.group-count {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    background: var(--surface-light);
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+.group-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.group-actions button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+}
+
+.group-actions button:hover {
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.group-actions .delete-group {
+    color: var(--danger);
+}
+
+.group-actions .delete-group:hover {
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.group-entities {
+    padding: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.group-entities .entity-card {
+    background: var(--surface);
+}
+
+.group-toggle-icon {
+    font-size: 0.8rem;
+    transition: transform 0.2s;
+    color: var(--text-secondary);
+}
+
+.group-toggle-icon.expanded {
+    transform: rotate(90deg);
+}
+
+.ignored-section {
     margin-top: 20px;
 }
 
-.disabled-toggle {
+.ignored-toggle {
     background: var(--surface-light);
     border: 1px solid var(--border);
     color: var(--text-secondary);
@@ -167,7 +268,7 @@ body {
     transition: all 0.2s;
 }
 
-.disabled-toggle:hover {
+.ignored-toggle:hover {
     background: var(--surface);
     color: var(--text-primary);
 }
@@ -181,7 +282,7 @@ body {
     transform: rotate(90deg);
 }
 
-.disabled-list {
+.ignored-list {
     margin-top: 12px;
     max-height: 400px;
     display: flex;
@@ -234,6 +335,29 @@ body {
     flex-direction: row;
     gap: 10px;
     align-items: center;
+}
+
+.entity-card.expanded {
+    grid-column: 1 / -1;
+    flex-direction: column;
+    align-items: stretch;
+    border-color: var(--primary-color);
+}
+
+.close-entity-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+    transition: color 0.2s;
+    margin-left: auto;
+}
+
+.close-entity-btn:hover {
+    color: var(--danger);
 }
 
 .entity-card:hover {
@@ -648,9 +772,18 @@ footer {
     border-top: 1px solid var(--border);
 }
 
-/* Modal (hidden by default now) */
+/* Modal */
 .modal {
-    display: none !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
 }
 
 .modal-content {
@@ -786,6 +919,23 @@ footer {
     color: white;
 }
 
+.btn-secondary-outline {
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary-outline:hover {
+    background: var(--surface-light);
+    border-color: var(--text-secondary);
+}
+
 .editor-controls {
     display: flex;
     gap: 12px;
@@ -859,3 +1009,125 @@ footer {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--primary-color);
 }
+
+/* Group Members Table */
+.group-members-table {
+    background: var(--surface-light);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+}
+
+.group-members-header {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 12px;
+    padding: 8px 12px;
+    font-weight: 600;
+    color: var(--secondary-text-color);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+}
+
+.group-members-header span:nth-child(2),
+.group-members-header span:nth-child(3),
+.group-members-header span:nth-child(4) {
+    width: 80px;
+    text-align: right;
+}
+
+.group-members-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    transition: background-color 0.2s;
+}
+
+.group-members-row:hover {
+    background: var(--surface);
+}
+
+.group-members-row span:first-child {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.group-members-row span:nth-child(2),
+.group-members-row span:nth-child(3),
+.group-members-row span:nth-child(4) {
+    width: 80px;
+    text-align: right;
+    font-family: 'Courier New', monospace;
+    color: var(--text-primary);
+}
+
+.group-members-row span:nth-child(2) {
+    color: var(--accent-color);
+}
+
+.group-members-row span:nth-child(3) {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Inline Schedule Editor */
+.schedule-editor-inline {
+    background: var(--surface);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 0 0 12px 12px;
+    padding: 16px;
+    margin-top: 12px;
+    animation: slideDown 0.3s ease-out;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden;
+    }
+    to {
+        opacity: 1;
+        max-height: 2000px;
+    }
+}
+
+.editor-header-inline {
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.close-editor-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 1.2rem;
+    line-height: 1;
+    transition: all 0.2s;
+}
+
+.close-editor-btn:hover {
+    background: var(--surface-light);
+    color: var(--danger);
+}
+
+.group-container.expanded {
+    border-color: var(--primary-color);
+}
+
+.group-container.expanded > .schedule-editor-inline {
+    border-radius: 0 0 12px 12px;
+}
+

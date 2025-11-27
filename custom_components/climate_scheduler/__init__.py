@@ -33,6 +33,34 @@ ENTITY_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_id
 })
 
+CREATE_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
+DELETE_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
+ADD_TO_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string,
+    vol.Required("entity_id"): cv.entity_id
+})
+
+REMOVE_FROM_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string,
+    vol.Required("entity_id"): cv.entity_id
+})
+
+SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string,
+    vol.Required("nodes"): vol.All(cv.ensure_list, [
+        vol.Schema({
+            vol.Required("time"): cv.string,
+            vol.Required("temp"): vol.Coerce(float)
+        })
+    ])
+})
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Climate Scheduler component."""
@@ -116,12 +144,68 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.info("Forcing temperature sync for all entities")
         await coordinator.force_update_all()
     
+    async def handle_create_group(call: ServiceCall) -> None:
+        """Handle create_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_create_group(group_name)
+            _LOGGER.info(f"Group '{group_name}' created")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to create group: {e}")
+            raise
+    
+    async def handle_delete_group(call: ServiceCall) -> None:
+        """Handle delete_group service call."""
+        group_name = call.data["group_name"]
+        await storage.async_delete_group(group_name)
+        _LOGGER.info(f"Group '{group_name}' deleted")
+    
+    async def handle_add_to_group(call: ServiceCall) -> None:
+        """Handle add_to_group service call."""
+        group_name = call.data["group_name"]
+        entity_id = call.data["entity_id"]
+        try:
+            await storage.async_add_entity_to_group(group_name, entity_id)
+            _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to add to group: {e}")
+            raise
+    
+    async def handle_remove_from_group(call: ServiceCall) -> None:
+        """Handle remove_from_group service call."""
+        group_name = call.data["group_name"]
+        entity_id = call.data["entity_id"]
+        await storage.async_remove_entity_from_group(group_name, entity_id)
+        _LOGGER.info(f"Removed {entity_id} from group '{group_name}'")
+    
+    async def handle_get_groups(call: ServiceCall) -> dict:
+        """Handle get_groups service call."""
+        groups = await storage.async_get_groups()
+        return {"groups": groups}
+    
+    async def handle_set_group_schedule(call: ServiceCall) -> None:
+        """Handle set_group_schedule service call."""
+        group_name = call.data["group_name"]
+        nodes = call.data["nodes"]
+        try:
+            await storage.async_set_group_schedule(group_name, nodes)
+            _LOGGER.info(f"Schedule set for group '{group_name}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to set group schedule: {e}")
+            raise
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
     hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule, schema=ENTITY_SCHEMA)
     hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule, schema=ENTITY_SCHEMA)
     hass.services.async_register(DOMAIN, "sync_all", handle_sync_all)
+    hass.services.async_register(DOMAIN, "create_group", handle_create_group, schema=CREATE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "delete_group", handle_delete_group, schema=DELETE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group, schema=ADD_TO_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, schema=SET_GROUP_SCHEDULE_SCHEMA)
     
     # Register frontend panel
     await async_register_panel(hass)

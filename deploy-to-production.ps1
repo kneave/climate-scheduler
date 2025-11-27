@@ -46,7 +46,10 @@ if (Test-Path $TARGET) {
 
 # Deploy new version
 Write-Host "Deploying new version..." -ForegroundColor Cyan
-Copy-Item -Recurse $SOURCE $TARGET
+# Create target directory first
+New-Item -ItemType Directory -Force -Path $TARGET | Out-Null
+# Copy contents (not the folder itself)
+Copy-Item -Recurse -Force "$SOURCE\*" $TARGET
 Write-Host "✓ Files copied successfully" -ForegroundColor Green
 Write-Host ""
 
