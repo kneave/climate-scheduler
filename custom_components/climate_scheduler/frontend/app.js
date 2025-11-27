@@ -127,6 +127,10 @@ async function loadGroups() {
         
         // Render groups section
         renderGroups();
+        
+        // Re-render entity list now that groups are loaded
+        // This will hide entities that are in groups
+        await renderEntityList();
     } catch (error) {
         console.error('Failed to load groups:', error);
         allGroups = {};
@@ -720,6 +724,22 @@ function createScheduleEditor() {
                 <span class="status-label">Scheduled Temp:</span>
                 <span id="scheduled-temp" class="status-value">--°C</span>
             </div>
+            <div class="status-item" id="current-hvac-mode-item" style="display: none;">
+                <span class="status-label">HVAC Mode:</span>
+                <span id="current-hvac-mode" class="status-value">--</span>
+            </div>
+            <div class="status-item" id="current-fan-mode-item" style="display: none;">
+                <span class="status-label">Fan Mode:</span>
+                <span id="current-fan-mode" class="status-value">--</span>
+            </div>
+            <div class="status-item" id="current-swing-mode-item" style="display: none;">
+                <span class="status-label">Swing Mode:</span>
+                <span id="current-swing-mode" class="status-value">--</span>
+            </div>
+            <div class="status-item" id="current-preset-mode-item" style="display: none;">
+                <span class="status-label">Preset Mode:</span>
+                <span id="current-preset-mode" class="status-value">--</span>
+            </div>
         </div>
 
         <div class="graph-container">
@@ -769,7 +789,6 @@ function createScheduleEditor() {
                         </div>
                     </div>
                     <div class="settings-actions">
-                        <button id="save-node-settings" class="btn-primary">Save Changes</button>
                         <button id="delete-node" class="btn-danger">Delete Node</button>
                     </div>
                 </div>
@@ -924,38 +943,60 @@ function attachEditorEventListeners(editorElement) {
         };
     }
     
-    // Save node settings button  
-    const saveNodeSettings = editorElement.querySelector('#save-node-settings');
-    if (saveNodeSettings) {
-        saveNodeSettings.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
-            
-            const nodes = graph.getNodes();
-            const node = nodes[nodeIndex];
-            if (!node) return;
-            
-            // Update node with new settings (only if available)
-            const hvacModeSelect = editorElement.querySelector('#node-hvac-mode');
-            const fanModeSelect = editorElement.querySelector('#node-fan-mode');
-            
-            if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
-                const hvacMode = hvacModeSelect.value;
-                if (hvacMode) node.hvac_mode = hvacMode;
-            }
-            
-            if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
-                const fanMode = fanModeSelect.value;
-                if (fanMode) node.fan_mode = fanMode;
-            }
-            
-            panel.style.display = 'none';
-            
-            // This will trigger save and immediate update if needed
-            graph.notifyChange();
-        };
-    }
+    // Auto-save node settings when dropdowns change
+    const hvacModeSelect = editorElement.querySelector('#node-hvac-mode');
+    const fanModeSelect = editorElement.querySelector('#node-fan-mode');
+    const swingModeSelect = editorElement.querySelector('#node-swing-mode');
+    const presetModeSelect = editorElement.querySelector('#node-preset-mode');
+    
+    const autoSaveNodeSettings = async () => {
+        const panel = editorElement.querySelector('#node-settings-panel');
+        if (!panel) return;
+        
+        const nodeIndex = parseInt(panel.dataset.nodeIndex);
+        if (isNaN(nodeIndex) || !graph) return;
+        
+        const nodes = graph.getNodes();
+        const node = nodes[nodeIndex];
+        if (!node) return;
+        
+        // Update node with new settings (only if available)
+        if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
+            const hvacMode = hvacModeSelect.value;
+            if (hvacMode) node.hvac_mode = hvacMode;
+        }
+        
+        if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
+            const fanMode = fanModeSelect.value;
+            if (fanMode) node.fan_mode = fanMode;
+        }
+        
+        if (swingModeSelect && swingModeSelect.closest('.setting-item').style.display !== 'none') {
+            const swingMode = swingModeSelect.value;
+            if (swingMode) node.swing_mode = swingMode;
+        }
+        
+        if (presetModeSelect && presetModeSelect.closest('.setting-item').style.display !== 'none') {
+            const presetMode = presetModeSelect.value;
+            if (presetMode) node.preset_mode = presetMode;
+        }
+        
+        // Refresh entity state before triggering update
+        try {
+            climateEntities = await haAPI.getClimateEntities();
+        } catch (error) {
+            console.error('Failed to refresh entity state:', error);
+        }
+        
+        // This will trigger save and force immediate update
+        graph.notifyChange(true);
+    };
+    
+    // Attach change listeners to all dropdowns
+    if (hvacModeSelect) hvacModeSelect.addEventListener('change', autoSaveNodeSettings);
+    if (fanModeSelect) fanModeSelect.addEventListener('change', autoSaveNodeSettings);
+    if (swingModeSelect) swingModeSelect.addEventListener('change', autoSaveNodeSettings);
+    if (presetModeSelect) presetModeSelect.addEventListener('change', autoSaveNodeSettings);
 }
 
 // Clear schedule for an entity
@@ -1104,7 +1145,12 @@ async function saveSchedule() {
 }
 
 // Handle graph changes - auto-save and sync if needed
-async function handleGraphChange(event) {
+async function handleGraphChange(event, force = false) {
+    // If event has detail.force, use that
+    if (event && event.detail && event.detail.force !== undefined) {
+        force = event.detail.force;
+    }
+    
     updateScheduledTemp();
     await saveSchedule();
     
@@ -1159,6 +1205,71 @@ async function handleGraphChange(event) {
                         console.error(`Failed to update ${entityId}:`, error);
                     }
                 }
+                
+                // Apply HVAC mode if specified and entity supports it
+                if (activeNode.hvac_mode && entity.attributes.hvac_modes && 
+                    entity.attributes.hvac_modes.includes(activeNode.hvac_mode)) {
+                    const currentHvacMode = entity.state || entity.attributes.hvac_mode;
+                    if (force || currentHvacMode !== activeNode.hvac_mode) {
+                        console.log(`Group ${currentGroup}: Setting ${entityId} HVAC mode to ${activeNode.hvac_mode}`);
+                        try {
+                            await haAPI.callService('climate', 'set_hvac_mode', {
+                                entity_id: entityId,
+                                hvac_mode: activeNode.hvac_mode
+                            });
+                        } catch (error) {
+                            console.error(`Failed to set HVAC mode for ${entityId}:`, error);
+                        }
+                    }
+                }
+                
+                // Apply fan mode if specified and entity supports it
+                if (activeNode.fan_mode && entity.attributes.fan_modes && 
+                    entity.attributes.fan_modes.includes(activeNode.fan_mode)) {
+                    if (force || entity.attributes.fan_mode !== activeNode.fan_mode) {
+                        console.log(`Group ${currentGroup}: Setting ${entityId} fan mode to ${activeNode.fan_mode}`);
+                        try {
+                            await haAPI.callService('climate', 'set_fan_mode', {
+                                entity_id: entityId,
+                                fan_mode: activeNode.fan_mode
+                            });
+                        } catch (error) {
+                            console.error(`Failed to set fan mode for ${entityId}:`, error);
+                        }
+                    }
+                }
+                
+                // Apply swing mode if specified and entity supports it
+                if (activeNode.swing_mode && entity.attributes.swing_modes && 
+                    entity.attributes.swing_modes.includes(activeNode.swing_mode)) {
+                    if (force || entity.attributes.swing_mode !== activeNode.swing_mode) {
+                        console.log(`Group ${currentGroup}: Setting ${entityId} swing mode to ${activeNode.swing_mode}`);
+                        try {
+                            await haAPI.callService('climate', 'set_swing_mode', {
+                                entity_id: entityId,
+                                swing_mode: activeNode.swing_mode
+                            });
+                        } catch (error) {
+                            console.error(`Failed to set swing mode for ${entityId}:`, error);
+                        }
+                    }
+                }
+                
+                // Apply preset mode if specified and entity supports it
+                if (activeNode.preset_mode && entity.attributes.preset_modes && 
+                    entity.attributes.preset_modes.includes(activeNode.preset_mode)) {
+                    if (force || entity.attributes.preset_mode !== activeNode.preset_mode) {
+                        console.log(`Group ${currentGroup}: Setting ${entityId} preset mode to ${activeNode.preset_mode}`);
+                        try {
+                            await haAPI.callService('climate', 'set_preset_mode', {
+                                entity_id: entityId,
+                                preset_mode: activeNode.preset_mode
+                            });
+                        } catch (error) {
+                            console.error(`Failed to set preset mode for ${entityId}:`, error);
+                        }
+                    }
+                }
             }
         }
         return;
@@ -1186,20 +1297,23 @@ async function handleGraphChange(event) {
     }
     
     // Apply HVAC mode if specified
-    if (activeNode.hvac_mode && entity.attributes.hvac_mode !== activeNode.hvac_mode) {
-        console.log(`Setting HVAC mode to ${activeNode.hvac_mode}`);
-        try {
-            await haAPI.callService('climate', 'set_hvac_mode', {
-                entity_id: currentEntityId,
-                hvac_mode: activeNode.hvac_mode
-            });
-        } catch (error) {
-            console.error('Failed to set HVAC mode:', error);
+    if (activeNode.hvac_mode) {
+        const currentHvacMode = entity.state || entity.attributes.hvac_mode;
+        if (force || currentHvacMode !== activeNode.hvac_mode) {
+            console.log(`Setting HVAC mode to ${activeNode.hvac_mode}`);
+            try {
+                await haAPI.callService('climate', 'set_hvac_mode', {
+                    entity_id: currentEntityId,
+                    hvac_mode: activeNode.hvac_mode
+                });
+            } catch (error) {
+                console.error('Failed to set HVAC mode:', error);
+            }
         }
     }
     
     // Apply fan mode if specified
-    if (activeNode.fan_mode && entity.attributes.fan_mode !== activeNode.fan_mode) {
+    if (activeNode.fan_mode && (force || entity.attributes.fan_mode !== activeNode.fan_mode)) {
         console.log(`Setting fan mode to ${activeNode.fan_mode}`);
         try {
             await haAPI.callService('climate', 'set_fan_mode', {
@@ -1212,7 +1326,7 @@ async function handleGraphChange(event) {
     }
     
     // Apply swing mode if specified
-    if (activeNode.swing_mode && entity.attributes.swing_mode !== activeNode.swing_mode) {
+    if (activeNode.swing_mode && (force || entity.attributes.swing_mode !== activeNode.swing_mode)) {
         console.log(`Setting swing mode to ${activeNode.swing_mode}`);
         try {
             await haAPI.callService('climate', 'set_swing_mode', {
@@ -1225,7 +1339,7 @@ async function handleGraphChange(event) {
     }
     
     // Apply preset mode if specified
-    if (activeNode.preset_mode && entity.attributes.preset_mode !== activeNode.preset_mode) {
+    if (activeNode.preset_mode && (force || entity.attributes.preset_mode !== activeNode.preset_mode)) {
         console.log(`Setting preset mode to ${activeNode.preset_mode}`);
         try {
             await haAPI.callService('climate', 'set_preset_mode', {
@@ -1306,6 +1420,56 @@ function updateEntityStatus(entity) {
         currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
     targetTempEl.textContent = 
         targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+    
+    // Update HVAC mode if available
+    const hvacModeEl = document.getElementById('current-hvac-mode');
+    const hvacModeItem = document.getElementById('current-hvac-mode-item');
+    if (hvacModeEl && hvacModeItem) {
+        // HVAC mode is in entity.state for climate entities, not attributes
+        const hvacMode = entity.state || entity.attributes.hvac_mode;
+        if (hvacMode && hvacMode !== 'unknown' && hvacMode !== 'unavailable') {
+            hvacModeEl.textContent = hvacMode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            hvacModeItem.style.display = '';
+        } else {
+            hvacModeItem.style.display = 'none';
+        }
+    }
+    
+    // Update fan mode if available
+    const fanModeEl = document.getElementById('current-fan-mode');
+    const fanModeItem = document.getElementById('current-fan-mode-item');
+    if (fanModeEl && fanModeItem) {
+        if (entity.attributes.fan_mode) {
+            fanModeEl.textContent = entity.attributes.fan_mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            fanModeItem.style.display = '';
+        } else {
+            fanModeItem.style.display = 'none';
+        }
+    }
+    
+    // Update swing mode if available
+    const swingModeEl = document.getElementById('current-swing-mode');
+    const swingModeItem = document.getElementById('current-swing-mode-item');
+    if (swingModeEl && swingModeItem) {
+        if (entity.attributes.swing_mode) {
+            swingModeEl.textContent = entity.attributes.swing_mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            swingModeItem.style.display = '';
+        } else {
+            swingModeItem.style.display = 'none';
+        }
+    }
+    
+    // Update preset mode if available
+    const presetModeEl = document.getElementById('current-preset-mode');
+    const presetModeItem = document.getElementById('current-preset-mode-item');
+    if (presetModeEl && presetModeItem) {
+        if (entity.attributes.preset_mode) {
+            presetModeEl.textContent = entity.attributes.preset_mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            presetModeItem.style.display = '';
+        } else {
+            presetModeItem.style.display = 'none';
+        }
+    }
 }
 
 // Handle state updates from Home Assistant
@@ -1655,8 +1819,63 @@ function setupEventListeners() {
 // Handle node settings panel
 function handleNodeSettings(event) {
     const { nodeIndex, node } = event.detail;
-    const entity = climateEntities.find(e => e.entity_id === currentEntityId);
-    if (!entity) return;
+    
+    let entity;
+    let allHvacModes = [];
+    let allFanModes = [];
+    let allSwingModes = [];
+    let allPresetModes = [];
+    
+    // Check if we're editing a group or individual entity
+    if (currentGroup) {
+        // For groups, aggregate capabilities from all entities in the group
+        const groupData = allGroups[currentGroup];
+        if (!groupData || !groupData.entities) return;
+        
+        const groupEntities = groupData.entities
+            .map(id => climateEntities.find(e => e.entity_id === id))
+            .filter(e => e);
+        
+        if (groupEntities.length === 0) return;
+        
+        // Use first entity for basic attributes
+        entity = groupEntities[0];
+        
+        // Aggregate all unique modes from all entities
+        const hvacModesSet = new Set();
+        const fanModesSet = new Set();
+        const swingModesSet = new Set();
+        const presetModesSet = new Set();
+        
+        groupEntities.forEach(e => {
+            if (e.attributes.hvac_modes) {
+                e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
+            }
+            if (e.attributes.fan_modes) {
+                e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
+            }
+            if (e.attributes.swing_modes) {
+                e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
+            }
+            if (e.attributes.preset_modes) {
+                e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
+            }
+        });
+        
+        allHvacModes = Array.from(hvacModesSet);
+        allFanModes = Array.from(fanModesSet);
+        allSwingModes = Array.from(swingModesSet);
+        allPresetModes = Array.from(presetModesSet);
+    } else {
+        // For individual entities
+        entity = climateEntities.find(e => e.entity_id === currentEntityId);
+        if (!entity) return;
+        
+        allHvacModes = entity.attributes.hvac_modes || [];
+        allFanModes = entity.attributes.fan_modes || [];
+        allSwingModes = entity.attributes.swing_modes || [];
+        allPresetModes = entity.attributes.preset_modes || [];
+    }
     
     // Update panel content
     document.getElementById('node-time').textContent = node.time;
@@ -1667,11 +1886,10 @@ function handleNodeSettings(event) {
     const hvacModeItem = hvacModeSelect.closest('.setting-item');
     hvacModeSelect.innerHTML = '';
     
-    const hvacModes = entity.attributes.hvac_modes;
-    if (hvacModes && hvacModes.length > 0) {
+    if (allHvacModes.length > 0) {
         hvacModeItem.style.display = '';
         hvacModeSelect.disabled = false;
-        hvacModes.forEach(mode => {
+        allHvacModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
             option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -1687,11 +1905,10 @@ function handleNodeSettings(event) {
     const fanModeItem = fanModeSelect.closest('.setting-item');
     fanModeSelect.innerHTML = '';
     
-    const fanModes = entity.attributes.fan_modes;
-    if (fanModes && fanModes.length > 0) {
+    if (allFanModes.length > 0) {
         fanModeItem.style.display = '';
         fanModeSelect.disabled = false;
-        fanModes.forEach(mode => {
+        allFanModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
             option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -1707,11 +1924,10 @@ function handleNodeSettings(event) {
     const swingModeItem = swingModeSelect.closest('.setting-item');
     swingModeSelect.innerHTML = '';
     
-    const swingModes = entity.attributes.swing_modes;
-    if (swingModes && swingModes.length > 0) {
+    if (allSwingModes.length > 0) {
         swingModeItem.style.display = '';
         swingModeSelect.disabled = false;
-        swingModes.forEach(mode => {
+        allSwingModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
             option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -1727,11 +1943,10 @@ function handleNodeSettings(event) {
     const presetModeItem = presetModeSelect.closest('.setting-item');
     presetModeSelect.innerHTML = '';
     
-    const presetModes = entity.attributes.preset_modes;
-    if (presetModes && presetModes.length > 0) {
+    if (allPresetModes.length > 0) {
         presetModeItem.style.display = '';
         presetModeSelect.disabled = false;
-        presetModes.forEach(mode => {
+        allPresetModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
             option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());

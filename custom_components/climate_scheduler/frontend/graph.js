@@ -716,10 +716,10 @@ class TemperatureGraph {
         this.render();
     }
     
-    notifyChange() {
+    notifyChange(force = false) {
         // Dispatch custom event for external listeners
         const event = new CustomEvent('nodesChanged', {
-            detail: { nodes: this.getNodes() }
+            detail: { nodes: this.getNodes(), force: force }
         });
         this.svg.dispatchEvent(event);
     }
