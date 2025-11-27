@@ -27,7 +27,7 @@ async function initApp() {
         
         // Initialize temperature graph
         const svgElement = document.getElementById('temperature-graph');
-        graph = new TemperatureGraph(svgElement);
+        graph = new TemperatureGraph(svgElement, temperatureUnit);
         
         // Listen for graph changes
         svgElement.addEventListener('nodesChanged', handleGraphChange);
@@ -243,7 +243,7 @@ function createEntityCard(entity, isIncluded = false) {
     const currentTemp = entity.attributes.current_temperature;
     const targetTemp = entity.attributes.temperature;
     temp.textContent = currentTemp !== undefined 
-        ? `${targetTemp.toFixed(1)}°C (${currentTemp.toFixed(1)}°C)` 
+        ? `${targetTemp.toFixed(1)}${temperatureUnit} (${currentTemp.toFixed(1)}${temperatureUnit})` 
         : 'N/A';
     
     content.appendChild(name);

@@ -1,7 +1,7 @@
 {
   "domain": "climate_scheduler",
   "name": "Climate Scheduler",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "codeowners": ["@kneave"],
   "config_flow": false,
   "documentation": "https://github.com/kneave/climate-scheduler",
