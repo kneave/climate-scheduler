@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Climate Scheduler</title>
+    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css">
+</head>
+<body>
+    <div class="container">
+        <section class="entity-selector">
+            <div class="selector-header">
+                <h2>Climate Entities</h2>
+                <button id="menu-button" class="btn-icon" title="Menu">⋮</button>
+            </div>
+            
+            <div id="dropdown-menu" class="dropdown-menu" style="display: none;">
+                <button id="refresh-entities-menu" class="menu-item">
+                    <span class="menu-icon">↻</span>
+                    <span>Refresh Entities</span>
+                </button>
+                <button id="sync-all-menu" class="menu-item">
+                    <span class="menu-icon">⟲</span>
+                    <span>Sync All Thermostats</span>
+                </button>
+            </div>
+            
+            <div class="active-section">
+                <h3 class="section-title">Active (<span id="active-count">0</span>)</h3>
+                <div id="entity-list" class="entity-list">
+                    <!-- Dynamically populated -->
+                </div>
+            </div>
+        </section>
+
+        <section class="schedule-editor" id="schedule-editor" style="display: none;">
+            <div class="editor-header">
+                <h2 id="current-entity-name">Schedule</h2>
+                <div class="editor-controls">
+                    <button id="clear-schedule-btn" class="btn-danger-outline" title="Clear entire schedule">Clear Schedule</button>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="schedule-enabled">
+                        <span class="slider"></span>
+                        <span class="toggle-label">Enabled</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="entity-status">
+                <div class="status-item">
+                    <span class="status-label">Current Temp:</span>
+                    <span id="current-temp" class="status-value">--°C</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Target Temp:</span>
+                    <span id="target-temp" class="status-value">--°C</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Scheduled Temp:</span>
+                    <span id="scheduled-temp" class="status-value">--°C</span>
+                </div>
+            </div>
+
+            <div class="graph-container">
+                <div class="graph-wrapper">
+                    <svg id="temperature-graph" viewBox="0 0 800 400">
+                        <!-- Dynamically generated -->
+                    </svg>
+                    
+                    <!-- Node Settings Panel (inline below graph) -->
+                    <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
+                        <div class="settings-header">
+                            <h3>Node Settings</h3>
+                            <button id="close-settings" class="btn-close-settings">✕</button>
+                        </div>
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Time:</label>
+                                <span id="node-time" class="setting-value">--:--</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Temperature:</label>
+                                <span id="node-temp" class="setting-value">--°C</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>HVAC Mode:</label>
+                                <select id="node-hvac-mode" disabled title="Coming soon">
+                                    <option value="heat">Heat</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label>Fan Mode:</label>
+                                <select id="node-fan-mode" disabled title="Coming soon">
+                                    <option value="auto">Auto</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label>Swing Mode:</label>
+                                <select id="node-swing-mode" disabled title="Coming soon">
+                                    <option value="off">Off</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label>Preset Mode:</label>
+                                <select id="node-preset-mode" disabled title="Coming soon">
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-actions">
+                            <button id="save-node-settings" class="btn-primary">Save Changes</button>
+                            <button id="delete-node" class="btn-danger">Delete Node</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="graph-instructions">
+                    <p>📍 <strong>Tap</strong> on the graph to add a temperature point</p>
+                    <p>👆 <strong>Drag</strong> points to adjust time/temperature</p>
+                    <p>⚙️ <strong>Tap</strong> a point to edit settings</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="entity-selector disabled-entities-section">
+            <div class="disabled-section">
+                <button id="toggle-disabled" class="disabled-toggle">
+                    <span class="toggle-icon">▶</span>
+                    <span class="toggle-text">Disabled (<span id="disabled-count">0</span>)</span>
+                </button>
+                <div id="disabled-entity-list" class="entity-list disabled-list" style="display: none;">
+                    <div class="filter-box">
+                        <input type="text" id="disabled-filter" placeholder="Filter by name..." />
+                    </div>
+                    <div id="disabled-entities-container">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Confirmation Modal -->
+        <div id="confirm-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Clear Schedule?</h3>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to clear the entire schedule for <strong id="confirm-entity-name"></strong>?</p>
+                    <p>This action cannot be undone.</p>
+                </div>
+                <div class="modal-actions">
+                    <button id="confirm-cancel" class="btn-secondary">Cancel</button>
+                    <button id="confirm-clear" class="btn-danger">Clear Schedule</button>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p id="version-info">Climate Scheduler v1.0.0 (build 22)</p>
+        </footer>
+    </div>
+
+    <script src="/climate_scheduler_panel/graph.js?v=22"></script>
+    <script src="/climate_scheduler_panel/ha-api.js?v=22"></script>
+    <script src="/climate_scheduler_panel/app.js?v=22"></script>
+    <script>
+        // Load version info dynamically
+        fetch('/climate_scheduler_panel/version.json')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('version-info').textContent = 
+                    `Climate Scheduler v${data.version} (build ${data.build})`;
+            })
+            .catch(() => {
+                // Fallback if version endpoint fails
+                console.warn('Could not load version info');
+            });
+    </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "domain": "climate_scheduler",
+  "name": "Climate Scheduler",
+  "version": "1.0.0",
+  "codeowners": ["@kneave"],
+  "config_flow": false,
+  "documentation": "https://github.com/kneave/climate-scheduler",
+  "issue_tracker": "https://github.com/kneave/climate-scheduler/issues",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "dependencies": ["climate"]
+}

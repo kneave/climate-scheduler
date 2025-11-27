@@ -1,0 +1,33 @@
+{
+  "title": "Climate Scheduler",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Climate Scheduler",
+        "description": "Climate Scheduler is ready to use. No additional configuration needed."
+      }
+    }
+  },
+  "services": {
+    "set_schedule": {
+      "name": "Set climate schedule",
+      "description": "Configure temperature schedule for a climate entity"
+    },
+    "get_schedule": {
+      "name": "Get climate schedule",
+      "description": "Retrieve the current schedule for a climate entity"
+    },
+    "clear_schedule": {
+      "name": "Clear climate schedule",
+      "description": "Remove the schedule for a climate entity"
+    },
+    "enable_schedule": {
+      "name": "Enable climate schedule",
+      "description": "Enable automatic scheduling for a climate entity"
+    },
+    "disable_schedule": {
+      "name": "Disable climate schedule",
+      "description": "Disable automatic scheduling for a climate entity"
+    }
+  }
+}

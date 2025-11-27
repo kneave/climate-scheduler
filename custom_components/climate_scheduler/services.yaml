@@ -1,0 +1,63 @@
+set_schedule:
+  name: Set climate schedule
+  description: Configure temperature schedule for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to control
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+    nodes:
+      description: List of schedule nodes with time and temperature
+      required: true
+      example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
+
+get_schedule:
+  name: Get climate schedule
+  description: Retrieve the current schedule for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to get schedule for
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+clear_schedule:
+  name: Clear climate schedule
+  description: Remove the schedule for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to clear schedule for
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+enable_schedule:
+  name: Enable climate schedule
+  description: Enable automatic scheduling for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to enable
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+disable_schedule:
+  name: Disable climate schedule
+  description: Disable automatic scheduling for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to disable
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
