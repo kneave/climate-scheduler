@@ -9,5 +9,5 @@
   "integration_type": "hub",
   "iot_class": "local_polling",
   "requirements": [],
-  "dependencies": ["climate"]
+  "dependencies": ["climate", "http"]
 }
