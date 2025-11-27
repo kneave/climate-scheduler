@@ -34,32 +34,33 @@ if (Test-Path $TARGET) {
     Write-Host "  $backupPath" -ForegroundColor Gray
     New-Item -ItemType Directory -Force -Path "\\homeassistant.local\config\backups" | Out-Null
     Copy-Item -Recurse $TARGET $backupPath
-    Write-Host "✓ Backup complete" -ForegroundColor Green
+    Write-Host "Backup complete" -ForegroundColor Green
     Write-Host ""
     
     # Remove old installation
     Write-Host "Removing old installation..." -ForegroundColor Yellow
-    Remove-Item -Recurse -Force $TARGET
-    Write-Host "✓ Old installation removed" -ForegroundColor Green
+    Get-ChildItem -Path $TARGET -Recurse | Remove-Item -Force -Recurse
+    Remove-Item -Force $TARGET
+    Write-Host "Old installation removed" -ForegroundColor Green
     Write-Host ""
 }
 
 # Deploy new version
 Write-Host "Deploying new version..." -ForegroundColor Cyan
-Copy-Item -Recurse $SOURCE $TARGET
-Write-Host "✓ Files copied successfully" -ForegroundColor Green
+Copy-Item -Recurse -Force $SOURCE $TARGET
+Write-Host "Files copied successfully" -ForegroundColor Green
 Write-Host ""
 
 # Verify deployment
 $deployedFiles = Get-ChildItem -Recurse $TARGET | Measure-Object
-Write-Host "✓ Deployment verified: $($deployedFiles.Count) files deployed" -ForegroundColor Green
+Write-Host "Deployment verified: $($deployedFiles.Count) files deployed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "=== Deployment Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Restart Home Assistant" -ForegroundColor White
-Write-Host "  2. Go to Settings → Devices & Services" -ForegroundColor White
+Write-Host "  2. Go to Settings -> Devices & Services" -ForegroundColor White
 Write-Host "  3. Clear browser cache (Ctrl+Shift+R)" -ForegroundColor White
 Write-Host "  4. Navigate to Climate Scheduler panel" -ForegroundColor White
 Write-Host ""

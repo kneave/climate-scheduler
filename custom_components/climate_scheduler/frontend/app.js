@@ -27,7 +27,7 @@ async function initApp() {
         
         // Initialize temperature graph
         const svgElement = document.getElementById('temperature-graph');
-        graph = new TemperatureGraph(svgElement);
+        graph = new TemperatureGraph(svgElement, temperatureUnit);
         
         // Listen for graph changes
         svgElement.addEventListener('nodesChanged', handleGraphChange);
