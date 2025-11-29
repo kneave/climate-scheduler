@@ -348,7 +348,13 @@ async function editGroupSchedule(groupName) {
     // Recreate graph with the new SVG element
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
-        graph = new TemperatureGraph(svgElement);
+        graph = new TemperatureGraph(svgElement, temperatureUnit);
+        
+        // Connect undo button
+        const undoBtn = editor.querySelector('#undo-btn');
+        if (undoBtn) {
+            graph.setUndoButton(undoBtn);
+        }
         
         // Attach graph event listeners
         svgElement.addEventListener('nodesChanged', handleGraphChange);
@@ -364,6 +370,10 @@ async function editGroupSchedule(groupName) {
         currentSchedule = [];
         graph.setNodes([{ time: '00:00', temp: 18 }]);
     }
+    
+    // Load history data for all entities in the group
+    await loadGroupHistoryData(groupData.entities);
+    console.log('Group history loaded for entities:', groupData.entities);
     
     // Group schedules don't have enabled/disabled state - hide the toggle
     const scheduleEnabled = editor.querySelector('#schedule-enabled');
@@ -704,6 +714,7 @@ function createScheduleEditor() {
     editor.innerHTML = `
         <div class="editor-header-inline">
             <div class="editor-controls">
+                <button id="undo-btn" class="btn-secondary-outline" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
                 <button id="ignore-entity-btn" class="btn-secondary-outline" title="Disable this thermostat">Ignore</button>
                 <button id="clear-schedule-btn" class="btn-danger-outline" title="Clear entire schedule">Clear Schedule</button>
                 <label class="toggle-switch">
@@ -869,7 +880,13 @@ async function selectEntity(entityId) {
     // Recreate graph with the new SVG element
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
-        graph = new TemperatureGraph(svgElement);
+        graph = new TemperatureGraph(svgElement, temperatureUnit);
+        
+        // Connect undo button
+        const undoBtn = editor.querySelector('#undo-btn');
+        if (undoBtn) {
+            graph.setUndoButton(undoBtn);
+        }
         
         // Attach graph event listeners
         svgElement.addEventListener('nodesChanged', handleGraphChange);
@@ -1069,19 +1086,37 @@ async function loadHistoryData(entityId) {
         // Fetch history from Home Assistant
         const historyResult = await haAPI.getHistory(entityId, today, now);
         
-        if (!historyResult || historyResult.length === 0) {
+        if (!historyResult || !historyResult[entityId]) {
             graph.setHistoryData([]);
             return;
         }
         
         // Process history data - extract current_temperature
         const historyData = [];
-        const stateHistory = historyResult[0] || [];
+        const stateHistory = historyResult[entityId] || [];
         
         for (const state of stateHistory) {
-            const temp = parseFloat(state.attributes.current_temperature);
+            // Handle both abbreviated format (a, lu) and full format (attributes, last_updated)
+            const attributes = state.a || state.attributes;
+            const lastUpdated = state.lu || state.last_updated;
+            
+            if (!attributes) continue;
+            
+            const temp = parseFloat(attributes.current_temperature);
             if (!isNaN(temp)) {
-                const stateTime = new Date(state.last_updated);
+                // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
+                let stateTime;
+                if (typeof lastUpdated === 'string') {
+                    stateTime = new Date(lastUpdated);
+                } else if (typeof lastUpdated === 'number') {
+                    // Check if it's in seconds or milliseconds
+                    stateTime = lastUpdated > 10000000000 
+                        ? new Date(lastUpdated) 
+                        : new Date(lastUpdated * 1000);
+                } else {
+                    continue; // Skip if we can't parse the time
+                }
+                
                 const hours = stateTime.getHours().toString().padStart(2, '0');
                 const minutes = stateTime.getMinutes().toString().padStart(2, '0');
                 const timeStr = `${hours}:${minutes}`;
@@ -1096,6 +1131,98 @@ async function loadHistoryData(entityId) {
         graph.setHistoryData(historyData);
     } catch (error) {
         console.error('Failed to load history data:', error);
+        graph.setHistoryData([]);
+    }
+}
+
+// Load history data for multiple entities (used for groups)
+async function loadGroupHistoryData(entityIds) {
+    if (!entityIds || entityIds.length === 0) {
+        graph.setHistoryData([]);
+        return;
+    }
+    
+    console.log('Loading history for entities:', entityIds);
+    
+    try {
+        // Get start of today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Get current time
+        const now = new Date();
+        
+        console.log('Fetching history from', today, 'to', now);
+        
+        const allHistoryData = [];
+        const defaultColors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#ffeb3b', '#795548'];
+        
+        // Load history for each entity
+        for (let i = 0; i < entityIds.length; i++) {
+            const entityId = entityIds[i];
+            const entity = climateEntities.find(e => e.entity_id === entityId);
+            
+            try {
+                const historyResult = await haAPI.getHistory(entityId, today, now);
+                console.log(`History result for ${entityId}:`, historyResult);
+                
+                if (historyResult && historyResult[entityId]) {
+                    const historyData = [];
+                    const stateHistory = historyResult[entityId] || [];
+                    
+                    for (const state of stateHistory) {
+                        // Handle both abbreviated format (a, lu) and full format (attributes, last_updated)
+                        const attributes = state.a || state.attributes;
+                        const lastUpdated = state.lu || state.last_updated;
+                        
+                        if (!attributes) continue;
+                        
+                        const temp = parseFloat(attributes.current_temperature);
+                        if (!isNaN(temp)) {
+                            // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
+                            let stateTime;
+                            if (typeof lastUpdated === 'string') {
+                                stateTime = new Date(lastUpdated);
+                            } else if (typeof lastUpdated === 'number') {
+                                // Check if it's in seconds or milliseconds
+                                stateTime = lastUpdated > 10000000000 
+                                    ? new Date(lastUpdated) 
+                                    : new Date(lastUpdated * 1000);
+                            } else {
+                                continue; // Skip if we can't parse the time
+                            }
+                            
+                            const hours = stateTime.getHours().toString().padStart(2, '0');
+                            const minutes = stateTime.getMinutes().toString().padStart(2, '0');
+                            const timeStr = `${hours}:${minutes}`;
+                            
+                            historyData.push({
+                                time: timeStr,
+                                temp: temp
+                            });
+                        }
+                    }
+                    
+                    console.log(`Processed ${historyData.length} history points for ${entityId}`);
+                    
+                    if (historyData.length > 0) {
+                        allHistoryData.push({
+                            entityId: entityId,
+                            entityName: entity?.attributes?.friendly_name || entityId,
+                            data: historyData,
+                            color: defaultColors[i % defaultColors.length]
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to load history for ${entityId}:`, error);
+            }
+        }
+        
+        console.log('Setting history data with', allHistoryData.length, 'entities');
+        graph.setHistoryData(allHistoryData);
+    } catch (error) {
+        console.error('Failed to load group history data:', error);
         graph.setHistoryData([]);
     }
 }

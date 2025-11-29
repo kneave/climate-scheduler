@@ -7,13 +7,19 @@ class TemperatureGraph {
     constructor(svgElement, temperatureUnit = '°C') {
         this.svg = svgElement;
         this.nodes = [];
-        this.historyData = [];
+        this.historyData = []; // Array of {entityId, entityName, data: [{time, temp}], color}
         this.draggingNode = null;
         this.dragOffset = { x: 0, y: 0 };
         this.lastTapTime = 0;
         this.lastTapNode = null;
+        this.lastClickTime = 0;
+        this.lastClickPoint = null;
         this.tooltip = null;
+        this.hoverLine = null;
+        this.hoverTimeLabel = null;
         this.temperatureUnit = temperatureUnit;
+        this.undoStack = [];
+        this.undoButton = null;
         
         // Graph dimensions
         this.width = 800;
@@ -43,6 +49,7 @@ class TemperatureGraph {
     initialize() {
         this.svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
         this.createTooltip();
+        this.setupKeyboardShortcuts();
         this.render();
         this.attachEventListeners();
         
@@ -86,6 +93,101 @@ class TemperatureGraph {
         this.tooltip.appendChild(bg);
         this.tooltip.appendChild(text);
         this.svg.appendChild(this.tooltip);
+        
+        // Create hover line and time label
+        this.hoverLine = this.createSVGElement('line', {
+            class: 'hover-line',
+            stroke: '#ff9800',
+            'stroke-width': 1,
+            'stroke-dasharray': '5,5',
+            opacity: 0.7,
+            style: 'display: none;'
+        });
+        this.svg.appendChild(this.hoverLine);
+        
+        this.hoverTimeLabel = this.createSVGElement('g', {
+            class: 'hover-time-label',
+            style: 'display: none;'
+        });
+        
+        const labelBg = this.createSVGElement('rect', {
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 24,
+            rx: 3,
+            fill: '#ff9800',
+            opacity: 0.9
+        });
+        
+        const labelText = this.createSVGElement('text', {
+            x: 30,
+            y: 16,
+            'text-anchor': 'middle',
+            fill: '#1a1a1a',
+            'font-size': '12',
+            'font-weight': 'bold',
+            class: 'time-label-text'
+        });
+        
+        this.hoverTimeLabel.appendChild(labelBg);
+        this.hoverTimeLabel.appendChild(labelText);
+        this.svg.appendChild(this.hoverTimeLabel);
+    }
+    
+    setUndoButton(buttonElement) {
+        // Set external HTML undo button reference
+        this.undoButton = buttonElement;
+        
+        // Click handler
+        if (this.undoButton) {
+            this.undoButton.addEventListener('click', () => this.undo());
+            this.updateUndoButtonState();
+        }
+    }
+    
+    setupKeyboardShortcuts() {
+        // Listen for Ctrl+Z
+        document.addEventListener('keydown', (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+                event.preventDefault();
+                this.undo();
+            }
+        });
+    }
+    
+    saveState() {
+        // Save current state to undo stack (deep copy)
+        this.undoStack.push(JSON.parse(JSON.stringify(this.nodes)));
+        
+        // Limit undo stack to 20 states
+        if (this.undoStack.length > 20) {
+            this.undoStack.shift();
+        }
+        
+        this.updateUndoButtonState();
+    }
+    
+    undo() {
+        if (this.undoStack.length === 0) return;
+        
+        // Restore previous state
+        this.nodes = this.undoStack.pop();
+        this.updateUndoButtonState();
+        this.render();
+        this.notifyChange();
+    }
+    
+    updateUndoButtonState() {
+        if (this.undoButton) {
+            if (this.undoStack.length > 0) {
+                this.undoButton.disabled = false;
+                this.undoButton.style.opacity = '1';
+            } else {
+                this.undoButton.disabled = true;
+                this.undoButton.style.opacity = '0.5';
+            }
+        }
     }
     
     updateTooltip(x, y, time, temp) {
@@ -106,6 +208,132 @@ class TemperatureGraph {
         if (this.tooltip) {
             this.tooltip.style.display = 'none';
         }
+        if (this.hoverLine) {
+            this.hoverLine.style.display = 'none';
+        }
+        if (this.hoverTimeLabel) {
+            this.hoverTimeLabel.style.display = 'none';
+        }
+    }
+    
+    showHistoryTooltipAtTime(mouseX, mouseY, timeStr) {
+        if (!this.historyData || this.historyData.length === 0) return;
+        
+        const text = this.tooltip.querySelector('.tooltip-text');
+        const bg = this.tooltip.querySelector('rect');
+        
+        // Show hover line
+        const graphTop = this.padding.top;
+        const graphBottom = this.height - this.padding.bottom;
+        this.hoverLine.setAttribute('x1', mouseX);
+        this.hoverLine.setAttribute('x2', mouseX);
+        this.hoverLine.setAttribute('y1', graphTop);
+        this.hoverLine.setAttribute('y2', graphBottom);
+        this.hoverLine.style.display = 'block';
+        
+        // Show time label above X axis
+        const labelText = this.hoverTimeLabel.querySelector('.time-label-text');
+        labelText.textContent = timeStr;
+        const labelBg = this.hoverTimeLabel.querySelector('rect');
+        
+        // Calculate label width based on text
+        const tempLabel = this.createSVGElement('text', {
+            'font-size': '12',
+            'font-weight': 'bold'
+        });
+        tempLabel.textContent = timeStr;
+        this.svg.appendChild(tempLabel);
+        const labelWidth = Math.max(60, tempLabel.getBBox().width + 16);
+        this.svg.removeChild(tempLabel);
+        
+        labelBg.setAttribute('width', labelWidth);
+        labelText.setAttribute('x', labelWidth / 2);
+        
+        const labelX = Math.max(0, Math.min(this.width - labelWidth, mouseX - labelWidth / 2));
+        const labelY = graphBottom + 5;
+        this.hoverTimeLabel.setAttribute('transform', `translate(${labelX}, ${labelY})`);
+        this.hoverTimeLabel.style.display = 'block';
+        
+        // Find the closest history data point for each entity at this time
+        const temps = [];
+        this.historyData.forEach(entityHistory => {
+            const temp = this.findTempAtTime(entityHistory.data, timeStr);
+            if (temp !== null) {
+                temps.push({
+                    name: entityHistory.entityName || entityHistory.entityId,
+                    temp: temp,
+                    color: entityHistory.color
+                });
+            }
+        });
+        
+        if (temps.length === 0) {
+            this.hideTooltip();
+            return;
+        }
+        
+        // Clear existing content
+        text.textContent = '';
+        
+        // Create multi-line tooltip
+        const lineHeight = 18;
+        const padding = 10;
+        
+        // Add each entity's temperature (no time header now)
+        temps.forEach((item, index) => {
+            const tspan = this.createSVGElement('tspan', {
+                x: padding,
+                y: padding + 4 + (index * lineHeight),
+                'text-anchor': 'start'
+            });
+            tspan.textContent = `${item.name}: ${item.temp.toFixed(1)}${this.temperatureUnit}`;
+            text.appendChild(tspan);
+        });
+        
+        // Calculate required width based on content
+        const bbox = text.getBBox();
+        const tooltipWidth = Math.max(150, bbox.width + (padding * 2));
+        const totalHeight = (temps.length * lineHeight) + (padding * 2);
+        
+        bg.setAttribute('height', totalHeight);
+        bg.setAttribute('width', tooltipWidth);
+        
+        // Position tooltip (keep it within graph bounds)
+        const halfWidth = tooltipWidth / 2;
+        const tooltipX = Math.max(halfWidth, Math.min(this.width - halfWidth, mouseX));
+        const tooltipY = Math.max(totalHeight + 10, mouseY - 20);
+        
+        this.tooltip.setAttribute('transform', `translate(${tooltipX - halfWidth}, ${tooltipY - totalHeight})`);
+        this.tooltip.style.display = 'block';
+    }
+    
+    findTempAtTime(dataPoints, targetTime) {
+        if (!dataPoints || dataPoints.length === 0) return null;
+        
+        // Convert time to minutes for comparison
+        const targetMinutes = this.timeToMinutes(targetTime);
+        
+        // Find the most recent temperature at or before the target time
+        let lastSeenTemp = null;
+        
+        for (const point of dataPoints) {
+            const pointMinutes = this.timeToMinutes(point.time);
+            
+            // If this point is at or before the target time, it's a candidate
+            if (pointMinutes <= targetMinutes) {
+                lastSeenTemp = point.temp;
+            } else {
+                // Once we've passed the target time, stop searching
+                break;
+            }
+        }
+        
+        return lastSeenTemp;
+    }
+    
+    timeToMinutes(timeStr) {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
     }
     
     render() {
@@ -125,6 +353,7 @@ class TemperatureGraph {
         // Draw history data (actual room temperature)
         if (this.historyData && this.historyData.length > 0) {
             this.drawHistoryLine(g);
+            this.drawHistoryLegend(g);
         }
         
         // Draw temperature line
@@ -146,46 +375,94 @@ class TemperatureGraph {
     drawHistoryLine(g) {
         if (!this.historyData || this.historyData.length === 0) return;
         
-        // Create path for history line
-        let pathData = '';
+        // Default colors for multiple entities
+        const defaultColors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#ffeb3b', '#795548'];
         
-        for (let i = 0; i < this.historyData.length; i++) {
-            const point = this.historyData[i];
-            const x = this.timeToX(point.time);
-            const y = this.tempToY(point.temp);
+        // Draw each entity's history
+        this.historyData.forEach((entityHistory, entityIndex) => {
+            if (!entityHistory.data || entityHistory.data.length === 0) return;
             
-            if (i === 0) {
-                pathData += `M ${x} ${y}`;
-            } else {
-                pathData += ` L ${x} ${y}`;
-            }
-        }
-        
-        if (pathData) {
-            const path = this.createSVGElement('path', {
-                d: pathData,
-                stroke: '#2196f3',
-                'stroke-width': 2,
-                fill: 'none',
-                opacity: 0.7
-            });
-            g.appendChild(path);
+            const color = entityHistory.color || defaultColors[entityIndex % defaultColors.length];
             
-            // Add small dots at each history point
-            this.historyData.forEach(point => {
+            // Create path for this entity's history line
+            let pathData = '';
+            
+            for (let i = 0; i < entityHistory.data.length; i++) {
+                const point = entityHistory.data[i];
                 const x = this.timeToX(point.time);
                 const y = this.tempToY(point.temp);
                 
-                const dot = this.createSVGElement('circle', {
-                    cx: x,
-                    cy: y,
-                    r: 2,
-                    fill: '#2196f3',
+                if (i === 0) {
+                    pathData += `M ${x} ${y}`;
+                } else {
+                    pathData += ` L ${x} ${y}`;
+                }
+            }
+            
+            if (pathData) {
+                const path = this.createSVGElement('path', {
+                    d: pathData,
+                    stroke: color,
+                    'stroke-width': 2,
+                    fill: 'none',
                     opacity: 0.6
                 });
-                g.appendChild(dot);
+                g.appendChild(path);
+                
+                // Add small dots at each history point
+                entityHistory.data.forEach(point => {
+                    const x = this.timeToX(point.time);
+                    const y = this.tempToY(point.temp);
+                    
+                    const dot = this.createSVGElement('circle', {
+                        cx: x,
+                        cy: y,
+                        r: 2,
+                        fill: color,
+                        opacity: 0.5,
+                        style: 'pointer-events: none;'
+                    });
+                    
+                    g.appendChild(dot);
+                });
+            }
+        });
+    }
+    
+    drawHistoryLegend(g) {
+        if (!this.historyData || this.historyData.length <= 1) return; // No legend needed for single entity
+        
+        const defaultColors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#ffeb3b', '#795548'];
+        const legendX = this.padding.left + 10;
+        const legendY = this.padding.top + 10;
+        const lineHeight = 20;
+        
+        this.historyData.forEach((entityHistory, index) => {
+            const color = entityHistory.color || defaultColors[index % defaultColors.length];
+            const y = legendY + (index * lineHeight);
+            
+            // Color indicator line
+            const line = this.createSVGElement('line', {
+                x1: legendX,
+                y1: y,
+                x2: legendX + 20,
+                y2: y,
+                stroke: color,
+                'stroke-width': 3,
+                opacity: 0.7
             });
-        }
+            g.appendChild(line);
+            
+            // Entity name
+            const text = this.createSVGElement('text', {
+                x: legendX + 25,
+                y: y + 4,
+                fill: '#b0b0b0',
+                'font-size': '12'
+            });
+            text.textContent = entityHistory.entityName || entityHistory.entityId;
+            g.appendChild(text);
+        });
     }
     
     drawGrid(g) {
@@ -472,7 +749,10 @@ class TemperatureGraph {
         this.svg.addEventListener('mousedown', this.handlePointerDown.bind(this));
         this.svg.addEventListener('mousemove', this.handlePointerMove.bind(this));
         this.svg.addEventListener('mouseup', this.handlePointerUp.bind(this));
-        this.svg.addEventListener('mouseleave', this.handlePointerUp.bind(this));
+        this.svg.addEventListener('mouseleave', (e) => {
+            this.handlePointerUp(e);
+            this.hideTooltip();
+        });
         
         // Touch events
         this.svg.addEventListener('touchstart', this.handlePointerDown.bind(this), { passive: false });
@@ -493,6 +773,9 @@ class TemperatureGraph {
             this.lastTapTime = Date.now();
             this.startDragPoint = point;
             
+            // Save state before potential drag
+            this.saveState();
+            
             // Start potential drag
             this.draggingNode = clickedNode;
             const node = this.nodes[clickedNode];
@@ -510,16 +793,46 @@ class TemperatureGraph {
             // Render to hide the label
             this.render();
         } else {
-            // Add new node
-            this.addNode(point);
+            // Check for double-click to add new node
+            const now = Date.now();
+            const timeSinceLastClick = now - this.lastClickTime;
+            const isSameLocation = this.lastClickPoint && 
+                Math.abs(point.x - this.lastClickPoint.x) < 10 &&
+                Math.abs(point.y - this.lastClickPoint.y) < 10;
+            
+            if (timeSinceLastClick < 500 && isSameLocation) {
+                // Double-click detected - add node
+                this.addNode(point);
+                this.lastClickTime = 0; // Reset to prevent triple-click issues
+                this.lastClickPoint = null;
+            } else {
+                // First click - just record it
+                this.lastClickTime = now;
+                this.lastClickPoint = point;
+            }
         }
     }
     
     handlePointerMove(event) {
-        if (this.draggingNode === null) return;
+        const point = this.getEventPoint(event);
+        
+        if (this.draggingNode === null) {
+            // Not dragging - show history tooltip at current mouse position
+            const isInGraphArea = point.x >= this.padding.left && 
+                                   point.x <= this.width - this.padding.right &&
+                                   point.y >= this.padding.top && 
+                                   point.y <= this.height - this.padding.bottom;
+            
+            if (isInGraphArea && this.historyData && this.historyData.length > 0) {
+                const mouseTime = this.xToTime(point.x);
+                this.showHistoryTooltipAtTime(point.x, point.y, mouseTime);
+            } else {
+                this.hideTooltip();
+            }
+            return;
+        }
         
         event.preventDefault();
-        const point = this.getEventPoint(event);
         
         // Update node time (horizontal movement)
         const newTime = this.xToTime(point.x - this.dragOffset.x);
@@ -561,6 +874,9 @@ class TemperatureGraph {
             
             // If didn't drag much (less than 5 pixels), treat as a click to show settings
             if (dragDistance < 5) {
+                // No actual drag happened - remove the saved state
+                this.undoStack.pop();
+                this.updateUndoButtonState();
                 this.showNodeSettings(this.draggingNode);
             } else {
                 // Actual drag - notify change
@@ -579,6 +895,9 @@ class TemperatureGraph {
     }
     
     addNode(point) {
+        // Save state before adding node
+        this.saveState();
+        
         const time = this.xToTime(point.x);
         const temp = this.yToTemp(point.y);
         
@@ -604,6 +923,9 @@ class TemperatureGraph {
     }
     
     removeNode(index) {
+        // Save state before removing node
+        this.saveState();
+        
         this.nodes.splice(index, 1);
         this.render();
         this.notifyChange();
@@ -718,7 +1040,21 @@ class TemperatureGraph {
     }
     
     setHistoryData(historyData) {
-        this.historyData = historyData || [];
+        // Support both old format (array of {time, temp}) and new format (array of entities)
+        if (!historyData || historyData.length === 0) {
+            this.historyData = [];
+        } else if (historyData[0] && historyData[0].entityId !== undefined) {
+            // New format: array of {entityId, entityName, data, color}
+            this.historyData = historyData;
+        } else {
+            // Old format: array of {time, temp} - convert to new format
+            this.historyData = [{
+                entityId: 'single',
+                entityName: 'Temperature',
+                data: historyData,
+                color: '#2196f3'
+            }];
+        }
         this.render();
     }
     
