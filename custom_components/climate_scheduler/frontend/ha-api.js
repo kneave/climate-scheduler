@@ -13,12 +13,14 @@ class HomeAssistantAPI {
     
     async connect() {
         try {
-            // Get auth token from parent window (HA provides this)
+            // Get auth token - works in both browser and mobile app
             const authToken = await this.getAuthToken();
             
             // Connect to Home Assistant WebSocket API
+            // Use relative path for mobile app compatibility
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/api/websocket`;
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/api/websocket`;
             
             this.connection = new WebSocket(wsUrl);
             
@@ -80,42 +82,44 @@ class HomeAssistantAPI {
     }
     
     async getAuthToken() {
-        // Try to get token from parent window if embedded in HA
-        if (window.parent && window.parent !== window) {
+        // Method 1: Check if running in Home Assistant panel context (works in mobile app)
+        if (window.hassConnection) {
             try {
-                // Post message to parent requesting token
-                return new Promise((resolve) => {
-                    const messageHandler = (event) => {
-                        if (event.data && event.data.type === 'auth_token') {
-                            window.removeEventListener('message', messageHandler);
-                            resolve(event.data.token);
-                        }
-                    };
-                    window.addEventListener('message', messageHandler);
-                    window.parent.postMessage({ type: 'request_auth_token' }, '*');
-                    
-                    // Fallback: try to get from localStorage after 1 second
-                    setTimeout(() => {
-                        const token = localStorage.getItem('hassTokens');
-                        if (token) {
-                            const tokens = JSON.parse(token);
-                            resolve(tokens.access_token);
-                        }
-                    }, 1000);
-                });
+                const auth = await window.hassConnection;
+                if (auth && auth.auth && auth.auth.data && auth.auth.data.access_token) {
+                    return auth.auth.data.access_token;
+                }
             } catch (e) {
-                console.warn('Could not get token from parent:', e);
+                console.warn('Could not get token from hassConnection:', e);
             }
         }
         
-        // Fallback: get from localStorage
-        const token = localStorage.getItem('hassTokens');
-        if (token) {
-            const tokens = JSON.parse(token);
-            return tokens.access_token;
+        // Method 2: Try to get from parent window context
+        if (window.parent && window.parent.hassConnection && window.parent !== window) {
+            try {
+                const auth = await window.parent.hassConnection;
+                if (auth && auth.auth && auth.auth.data && auth.auth.data.access_token) {
+                    return auth.auth.data.access_token;
+                }
+            } catch (e) {
+                console.warn('Could not get token from parent.hassConnection:', e);
+            }
         }
         
-        throw new Error('No authentication token found');
+        // Method 3: Fallback to localStorage (browser only)
+        try {
+            const token = localStorage.getItem('hassTokens');
+            if (token) {
+                const tokens = JSON.parse(token);
+                if (tokens.access_token) {
+                    return tokens.access_token;
+                }
+            }
+        } catch (e) {
+            console.warn('Could not get token from localStorage:', e);
+        }
+        
+        throw new Error('No authentication token found. Please ensure the panel is loaded within Home Assistant.');
     }
     
     send(message) {

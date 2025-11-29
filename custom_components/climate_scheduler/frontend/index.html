@@ -127,7 +127,7 @@
             .then(r => r.json())
             .then(data => {
                 document.getElementById('version-info').textContent = 
-                    `Climate Scheduler v${data.version} (build ${data.build})`;
+                    `Climate Scheduler v${data.version}`;
             })
             .catch(() => {
                 // Fallback if version endpoint fails

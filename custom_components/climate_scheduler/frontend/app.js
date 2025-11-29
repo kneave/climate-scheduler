@@ -15,6 +15,12 @@ let currentGroup = null; // Currently selected group
 // Initialize application
 async function initApp() {
     try {
+        // Detect mobile app environment
+        const isMobileApp = /HomeAssistant|Home%20Assistant/.test(navigator.userAgent);
+        if (isMobileApp) {
+            console.log('Running in Home Assistant mobile app');
+        }
+        
         // Initialize Home Assistant API
         haAPI = new HomeAssistantAPI();
         await haAPI.connect();
@@ -47,7 +53,28 @@ async function initApp() {
         console.error('Failed to initialize app:', error);
         console.error('Error stack:', error.stack);
         console.error('Error message:', error.message);
-        alert(`Failed to connect to Home Assistant: ${error.message}\n\nPlease refresh the page.`);
+        
+        // Show user-friendly error in the UI
+        const container = document.querySelector('.container');
+        if (container) {
+            container.innerHTML = `
+                <div style="padding: 20px; text-align: center;">
+                    <h2>❌ Connection Failed</h2>
+                    <p style="color: #666; margin: 20px 0;">Could not connect to Home Assistant</p>
+                    <details style="text-align: left; max-width: 600px; margin: 20px auto; padding: 10px; background: #f5f5f5; border-radius: 8px;">
+                        <summary style="cursor: pointer; font-weight: bold;">Technical Details</summary>
+                        <pre style="margin-top: 10px; overflow-x: auto;">${error.message}\n\n${error.stack}</pre>
+                    </details>
+                    <p style="margin-top: 20px;">
+                        <strong>Troubleshooting:</strong><br>
+                        • Try refreshing the page (pull down on mobile)<br>
+                        • Check if you're logged into Home Assistant<br>
+                        • Restart the Home Assistant app<br>
+                        • Check Settings → Companion App → Debugging
+                    </p>
+                </div>
+            `;
+        }
     }
 }
 
