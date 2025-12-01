@@ -46,8 +46,9 @@ if ($DryRun) {
 # Get the latest git tag
 $latestTag = git describe --tags --abbrev=0 2>$null
 if ($latestTag) {
+    # Remove 'v' prefix if present for consistent handling
     $latestTag = $latestTag.TrimStart('v')
-    Write-Host "Latest git tag: v$latestTag" -ForegroundColor Cyan
+    Write-Host "Latest git tag: $latestTag" -ForegroundColor Cyan
 } else {
     Write-Host "No existing tags found." -ForegroundColor Yellow
     $latestTag = "0.0.0"
@@ -190,15 +191,40 @@ if ($status) {
 
 Write-Host "`n=== Creating Release v$Version ===" -ForegroundColor Cyan
 
+# Get commit messages since last tag
+$commitMessages = @()
+if ($latestTag -ne "0.0.0") {
+    # Try to get commits - handle both with and without 'v' prefix in tags
+    $commits = git log "$latestTag..HEAD" --pretty=format:"%s" 2>$null
+    if (-not $commits) {
+        # Try with v prefix
+        $commits = git log "v$latestTag..HEAD" --pretty=format:"%s" 2>$null
+    }
+    if ($commits) {
+        $commitMessages = $commits -split "`n" | Where-Object { $_ -and $_ -notmatch '^Merge' }
+    }
+}
+
 # Collect changelog information
 Write-Host "`n--- Changelog Entry ---" -ForegroundColor Yellow
-Write-Host "Describe the changes in this release (enter each item, blank line when done):"
+
+if ($commitMessages.Count -gt 0) {
+    Write-Host "`nCommits since $latestTag`:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $commitMessages.Count; $i++) {
+        Write-Host "  [$i] $($commitMessages[$i])"
+    }
+    Write-Host "`nYou can reference commits by number (e.g., '0' to use first commit message)"
+    Write-Host "Or type your own entries. Enter blank line when done.`n"
+} else {
+    Write-Host "No commits found since last tag."
+    Write-Host "Describe the changes in this release (enter each item, blank line when done):`n"
+}
 
 $changelogEntries = @{}
 $categoryPrompts = @{
-    "Added" = "New features (e.g., 'Undo functionality with Ctrl+Z')"
+    "Added" = "New features (e.g., 'Undo functionality' or '0 2' for commits 0 and 2)"
     "Changed" = "Changes to existing functionality"
-    "Fixed" = "Bug fixes (e.g., 'Inconsistent saving when dragging nodes')"
+    "Fixed" = "Bug fixes (e.g., '1 3' for commits 1 and 3, or custom text)"
     "Removed" = "Removed features"
 }
 
@@ -209,10 +235,31 @@ foreach ($category in $categoryPrompts.Keys | Sort-Object) {
         if ([string]::IsNullOrWhiteSpace($entry)) {
             break
         }
-        if (-not $changelogEntries.ContainsKey($category)) {
-            $changelogEntries[$category] = @()
+        
+        # Check if entry contains multiple commit numbers (space or comma-delimited)
+        $tokens = $entry -split '[,\s]+' | Where-Object { $_ }
+        $hasCommitRefs = $false
+        
+        foreach ($token in $tokens) {
+            if ($token -match '^\d+$' -and [int]$token -lt $commitMessages.Count) {
+                $commitText = $commitMessages[[int]$token]
+                Write-Host "    Using [$token]: $commitText" -ForegroundColor Gray
+                
+                if (-not $changelogEntries.ContainsKey($category)) {
+                    $changelogEntries[$category] = @()
+                }
+                $changelogEntries[$category] += $commitText
+                $hasCommitRefs = $true
+            }
         }
-        $changelogEntries[$category] += $entry
+        
+        # If no commit refs were found, treat entire entry as custom text
+        if (-not $hasCommitRefs) {
+            if (-not $changelogEntries.ContainsKey($category)) {
+                $changelogEntries[$category] = @()
+            }
+            $changelogEntries[$category] += $entry
+        }
     }
 }
 
