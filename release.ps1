@@ -65,9 +65,10 @@ if (-not $Version) {
         Write-Host "  3. Major (breaking changes): $suggestedMajor"
         Write-Host "  4. Custom version"
         Write-Host "  5. Use manifest version:     $currentVersion"
+        Write-Host "  Q. Exit"
     }
     
-    $choice = Read-Host "`nEnter choice (1-5)"
+    $choice = Read-Host "`nEnter choice (1-5, Q)"
     
     switch ($choice) {
         "1" { 
@@ -89,13 +90,17 @@ if (-not $Version) {
             $Version = $currentVersion
             Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
         }
+        { $_ -eq "Q" -or $_ -eq "q" } {
+            Write-Host "Release cancelled." -ForegroundColor Yellow
+            exit 0
+        }
         default {
             # Try to parse as direct version input
             if ($choice -match '^\d+\.\d+\.\d+$') {
                 $Version = $choice
                 Write-Host "Selected: $Version (custom)" -ForegroundColor Green
             } else {
-                Write-Error "Invalid choice. Please run again and select 1-5 or enter a valid version number."
+                Write-Error "Invalid choice. Please run again and select 1-5, Q, or enter a valid version number."
                 exit 1
             }
         }
