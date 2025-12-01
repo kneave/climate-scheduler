@@ -750,9 +750,11 @@ class TemperatureGraph {
         this.svg.addEventListener('mousemove', this.handlePointerMove.bind(this));
         this.svg.addEventListener('mouseup', this.handlePointerUp.bind(this));
         this.svg.addEventListener('mouseleave', (e) => {
-            this.handlePointerUp(e);
             this.hideTooltip();
         });
+        
+        // Also listen for mouseup on document to catch releases outside the SVG
+        document.addEventListener('mouseup', this.handlePointerUp.bind(this));
         
         // Touch events
         this.svg.addEventListener('touchstart', this.handlePointerDown.bind(this), { passive: false });
@@ -875,8 +877,10 @@ class TemperatureGraph {
             // If didn't drag much (less than 5 pixels), treat as a click to show settings
             if (dragDistance < 5) {
                 // No actual drag happened - remove the saved state
-                this.undoStack.pop();
-                this.updateUndoButtonState();
+                if (this.undoStack.length > 0) {
+                    this.undoStack.pop();
+                    this.updateUndoButtonState();
+                }
                 this.showNodeSettings(this.draggingNode);
             } else {
                 // Actual drag - notify change
