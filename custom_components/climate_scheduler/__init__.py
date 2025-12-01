@@ -1,5 +1,6 @@
 """The Climate Scheduler integration."""
 import logging
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,7 +15,12 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, UPDATE_INTERVAL_SECONDS
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
-from .version import VERSION, BUILD
+
+# Load version from manifest.json
+manifest_path = Path(__file__).parent / "manifest.json"
+with open(manifest_path) as f:
+    manifest_data = json.load(f)
+    VERSION = manifest_data.get("version", "unknown")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -252,8 +258,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             # Special endpoint for version info
             if filename == "version.json":
                 return web.json_response({
-                    "version": VERSION,
-                    "build": BUILD
+                    "version": VERSION
                 })
             
             file_path = frontend_path / filename
@@ -279,7 +284,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         sidebar_icon="mdi:calendar-clock",
         frontend_url_path="climate_scheduler",
         config={
-            "url": f"/climate_scheduler_panel/index.html?cachebust={BUILD}"
+            "url": f"/climate_scheduler_panel/index.html?v={VERSION.replace('.', '')}"
         },
         require_admin=False
     )
