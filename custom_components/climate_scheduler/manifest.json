@@ -1,13 +1,20 @@
 {
-  "domain": "climate_scheduler",
-  "name": "Climate Scheduler",
-  "codeowners": ["@kneave"],
-  "config_flow": false,
-  "dependencies": ["climate", "http"],
-  "documentation": "https://github.com/kneave/climate-scheduler",
-  "integration_type": "hub",
-  "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/kneave/climate-scheduler/issues",
-  "requirements": [],
-  "version": "1.0.4"
+    "domain":  "climate_scheduler",
+    "name":  "Climate Scheduler",
+    "codeowners":  [
+                       "@kneave"
+                   ],
+    "config_flow":  false,
+    "dependencies":  [
+                         "climate",
+                         "http"
+                     ],
+    "documentation":  "https://github.com/kneave/climate-scheduler",
+    "integration_type":  "hub",
+    "iot_class":  "local_polling",
+    "issue_tracker":  "https://github.com/kneave/climate-scheduler/issues",
+    "requirements":  [
+
+                     ],
+    "version":  "1.1.0"
 }
