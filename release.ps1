@@ -10,23 +10,37 @@
 .PARAMETER Version
     The version number to release (e.g., 1.0.5). If not provided, reads current version from manifest.json.
 
+.PARAMETER DryRun
+    Run in dry-run mode - shows what would happen without making any changes.
+
 .EXAMPLE
     .\release.ps1 1.0.5
     
 .EXAMPLE
     .\release.ps1
     (Uses current version from manifest.json)
+    
+.EXAMPLE
+    .\release.ps1 -DryRun
+    (Test the release process without making changes)
 #>
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$Version
+    [string]$Version,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$DryRun
 )
 
 # Check if we're in the right directory
 if (-not (Test-Path "custom_components\climate_scheduler\manifest.json")) {
     Write-Error "manifest.json not found. Run this script from the repository root."
     exit 1
+}
+
+if ($DryRun) {
+    Write-Host "`n*** DRY RUN MODE - No changes will be made ***`n" -ForegroundColor Magenta
 }
 
 # Get the latest git tag
@@ -58,17 +72,26 @@ $currentVersion = $manifest.version
 if (-not $Version) {
     Write-Host "`nCurrent manifest.json version: $currentVersion" -ForegroundColor Cyan
     
+    # Check if manifest version is valid for release
+    $canUseManifest = $true
+    if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTag) {
+        $canUseManifest = $false
+    }
+    
     if ($suggestedPatch) {
         Write-Host "`nSelect version to release:" -ForegroundColor Yellow
         Write-Host "  1. Patch (bug fixes):        $suggestedPatch"
         Write-Host "  2. Minor (new features):     $suggestedMinor"
         Write-Host "  3. Major (breaking changes): $suggestedMajor"
         Write-Host "  4. Custom version"
-        Write-Host "  5. Use manifest version:     $currentVersion"
+        if ($canUseManifest) {
+            Write-Host "  5. Use manifest version:     $currentVersion"
+        }
         Write-Host "  Q. Exit"
     }
     
-    $choice = Read-Host "`nEnter choice (1-5, Q)"
+    $validChoices = if ($canUseManifest) { "1-5, Q" } else { "1-4, Q" }
+    $choice = Read-Host "`nEnter choice ($validChoices)"
     
     switch ($choice) {
         "1" { 
@@ -87,8 +110,13 @@ if (-not $Version) {
             $Version = Read-Host "Enter custom version number"
         }
         "5" {
-            $Version = $currentVersion
-            Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
+            if ($canUseManifest) {
+                $Version = $currentVersion
+                Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
+            } else {
+                Write-Error "Option 5 not available. Manifest version matches latest tag."
+                exit 1
+            }
         }
         { $_ -eq "Q" -or $_ -eq "q" } {
             Write-Host "Release cancelled." -ForegroundColor Yellow
@@ -100,7 +128,7 @@ if (-not $Version) {
                 $Version = $choice
                 Write-Host "Selected: $Version (custom)" -ForegroundColor Green
             } else {
-                Write-Error "Invalid choice. Please run again and select 1-5, Q, or enter a valid version number."
+                Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number."
                 exit 1
             }
         }
@@ -166,7 +194,7 @@ Write-Host "`n=== Creating Release v$Version ===" -ForegroundColor Cyan
 Write-Host "`n--- Changelog Entry ---" -ForegroundColor Yellow
 Write-Host "Describe the changes in this release (enter each item, blank line when done):"
 
-$changelogEntries = @()
+$changelogEntries = @{}
 $categoryPrompts = @{
     "Added" = "New features (e.g., 'Undo functionality with Ctrl+Z')"
     "Changed" = "Changes to existing functionality"
@@ -213,12 +241,16 @@ if (Test-Path $changelogPath) {
     # Insert new entry after the header
     if ($existingChangelog -match '(# Changelog\s*)(.*)') {
         $newChangelog = $matches[1] + $changelogContent + $matches[2]
-        Set-Content $changelogPath $newChangelog
+        if (-not $DryRun) {
+            Set-Content $changelogPath $newChangelog
+        }
     } else {
         # No proper header, prepend to file
-        Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
+        if (-not $DryRun) {
+            Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
+        }
     }
-    Write-Host "`nUpdated CHANGELOG.md" -ForegroundColor Green
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
 } else {
     # Create new CHANGELOG.md
     $header = @"
@@ -230,66 +262,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 "@
-    Set-Content $changelogPath ($header + $changelogContent)
-    Write-Host "`nCreated CHANGELOG.md" -ForegroundColor Green
+    if (-not $DryRun) {
+        Set-Content $changelogPath ($header + $changelogContent)
+    }
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Created' }) CHANGELOG.md" -ForegroundColor Green
 }
 
 # Update manifest.json only if version changed
 if ($Version -ne $currentVersion) {
-    Write-Host "`nUpdating manifest.json..." -ForegroundColor Yellow
-    $manifest.version = $Version
-    $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
+    if (-not $DryRun) {
+        $manifest.version = $Version
+        $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
+    }
     Write-Host "Version: $currentVersion -> $Version" -ForegroundColor Green
 } else {
     Write-Host "`nVersion unchanged: $Version" -ForegroundColor Yellow
 }
 
 # Commit the version change
-Write-Host "`nCommitting changes..." -ForegroundColor Yellow
-git add $manifestPath
-if (Test-Path "CHANGELOG.md") {
-    git add CHANGELOG.md
-}
-git commit -m "Release v$Version"
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
+if (-not $DryRun) {
+    git add $manifestPath
+    if (Test-Path "CHANGELOG.md") {
+        git add CHANGELOG.md
+    }
+    git commit -m "Release v$Version"
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to commit changes"
-    exit 1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to commit changes"
+        exit 1
+    }
+} else {
+    Write-Host "Files to commit: manifest.json, CHANGELOG.md" -ForegroundColor Cyan
+    Write-Host "Commit message: 'Release v$Version'" -ForegroundColor Cyan
 }
 
 # Create and push tag
-Write-Host "`nCreating git tag v$Version..." -ForegroundColor Yellow
-git tag -a "v$Version" -m "Release v$Version"
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$Version..." -ForegroundColor Yellow
+if (-not $DryRun) {
+    git tag -a "v$Version" -m "Release v$Version"
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to create tag"
-    exit 1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to create tag"
+        exit 1
+    }
 }
 
 # Push to GitHub
-Write-Host "`nPushing to GitHub..." -ForegroundColor Yellow
-git push origin main
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would push' } else { 'Pushing' }) to GitHub..." -ForegroundColor Yellow
+if (-not $DryRun) {
+    git push origin main
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to push to main"
-    exit 1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to push to main"
+        exit 1
+    }
+
+    git push origin "v$Version"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to push tag"
+        exit 1
+    }
+} else {
+    Write-Host "Would push to: origin main" -ForegroundColor Cyan
+    Write-Host "Would push tag: v$Version" -ForegroundColor Cyan
 }
 
-git push origin "v$Version"
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to push tag"
-    exit 1
-}
-
-Write-Host "`n=== Release v$Version Created Successfully ===" -ForegroundColor Green
+Write-Host "`n=== $(if ($DryRun) { 'DRY RUN: Release v' + $Version + ' Summary' } else { 'Release v' + $Version + ' Created Successfully' }) ===" -ForegroundColor Green
 Write-Host "`nChangelog preview:" -ForegroundColor Cyan
 Write-Host $changelogContent
 
-Write-Host "`nNext steps:" -ForegroundColor Cyan
-Write-Host "  1. Go to https://github.com/kneave/climate-scheduler/releases/new"
-Write-Host "  2. Select tag: v$Version"
-Write-Host "  3. Set title: v$Version"
-Write-Host "  4. Copy the changelog content above into the release notes"
-Write-Host "  5. Click 'Publish release'"
-Write-Host "`nHACS will automatically detect the new release within 24 hours.`n"
+if ($DryRun) {
+    Write-Host "`n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
+    Write-Host "Run without -DryRun to perform the actual release.`n" -ForegroundColor Yellow
+} else {
+    Write-Host "`nNext steps:" -ForegroundColor Cyan
+    Write-Host "  1. Go to https://github.com/kneave/climate-scheduler/releases/new"
+    Write-Host "  2. Select tag: v$Version"
+    Write-Host "  3. Set title: v$Version"
+    Write-Host "  4. Copy the changelog content above into the release notes"
+    Write-Host "  5. Click 'Publish release'"
+    Write-Host "`nHACS will automatically detect the new release within 24 hours.`n"
+}
