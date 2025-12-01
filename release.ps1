@@ -5,13 +5,16 @@
 
 .DESCRIPTION
     Updates the version in manifest.json, commits the change, creates a git tag,
-    and pushes to GitHub. After running this, create the GitHub release manually.
+    pushes to GitHub, and creates a GitHub release.
 
 .PARAMETER Version
     The version number to release (e.g., 1.0.5). If not provided, reads current version from manifest.json.
 
 .PARAMETER DryRun
     Run in dry-run mode - shows what would happen without making any changes.
+
+.PARAMETER SkipGitHub
+    Skip creating the GitHub release (only commit, tag, and push).
 
 .EXAMPLE
     .\release.ps1 1.0.5
@@ -30,7 +33,10 @@ param(
     [string]$Version,
     
     [Parameter(Mandatory=$false)]
-    [switch]$DryRun
+    [switch]$DryRun,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$SkipGitHub
 )
 
 # Check if we're in the right directory
@@ -41,6 +47,54 @@ if (-not (Test-Path "custom_components\climate_scheduler\manifest.json")) {
 
 if ($DryRun) {
     Write-Host "`n*** DRY RUN MODE - No changes will be made ***`n" -ForegroundColor Magenta
+}
+
+# Check if GitHub CLI is available
+$ghPath = $null
+$hasGhCli = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
+
+# If not in PATH, check default installation location
+if (-not $hasGhCli) {
+    $defaultGhPath = "C:\Program Files\GitHub CLI\gh.exe"
+    if (Test-Path $defaultGhPath) {
+        $ghPath = $defaultGhPath
+        $hasGhCli = $true
+        Write-Host "`nGitHub CLI found at: $ghPath" -ForegroundColor Gray
+        Write-Host "Adding to PATH for this session..." -ForegroundColor Gray
+        $env:Path += ";C:\Program Files\GitHub CLI"
+    }
+}
+
+if (-not $hasGhCli -and -not $SkipGitHub) {
+    Write-Host "`nGitHub CLI (gh) not found." -ForegroundColor Yellow
+    Write-Host "To automatically create GitHub releases, install the GitHub CLI." -ForegroundColor Gray
+    Write-Host "`nWould you like to install it now? (Y/N)" -ForegroundColor Cyan
+    $install = Read-Host "  "
+    
+    if ($install -eq 'Y' -or $install -eq 'y') {
+        Write-Host "`nInstalling GitHub CLI..." -ForegroundColor Yellow
+        
+        # Try winget first (most common on Windows)
+        $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+        if ($hasWinget) {
+            winget install --id GitHub.cli --silent
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "GitHub CLI installed successfully!" -ForegroundColor Green
+                Write-Host "Please close and reopen your terminal, then run this script again.`n" -ForegroundColor Yellow
+                exit 0
+            } else {
+                Write-Host "Installation failed. Please install manually from: https://cli.github.com/" -ForegroundColor Red
+                Write-Host "Then close and reopen your terminal.`n" -ForegroundColor Yellow
+                $SkipGitHub = $true
+            }
+        } else {
+            Write-Host "winget not found. Please install GitHub CLI manually from: https://cli.github.com/" -ForegroundColor Yellow
+            $SkipGitHub = $true
+        }
+    } else {
+        Write-Host "Skipping GitHub release creation. You can create it manually later.`n" -ForegroundColor Gray
+        $SkipGitHub = $true
+    }
 }
 
 # Get the latest git tag
@@ -381,15 +435,49 @@ Write-Host "`n=== $(if ($DryRun) { 'DRY RUN: Release v' + $Version + ' Summary' 
 Write-Host "`nChangelog preview:" -ForegroundColor Cyan
 Write-Host $changelogContent
 
+# Create GitHub release
+if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) GitHub release..." -ForegroundColor Yellow
+    
+    # Prompt for release title (optional)
+    Write-Host "`nRelease title (press Enter for 'v$Version'):" -ForegroundColor Cyan
+    $releaseTitle = Read-Host "  "
+    if ([string]::IsNullOrWhiteSpace($releaseTitle)) {
+        $releaseTitle = "v$Version"
+    }
+    
+    # Save changelog to temporary file for release notes
+    $tempChangelogFile = [System.IO.Path]::GetTempFileName()
+    $changelogContent | Set-Content $tempChangelogFile -Encoding UTF8
+    
+    try {
+        gh release create "v$Version" `
+            --title $releaseTitle `
+            --notes-file $tempChangelogFile
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "`nGitHub release created successfully!" -ForegroundColor Green
+            Write-Host "View at: https://github.com/kneave/climate-scheduler/releases/tag/v$Version" -ForegroundColor Cyan
+        } else {
+            Write-Host "`nFailed to create GitHub release. You can create it manually at:" -ForegroundColor Yellow
+            Write-Host "https://github.com/kneave/climate-scheduler/releases/new?tag=v$Version" -ForegroundColor Cyan
+        }
+    } finally {
+        Remove-Item $tempChangelogFile -ErrorAction SilentlyContinue
+    }
+}
+
 if ($DryRun) {
     Write-Host "`n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
     Write-Host "Run without -DryRun to perform the actual release.`n" -ForegroundColor Yellow
-} else {
+} elseif ($SkipGitHub -or -not $hasGhCli) {
     Write-Host "`nNext steps:" -ForegroundColor Cyan
     Write-Host "  1. Go to https://github.com/kneave/climate-scheduler/releases/new"
     Write-Host "  2. Select tag: v$Version"
-    Write-Host "  3. Set title: v$Version"
+    Write-Host "  3. Set title (e.g., 'v$Version' or 'v$Version - Description')"
     Write-Host "  4. Copy the changelog content above into the release notes"
     Write-Host "  5. Click 'Publish release'"
     Write-Host "`nHACS will automatically detect the new release within 24 hours.`n"
+} else {
+    Write-Host "`nHACS will automatically detect the new release within 24 hours.`n" -ForegroundColor Cyan
 }
