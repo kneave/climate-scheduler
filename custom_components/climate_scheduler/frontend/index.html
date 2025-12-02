@@ -113,6 +113,69 @@
             </div>
         </div>
 
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel collapsed">
+            <div class="settings-header" id="settings-toggle">
+                <h3>⚙️ Settings</h3>
+                <span class="collapse-indicator">▼</span>
+            </div>
+            <div class="settings-content">
+                <div class="settings-section">
+                    <h4>Default Schedule</h4>
+                    <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>
+                    
+                    <div class="graph-container">
+                        <svg id="default-schedule-graph" class="temperature-graph"></svg>
+                    </div>
+                    
+                    <!-- Default Schedule Node Settings Panel -->
+                    <div id="default-node-settings-panel" class="node-settings-panel" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4>Node Settings</h4>
+                            <button id="default-delete-node-btn" class="btn-danger-outline" style="padding: 4px 12px; font-size: 0.9rem;">Delete Node</button>
+                        </div>
+                        <div class="node-info">
+                            <span>Time: <strong id="default-node-time">--:--</strong></span>
+                            <span>Temperature: <strong id="default-node-temp">--°C</strong></span>
+                        </div>
+                        
+                        <div class="setting-item" id="default-hvac-mode-item">
+                            <label for="default-node-hvac-mode">HVAC Mode:</label>
+                            <select id="default-node-hvac-mode">
+                                <option value="">-- No Change --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-fan-mode-item">
+                            <label for="default-node-fan-mode">Fan Mode:</label>
+                            <select id="default-node-fan-mode">
+                                <option value="">-- No Change --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-swing-mode-item">
+                            <label for="default-node-swing-mode">Swing Mode:</label>
+                            <select id="default-node-swing-mode">
+                                <option value="">-- No Change --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-preset-mode-item">
+                            <label for="default-node-preset-mode">Preset Mode:</label>
+                            <select id="default-node-preset-mode">
+                                <option value="">-- No Change --</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-actions">
+                    <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
+                    <button id="save-settings" class="btn-primary">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
         <footer>
             <p id="version-info">Climate Scheduler v{{VERSION}}</p>
         </footer>

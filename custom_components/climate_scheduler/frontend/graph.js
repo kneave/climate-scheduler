@@ -857,6 +857,9 @@ class TemperatureGraph {
         
         this.nodes[this.draggingNode].temp = roundedTemp;
         
+        // Update the settings panel if it's showing this node
+        this.updateNodeSettingsIfVisible(this.draggingNode);
+        
         // Show tooltip with current values
         this.updateTooltip(
             this.timeToX(this.nodes[this.draggingNode].time),
@@ -874,8 +877,8 @@ class TemperatureGraph {
             const dragDistance = this.startDragPoint ? 
                 Math.sqrt(Math.pow(point.x - this.startDragPoint.x, 2) + Math.pow(point.y - this.startDragPoint.y, 2)) : 999;
             
-            // If didn't drag much (less than 5 pixels), treat as a click to show settings
-            if (dragDistance < 5) {
+            // If didn't drag much (less than 10 pixels), treat as a click to show settings
+            if (dragDistance < 10) {
                 // No actual drag happened - remove the saved state
                 if (this.undoStack.length > 0) {
                     this.undoStack.pop();
@@ -950,7 +953,6 @@ class TemperatureGraph {
     }
     
     getEventPoint(event) {
-        const rect = this.svg.getBoundingClientRect();
         let clientX, clientY;
         
         if (event.type.startsWith('touch')) {
@@ -962,13 +964,15 @@ class TemperatureGraph {
             clientY = event.clientY;
         }
         
-        // Convert to SVG coordinates
-        const scaleX = this.width / rect.width;
-        const scaleY = this.height / rect.height;
+        // Use SVG's native coordinate transformation
+        const pt = this.svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
         
         return {
-            x: (clientX - rect.left) * scaleX,
-            y: (clientY - rect.top) * scaleY
+            x: svgP.x,
+            y: svgP.y
         };
     }
     
@@ -1029,6 +1033,14 @@ class TemperatureGraph {
         // Dispatch event so app.js can handle it with entity context
         const event = new CustomEvent('nodeSettings', {
             detail: { nodeIndex, node }
+        });
+        this.svg.dispatchEvent(event);
+    }
+    
+    updateNodeSettingsIfVisible(nodeIndex) {
+        // Dispatch update event if this node's settings are currently visible
+        const event = new CustomEvent('nodeSettingsUpdate', {
+            detail: { nodeIndex, node: this.nodes[nodeIndex] }
         });
         this.svg.dispatchEvent(event);
     }

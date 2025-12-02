@@ -1131,3 +1131,90 @@ footer {
     border-radius: 0 0 12px 12px;
 }
 
+/* Settings Panel */
+.settings-panel {
+    background: var(--surface);
+    border-radius: 12px;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.settings-header {
+    padding: 16px 20px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface-light);
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.settings-header:hover {
+    background: #4d4d4d;
+}
+
+.settings-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.settings-header .collapse-indicator {
+    transition: transform 0.3s ease;
+    font-size: 0.8rem;
+}
+
+.settings-panel.collapsed .collapse-indicator {
+    transform: rotate(-90deg);
+}
+
+.settings-panel.collapsed .settings-content {
+    display: none;
+}
+
+.settings-content {
+    padding: 20px;
+}
+
+.settings-section {
+    margin-bottom: 24px;
+}
+
+.settings-section h4 {
+    margin-bottom: 8px;
+    color: var(--primary-color);
+    font-size: 1rem;
+}
+
+.settings-description {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+}
+
+.settings-section .graph-container {
+    margin-top: 16px;
+    background: var(--background);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 16px;
+}
+
+.settings-section .temperature-graph {
+    width: 100%;
+    height: 300px;
+}
+
+.settings-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+

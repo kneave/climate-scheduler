@@ -1061,21 +1061,24 @@ function attachEditorEventListeners(editorElement) {
 // Clear schedule for an entity
 async function clearScheduleForEntity(entityId) {
     try {
-        // Clear schedule from HA
-        await haAPI.clearSchedule(entityId);
+        // Reset to user-configured default schedule
+        const defaultSchedule = defaultScheduleSettings.map(node => ({...node}));
         
-        // Remove from local state
-        entitySchedules.delete(entityId);
+        // Save default schedule to HA
+        await haAPI.setSchedule(entityId, defaultSchedule);
         
-        // Set default empty schedule
+        // Update local state
+        entitySchedules.set(entityId, defaultSchedule);
+        
+        // Update graph with default schedule
         if (graph) {
-            graph.setNodes([{ time: '00:00', temp: 18 }]);
+            graph.setNodes(defaultSchedule);
         }
         
-        // Close editor and refresh list
-        collapseAllEditors();
-        currentEntityId = null;
-        await renderEntityList();
+        // Update current schedule reference
+        currentSchedule = defaultSchedule;
+        
+        await saveSchedule();
     } catch (error) {
         console.error('Failed to clear schedule:', error);
         alert('Failed to clear schedule. Please try again.');
@@ -1971,6 +1974,9 @@ function setupEventListeners() {
             }
         });
     }
+    
+    // Initialize settings panel
+    setupSettingsPanel();
 }
 
 // Handle node settings panel
@@ -2183,6 +2189,382 @@ setInterval(() => {
     updateScheduledTemp();
     updateAllGroupMemberScheduledTemps();
 }, 60000);
+
+// ===== Settings Panel =====
+
+// Default schedule settings
+let defaultScheduleSettings = [
+    { time: '00:00', temp: 18.0 },
+    { time: '07:00', temp: 21.0 },
+    { time: '23:00', temp: 18.0 }
+];
+
+let defaultScheduleGraph = null;
+
+// Load settings from server
+async function loadSettings() {
+    try {
+        const settings = await haAPI.getSettings();
+        if (settings && settings.defaultSchedule) {
+            defaultScheduleSettings = settings.defaultSchedule;
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+}
+
+// Save settings to server
+async function saveSettings() {
+    try {
+        const settings = {
+            defaultSchedule: defaultScheduleSettings
+        };
+        await haAPI.saveSettings(settings);
+        console.log('Settings saved:', settings);
+        return true;
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+        return false;
+    }
+}
+
+// Handle default schedule graph changes
+function handleDefaultScheduleChange(event) {
+    defaultScheduleSettings = event.detail.nodes;
+}
+
+// Setup settings panel event listeners
+async function setupSettingsPanel() {
+    await loadSettings();
+    
+    // Initialize the default schedule graph
+    const svgElement = document.getElementById('default-schedule-graph');
+    if (svgElement) {
+        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit);
+        defaultScheduleGraph.setNodes(defaultScheduleSettings);
+        
+        // Attach event listener for changes
+        svgElement.addEventListener('nodesChanged', handleDefaultScheduleChange);
+        
+        // Attach node settings listener
+        svgElement.addEventListener('nodeSettings', handleDefaultNodeSettings);
+        
+        // Attach node settings update listener (for drag updates)
+        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
+            const { nodeIndex, node } = event.detail;
+            const panel = document.getElementById('default-node-settings-panel');
+            
+            // Only update if this node's panel is currently showing
+            if (panel && panel.style.display !== 'none' && panel.dataset.nodeIndex == nodeIndex) {
+                document.getElementById('default-node-time').textContent = node.time;
+                document.getElementById('default-node-temp').textContent = `${node.temp}${temperatureUnit}`;
+            }
+        });
+    }
+    
+    // Toggle collapse
+    const toggle = document.getElementById('settings-toggle');
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            const panel = document.getElementById('settings-panel');
+            panel.classList.toggle('collapsed');
+        });
+    }
+    
+    // Reset button
+    const resetBtn = document.getElementById('reset-defaults');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+            if (confirm('Reset to default schedule settings?')) {
+                defaultScheduleSettings = [
+                    { time: '00:00', temp: 18.0 },
+                    { time: '07:00', temp: 21.0 },
+                    { time: '23:00', temp: 18.0 }
+                ];
+                
+                if (defaultScheduleGraph) {
+                    defaultScheduleGraph.setNodes(defaultScheduleSettings);
+                }
+                
+                const success = await saveSettings();
+                if (success) {
+                    resetBtn.textContent = '✓ Reset!';
+                    setTimeout(() => {
+                        resetBtn.textContent = 'Reset to Defaults';
+                    }, 2000);
+                }
+            }
+        });
+    }
+    
+    // Save button
+    const saveBtn = document.getElementById('save-settings');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const success = await saveSettings();
+            
+            // Visual feedback
+            if (success) {
+                saveBtn.textContent = '✓ Saved!';
+                setTimeout(() => {
+                    saveBtn.textContent = 'Save Settings';
+                }, 2000);
+            } else {
+                saveBtn.textContent = '✗ Failed';
+                setTimeout(() => {
+                    saveBtn.textContent = 'Save Settings';
+                }, 2000);
+            }
+        });
+    }
+}
+
+// Handle node settings for default schedule
+function handleDefaultNodeSettings(event) {
+    const { nodeIndex, node } = event.detail;
+    
+    console.log('Default schedule node clicked:', nodeIndex, node);
+    
+    // Check if default node settings panel exists
+    const panel = document.getElementById('default-node-settings-panel');
+    if (!panel) {
+        console.log('Default node settings panel not available');
+        return;
+    }
+    
+    console.log('Panel found, updating with node data...');
+    
+    // Aggregate all possible modes from all climate entities
+    const hvacModesSet = new Set();
+    const fanModesSet = new Set();
+    const swingModesSet = new Set();
+    const presetModesSet = new Set();
+    
+    climateEntities.forEach(entity => {
+        if (entity.attributes.hvac_modes) {
+            entity.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
+        }
+        if (entity.attributes.fan_modes) {
+            entity.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
+        }
+        if (entity.attributes.swing_modes) {
+            entity.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
+        }
+        if (entity.attributes.preset_modes) {
+            entity.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
+        }
+    });
+    
+    const allHvacModes = Array.from(hvacModesSet);
+    const allFanModes = Array.from(fanModesSet);
+    const allSwingModes = Array.from(swingModesSet);
+    const allPresetModes = Array.from(presetModesSet);
+    
+    // Update panel content - get fresh references
+    const nodeTimeEl = document.getElementById('default-node-time');
+    const nodeTempEl = document.getElementById('default-node-temp');
+    if (!nodeTimeEl || !nodeTempEl) return;
+    
+    nodeTimeEl.textContent = node.time;
+    nodeTempEl.textContent = `${node.temp}${temperatureUnit}`;
+    
+    console.log('Updated time and temp displays');
+    
+    // Get fresh references to all elements
+    const hvacModeSelect = document.getElementById('default-node-hvac-mode');
+    const hvacModeItem = document.getElementById('default-hvac-mode-item');
+    const fanModeSelect = document.getElementById('default-node-fan-mode');
+    const fanModeItem = document.getElementById('default-fan-mode-item');
+    const swingModeSelect = document.getElementById('default-node-swing-mode');
+    const swingModeItem = document.getElementById('default-swing-mode-item');
+    const presetModeSelect = document.getElementById('default-node-preset-mode');
+    const presetModeItem = document.getElementById('default-preset-mode-item');
+    
+    console.log('Populating dropdowns...', {
+        hvacModes: allHvacModes.length,
+        fanModes: allFanModes.length,
+        swingModes: allSwingModes.length,
+        presetModes: allPresetModes.length
+    });
+    
+    // Populate HVAC mode dropdown
+    if (hvacModeSelect && hvacModeItem) {
+        if (allHvacModes.length > 0) {
+            hvacModeSelect.innerHTML = '<option value="">-- No Change --</option>';
+            allHvacModes.forEach(mode => {
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (node.hvac_mode === mode) option.selected = true;
+                hvacModeSelect.appendChild(option);
+            });
+            hvacModeItem.style.display = '';
+        } else {
+            hvacModeItem.style.display = 'none';
+        }
+    }
+    
+    // Populate fan mode dropdown
+    if (fanModeSelect && fanModeItem) {
+        if (allFanModes.length > 0) {
+            fanModeSelect.innerHTML = '<option value="">-- No Change --</option>';
+            allFanModes.forEach(mode => {
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (node.fan_mode === mode) option.selected = true;
+                fanModeSelect.appendChild(option);
+            });
+            fanModeItem.style.display = '';
+        } else {
+            fanModeItem.style.display = 'none';
+        }
+    }
+    
+    // Populate swing mode dropdown
+    if (swingModeSelect && swingModeItem) {
+        if (allSwingModes.length > 0) {
+            swingModeSelect.innerHTML = '<option value="">-- No Change --</option>';
+            allSwingModes.forEach(mode => {
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (node.swing_mode === mode) option.selected = true;
+                swingModeSelect.appendChild(option);
+            });
+            swingModeItem.style.display = '';
+        } else {
+            swingModeItem.style.display = 'none';
+        }
+    }
+    
+    // Populate preset mode dropdown
+    if (presetModeSelect && presetModeItem) {
+        if (allPresetModes.length > 0) {
+            presetModeSelect.innerHTML = '<option value="">-- No Change --</option>';
+            allPresetModes.forEach(mode => {
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (node.preset_mode === mode) option.selected = true;
+                presetModeSelect.appendChild(option);
+            });
+            presetModeItem.style.display = '';
+        } else {
+            presetModeItem.style.display = 'none';
+        }
+    }
+    
+    // Setup auto-save for default schedule
+    const autoSaveDefaultNodeSettings = async () => {
+        if (!panel) return;
+        
+        const nodeIdx = parseInt(panel.dataset.nodeIndex);
+        if (isNaN(nodeIdx) || !defaultScheduleGraph) return;
+        
+        // Get the actual node from the graph
+        const targetNode = defaultScheduleGraph.nodes[nodeIdx];
+        if (!targetNode) return;
+        
+        // Get fresh references
+        const hvacSelect = document.getElementById('default-node-hvac-mode');
+        const hvacItem = document.getElementById('default-hvac-mode-item');
+        const fanSelect = document.getElementById('default-node-fan-mode');
+        const fanItem = document.getElementById('default-fan-mode-item');
+        const swingSelect = document.getElementById('default-node-swing-mode');
+        const swingItem = document.getElementById('default-swing-mode-item');
+        const presetSelect = document.getElementById('default-node-preset-mode');
+        const presetItem = document.getElementById('default-preset-mode-item');
+        
+        // Update or delete properties based on dropdown values
+        if (hvacSelect && hvacItem && hvacItem.style.display !== 'none') {
+            const hvacMode = hvacSelect.value;
+            if (hvacMode) {
+                targetNode.hvac_mode = hvacMode;
+            } else {
+                delete targetNode.hvac_mode;
+            }
+        }
+        
+        if (fanSelect && fanItem && fanItem.style.display !== 'none') {
+            const fanMode = fanSelect.value;
+            if (fanMode) {
+                targetNode.fan_mode = fanMode;
+            } else {
+                delete targetNode.fan_mode;
+            }
+        }
+        
+        if (swingSelect && swingItem && swingItem.style.display !== 'none') {
+            const swingMode = swingSelect.value;
+            if (swingMode) {
+                targetNode.swing_mode = swingMode;
+            } else {
+                delete targetNode.swing_mode;
+            }
+        }
+        
+        if (presetSelect && presetItem && presetItem.style.display !== 'none') {
+            const presetMode = presetSelect.value;
+            if (presetMode) {
+                targetNode.preset_mode = presetMode;
+            } else {
+                delete targetNode.preset_mode;
+            }
+        }
+        
+        // Update the settings array
+        defaultScheduleSettings = defaultScheduleGraph.getNodes();
+    };
+    
+    // Attach change listeners to the freshly populated dropdowns
+    const finalHvacSelect = document.getElementById('default-node-hvac-mode');
+    const finalFanSelect = document.getElementById('default-node-fan-mode');
+    const finalSwingSelect = document.getElementById('default-node-swing-mode');
+    const finalPresetSelect = document.getElementById('default-node-preset-mode');
+    
+    if (finalHvacSelect) {
+        finalHvacSelect.addEventListener('change', autoSaveDefaultNodeSettings);
+    }
+    if (finalFanSelect) {
+        finalFanSelect.addEventListener('change', autoSaveDefaultNodeSettings);
+    }
+    if (finalSwingSelect) {
+        finalSwingSelect.addEventListener('change', autoSaveDefaultNodeSettings);
+    }
+    if (finalPresetSelect) {
+        finalPresetSelect.addEventListener('change', autoSaveDefaultNodeSettings);
+    }
+    
+    console.log('Event listeners attached, showing panel');
+    
+    // Setup delete button
+    const deleteBtn = document.getElementById('default-delete-node-btn');
+    if (deleteBtn) {
+        const newDeleteBtn = deleteBtn.cloneNode(true);
+        deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
+        
+        newDeleteBtn.addEventListener('click', () => {
+            if (defaultScheduleGraph.nodes.length <= 1) {
+                alert('Cannot delete the last node. A schedule must have at least one node.');
+                return;
+            }
+            
+            if (confirm('Delete this node?')) {
+                defaultScheduleGraph.removeNodeByIndex(nodeIndex);
+                defaultScheduleSettings = defaultScheduleGraph.getNodes();
+                panel.style.display = 'none';
+            }
+        });
+    }
+    
+    // Show panel
+    panel.style.display = 'block';
+    panel.dataset.nodeIndex = nodeIndex;
+    
+    // Scroll to panel
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
 
 // Initialize app when DOM is ready
 if (document.readyState === 'loading') {

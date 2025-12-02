@@ -288,6 +288,26 @@ class HomeAssistantAPI {
         });
     }
     
+    async getSettings() {
+        try {
+            const result = await this.callService('climate_scheduler', 'get_settings', {}, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to get settings:', error);
+            return {};
+        }
+    }
+    
+    async saveSettings(settings) {
+        try {
+            await this.callService('climate_scheduler', 'save_settings', { settings: JSON.stringify(settings) });
+            return true;
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+            throw error;
+        }
+    }
+    
     onStateUpdate(callback) {
         this.stateUpdateCallbacks.push(callback);
     }

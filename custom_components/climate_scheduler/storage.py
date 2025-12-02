@@ -229,3 +229,16 @@ class ScheduleStorage:
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes")
+
+    async def async_get_settings(self) -> Dict[str, Any]:
+        """Get user settings."""
+        return self._data.get("settings", {})
+    
+    async def async_save_settings(self, settings: Dict[str, Any]) -> None:
+        """Save user settings."""
+        if "settings" not in self._data:
+            self._data["settings"] = {}
+        
+        self._data["settings"] = settings
+        await self.async_save()
+        _LOGGER.info(f"Saved settings: {settings}")

@@ -208,6 +208,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             _LOGGER.error(f"Failed to set group schedule: {e}")
             raise
     
+    async def handle_get_settings(call: ServiceCall) -> dict:
+        """Handle get_settings service call."""
+        settings = await storage.async_get_settings()
+        return settings
+    
+    async def handle_save_settings(call: ServiceCall) -> None:
+        """Handle save_settings service call."""
+        settings_json = call.data.get("settings", "{}")
+        try:
+            settings = json.loads(settings_json)
+            await storage.async_save_settings(settings)
+            _LOGGER.info(f"Settings saved")
+        except (json.JSONDecodeError, ValueError) as e:
+            _LOGGER.error(f"Failed to save settings: {e}")
+            raise
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -220,6 +236,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, schema=SET_GROUP_SCHEDULE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
     
     # Register frontend panel
     await async_register_panel(hass)
