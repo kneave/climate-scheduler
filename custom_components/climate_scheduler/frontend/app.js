@@ -249,6 +249,26 @@ function createGroupContainer(groupName, groupData) {
     const actions = document.createElement('div');
     actions.className = 'group-actions';
     
+    // Add enabled toggle
+    const toggleContainer = document.createElement('label');
+    toggleContainer.className = 'toggle-switch';
+    toggleContainer.style.marginRight = '12px';
+    toggleContainer.onclick = (e) => e.stopPropagation();
+    
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.checked = groupData.enabled !== false;
+    toggleInput.onchange = async (e) => {
+        e.stopPropagation();
+        await toggleGroupEnabled(groupName, toggleInput.checked);
+    };
+    
+    const toggleSlider = document.createElement('span');
+    toggleSlider.className = 'slider';
+    
+    toggleContainer.appendChild(toggleInput);
+    toggleContainer.appendChild(toggleSlider);
+    
     const editBtn = document.createElement('button');
     editBtn.textContent = 'Edit Schedule';
     editBtn.onclick = (e) => {
@@ -407,11 +427,10 @@ async function editGroupSchedule(groupName) {
     await loadGroupHistoryData(groupData.entities);
     console.log('Group history loaded for entities:', groupData.entities);
     
-    // Group schedules don't have enabled/disabled state - hide the toggle
+    // Set enabled state from saved group data
     const scheduleEnabled = editor.querySelector('#schedule-enabled');
     if (scheduleEnabled) {
-        scheduleEnabled.checked = true;
-        scheduleEnabled.closest('.toggle-switch').style.display = 'none';
+        scheduleEnabled.checked = groupData.enabled !== false;
     }
     
     updateScheduledTemp();
@@ -559,6 +578,28 @@ async function deleteGroup(groupName) {
     } catch (error) {
         console.error('Failed to delete group:', error);
         alert('Failed to delete group');
+    }
+}
+
+// Toggle group enabled/disabled
+async function toggleGroupEnabled(groupName, enabled) {
+    try {
+        if (enabled) {
+            await haAPI.enableGroup(groupName);
+        } else {
+            await haAPI.disableGroup(groupName);
+        }
+        
+        // Update local state
+        if (allGroups[groupName]) {
+            allGroups[groupName].enabled = enabled;
+        }
+        
+        console.log(`Group '${groupName}' ${enabled ? 'enabled' : 'disabled'}`);
+    } catch (error) {
+        console.error(`Failed to ${enabled ? 'enable' : 'disable'} group:`, error);
+        // Reload to sync state
+        await loadGroups();
     }
 }
 
@@ -1113,7 +1154,7 @@ async function loadEntitySchedule(entityId) {
             graph.setNodes(schedule.nodes);
             document.getElementById('schedule-enabled').checked = schedule.enabled !== false;
         } else {
-            // Load default schedule - 18°C all day
+            // New schedule - load default and enable it
             graph.setNodes([
                 { time: '00:00', temp: 18 }
             ]);
@@ -1286,9 +1327,22 @@ async function saveSchedule() {
     if (currentGroup) {
         try {
             const nodes = graph.getNodes();
+            const enabled = document.getElementById('schedule-enabled').checked;
             
             // Save to group schedule
             await haAPI.setGroupSchedule(currentGroup, nodes);
+            
+            // Update enabled state
+            if (enabled) {
+                await haAPI.enableGroup(currentGroup);
+            } else {
+                await haAPI.disableGroup(currentGroup);
+            }
+            
+            // Update local state
+            if (allGroups[currentGroup]) {
+                allGroups[currentGroup].enabled = enabled;
+            }
         } catch (error) {
             console.error('Failed to auto-save group schedule:', error);
         }

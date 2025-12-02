@@ -75,6 +75,14 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
     ])
 })
 
+ENABLE_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
+DISABLE_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Climate Scheduler component."""
@@ -146,6 +154,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         entity_id = call.data["entity_id"]
         await storage.async_set_enabled(entity_id, True)
         _LOGGER.info(f"Schedule enabled for {entity_id}")
+        
+        # Clear last node state to force immediate update
+        if entity_id in coordinator.last_node_states:
+            del coordinator.last_node_states[entity_id]
+        
+        # Immediately apply the current schedule
+        await coordinator.async_refresh()
     
     async def handle_disable_schedule(call: ServiceCall) -> None:
         """Handle disable_schedule service call."""
@@ -203,9 +218,39 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         nodes = call.data["nodes"]
         try:
             await storage.async_set_group_schedule(group_name, nodes)
-            _LOGGER.info(f"Schedule set for group '{group_name}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to set group schedule: {e}")
+            _LOGGER.info(f"Set schedule for group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error setting group schedule: {err}")
+            raise
+    
+    async def handle_enable_group(call: ServiceCall) -> None:
+        """Handle enable_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_enable_group(group_name)
+            _LOGGER.info(f"Enabled group '{group_name}'")
+            
+            # Clear last node states for all entities in the group to force immediate update
+            group_data = await storage.async_get_groups()
+            if group_name in group_data and "entities" in group_data[group_name]:
+                for entity_id in group_data[group_name]["entities"]:
+                    if entity_id in coordinator.last_node_states:
+                        del coordinator.last_node_states[entity_id]
+            
+            # Immediately apply the current schedule to all entities in the group
+            await coordinator.async_refresh()
+        except ValueError as err:
+            _LOGGER.error(f"Error enabling group: {err}")
+            raise
+    
+    async def handle_disable_group(call: ServiceCall) -> None:
+        """Handle disable_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_disable_group(group_name)
+            _LOGGER.info(f"Disabled group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error disabling group: {err}")
             raise
     
     async def handle_get_settings(call: ServiceCall) -> dict:
@@ -236,6 +281,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, schema=SET_GROUP_SCHEDULE_SCHEMA)
+    hass.services.async_register(DOMAIN, "enable_group", handle_enable_group, schema=ENABLE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, schema=DISABLE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
     

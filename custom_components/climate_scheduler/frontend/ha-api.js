@@ -258,6 +258,18 @@ class HomeAssistantAPI {
         });
     }
     
+    async enableGroup(groupName) {
+        return await this.callService('climate_scheduler', 'enable_group', {
+            group_name: groupName
+        });
+    }
+    
+    async disableGroup(groupName) {
+        return await this.callService('climate_scheduler', 'disable_group', {
+            group_name: groupName
+        });
+    }
+    
     async getHistory(entityId, startTime, endTime) {
         try {
             // Format times as ISO strings

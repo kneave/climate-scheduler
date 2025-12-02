@@ -229,6 +229,24 @@ class ScheduleStorage:
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes")
+    
+    async def async_enable_group(self, group_name: str) -> None:
+        """Enable a group schedule."""
+        if group_name not in self._data.get("groups", {}):
+            raise ValueError(f"Group '{group_name}' does not exist")
+        
+        self._data["groups"][group_name]["enabled"] = True
+        await self.async_save()
+        _LOGGER.info(f"Enabled group '{group_name}'")
+    
+    async def async_disable_group(self, group_name: str) -> None:
+        """Disable a group schedule."""
+        if group_name not in self._data.get("groups", {}):
+            raise ValueError(f"Group '{group_name}' does not exist")
+        
+        self._data["groups"][group_name]["enabled"] = False
+        await self.async_save()
+        _LOGGER.info(f"Disabled group '{group_name}'")
 
     async def async_get_settings(self) -> Dict[str, Any]:
         """Get user settings."""
