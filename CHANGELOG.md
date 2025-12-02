@@ -2,15 +2,9 @@
 
 
 
-## [1.2.0] - 2025-12-02
-### Added
-- Added group control for HVAC modes
-- Added settings pane for defaults and other functions
 
-### Changed
-- Added a new mode for the tooltip so you can see historic data or values under the pointer
-
+## [1.2.1] - 2025-12-02
 ### Fixed
-- HVAC handling was broken, hopefully fixed it...
+- logging method kept in code in error
 
-## [1.1.0] - 2025-12-01
+## [1.2.0] - 2025-12-02
