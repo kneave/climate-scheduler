@@ -578,6 +578,11 @@ body {
     user-select: none;
 }
 
+/* Graph node selection highlight */
+#temperature-graph circle.node {
+    transition: fill 0.2s ease-out;
+}
+
 .graph-instructions {
     background: var(--surface-light);
     border-radius: 8px;
@@ -714,6 +719,24 @@ footer {
     color: var(--text-primary);
 }
 
+.btn-nav-node {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-weight: bold;
+}
+
+.btn-nav-node:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
 .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -765,6 +788,78 @@ footer {
 .setting-item select:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+}
+
+/* Input spinner controls */
+.input-spinner {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.spinner-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+    min-width: 24px;
+}
+
+.spinner-btn:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.time-input {
+    padding: 6px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 90px;
+    text-align: center;
+}
+
+.time-input:focus {
+    border-color: var(--primary-color);
+}
+
+.temp-input {
+    padding: 6px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 70px;
+    text-align: center;
+}
+
+.temp-input:focus {
+    border-color: var(--primary-color);
+}
+
+/* Remove number input arrows for temp input */
+.temp-input::-webkit-inner-spin-button,
+.temp-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.temp-input[type=number] {
+    -moz-appearance: textfield;
 }
 
 .settings-actions {
@@ -1210,6 +1305,66 @@ footer {
 .settings-section .temperature-graph {
     width: 100%;
     height: 300px;
+}
+
+/* Debug Panel */
+.debug-panel {
+    margin-top: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.debug-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--surface-light);
+    border-bottom: 1px solid var(--border);
+}
+
+.debug-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.debug-content {
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.debug-message {
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    border-left: 3px solid var(--border);
+    background: var(--background);
+    border-radius: 2px;
+}
+
+.debug-message.info {
+    border-left-color: var(--primary-color);
+}
+
+.debug-message.warning {
+    border-left-color: #ff9800;
+    background: rgba(255, 152, 0, 0.1);
+}
+
+.debug-message.error {
+    border-left-color: #f44336;
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.debug-timestamp {
+    color: var(--text-secondary);
+    margin-right: 8px;
 }
 
 .settings-actions {

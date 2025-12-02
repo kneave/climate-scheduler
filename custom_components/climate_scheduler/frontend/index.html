@@ -173,11 +173,27 @@
                         </select>
                         <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
                     </div>
+                    <div class="setting-item" style="margin-top: 15px;">
+                        <label>
+                            <input type="checkbox" id="debug-panel-toggle" style="margin-right: 8px;"> Show Debug Panel
+                        </label>
+                    </div>
                 </div>
                 
                 <div class="settings-actions">
                     <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Debug Panel -->
+        <div id="debug-panel" class="debug-panel" style="display: none;">
+            <div class="debug-header">
+                <h3>Debug Console</h3>
+                <button id="clear-debug" class="btn-secondary" style="padding: 4px 8px; font-size: 0.85rem;">Clear</button>
+            </div>
+            <div id="debug-content" class="debug-content">
+                <!-- Debug messages will appear here -->
             </div>
         </div>
 

@@ -176,6 +176,12 @@ class HomeAssistantAPI {
         return await this.sendRequest(requestData);
     }
     
+    async setLogLevel(level = 'debug') {
+        return await this.callService('logger', 'set_level', {
+            'custom_components.climate_scheduler': level
+        });
+    }
+    
     async getSchedule(entityId) {
         try {
             // Call our custom service to get schedule with return_response

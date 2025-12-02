@@ -21,6 +21,8 @@ class TemperatureGraph {
         this.undoStack = [];
         this.undoButton = null;
         this.tooltipMode = 'history'; // 'history' or 'cursor'
+        this.hoveredNode = null; // Track which node is being hovered
+        this.selectedNodeIndex = null; // Track which node has settings panel visible
         
         // Graph dimensions
         this.width = 800;
@@ -752,11 +754,12 @@ class TemperatureGraph {
             touchTarget.classList.add('node-touch-target');
             
             // Visible node
+            const isSelected = this.selectedNodeIndex === index;
             const circle = this.createSVGElement('circle', {
                 cx: x,
                 cy: y,
                 r: this.nodeRadius,
-                fill: '#03a9f4',
+                fill: isSelected ? '#4caf50' : '#03a9f4',
                 stroke: '#fff',
                 'stroke-width': 2,
                 cursor: 'pointer',
@@ -796,6 +799,10 @@ class TemperatureGraph {
         this.svg.addEventListener('mouseup', this.handlePointerUp.bind(this));
         this.svg.addEventListener('mouseleave', (e) => {
             this.hideTooltip();
+            if (this.hoveredNode !== null) {
+                this.hoveredNode = null;
+                this.render();
+            }
         });
         
         // Also listen for mouseup on document to catch releases outside the SVG
@@ -864,6 +871,13 @@ class TemperatureGraph {
         const point = this.getEventPoint(event);
         
         if (this.draggingNode === null) {
+            // Update hovered node based on cursor position
+            const hoveredNodeIndex = this.getNodeAtPoint(point);
+            if (hoveredNodeIndex !== this.hoveredNode) {
+                this.hoveredNode = hoveredNodeIndex;
+                this.render();
+            }
+            
             // Not dragging - show tooltip based on mode
             const isInGraphArea = point.x >= this.padding.left && 
                                    point.x <= this.width - this.padding.right &&
@@ -1098,6 +1112,10 @@ class TemperatureGraph {
     showNodeSettings(nodeIndex) {
         const node = this.nodes[nodeIndex];
         if (!node) return;
+        
+        // Update selected node and re-render to show green highlight
+        this.selectedNodeIndex = nodeIndex;
+        this.render();
         
         // Dispatch event so app.js can handle it with entity context
         const event = new CustomEvent('nodeSettings', {

@@ -12,6 +12,24 @@ let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
 let allGroups = {}; // Store all groups data
 let currentGroup = null; // Currently selected group
 let tooltipMode = 'history'; // 'history' or 'cursor'
+let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
+
+// Debug logging function
+function debugLog(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] ${message}`);
+    
+    if (debugPanelEnabled) {
+        const debugContent = document.getElementById('debug-content');
+        if (debugContent) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `debug-message ${type}`;
+            messageDiv.innerHTML = `<span class="debug-timestamp">${timestamp}</span>${message}`;
+            debugContent.appendChild(messageDiv);
+            debugContent.scrollTop = debugContent.scrollHeight;
+        }
+    }
+}
 
 // Initialize application
 async function initApp() {
@@ -47,6 +65,9 @@ async function initApp() {
         // Subscribe to state changes
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
+        
+        // Subscribe to system logs
+        haAPI.onLogEntry(handleLogEntry);
         
         // Set up UI event listeners
         setupEventListeners();
@@ -852,17 +873,29 @@ function createScheduleEditor() {
                 <!-- Node Settings Panel (inline below graph) -->
                 <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
                     <div class="settings-header">
-                        <h3>Node Settings</h3>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
+                            <h3>Node Settings</h3>
+                            <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
+                        </div>
                         <button id="close-settings" class="btn-close-settings">✕</button>
                     </div>
                     <div class="settings-grid">
                         <div class="setting-item">
                             <label>Time:</label>
-                            <span id="node-time" class="setting-value">--:--</span>
+                            <div class="input-spinner">
+                                <button class="spinner-btn" id="time-down" title="-15 minutes">▼</button>
+                                <input type="time" id="node-time-input" class="time-input" />
+                                <button class="spinner-btn" id="time-up" title="+15 minutes">▲</button>
+                            </div>
                         </div>
                         <div class="setting-item">
                             <label>Temperature:</label>
-                            <span id="node-temp" class="setting-value">--°C</span>
+                            <div class="input-spinner">
+                                <button class="spinner-btn" id="temp-down" title="-0.5°">▼</button>
+                                <input type="number" id="node-temp-input" class="temp-input" step="0.5" />
+                                <button class="spinner-btn" id="temp-up" title="+0.5°">▲</button>
+                            </div>
                         </div>
                         <div class="setting-item">
                             <label>HVAC Mode:</label>
@@ -1034,9 +1067,171 @@ function attachEditorEventListeners(editorElement) {
     if (closeSettings) {
         closeSettings.onclick = () => {
             const panel = editorElement.querySelector('#node-settings-panel');
-            if (panel) panel.style.display = 'none';
+            if (panel) {
+                panel.style.display = 'none';
+                // Clear selected node highlight
+                if (graph) {
+                    graph.selectedNodeIndex = null;
+                    graph.render();
+                }
+            }
         };
     }
+    
+    // Node navigation buttons
+    const prevNodeBtn = editorElement.querySelector('#prev-node');
+    const nextNodeBtn = editorElement.querySelector('#next-node');
+    
+    if (prevNodeBtn) {
+        prevNodeBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const currentIndex = parseInt(panel.dataset.nodeIndex);
+            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
+                const newIndex = currentIndex > 0 ? currentIndex - 1 : graph.nodes.length - 1;
+                graph.showNodeSettings(newIndex);
+            }
+        };
+    }
+    
+    if (nextNodeBtn) {
+        nextNodeBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const currentIndex = parseInt(panel.dataset.nodeIndex);
+            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
+                const newIndex = currentIndex < graph.nodes.length - 1 ? currentIndex + 1 : 0;
+                graph.showNodeSettings(newIndex);
+            }
+        };
+    }
+    
+    // Time and temperature adjustment controls
+    const timeInput = editorElement.querySelector('#node-time-input');
+    const tempInput = editorElement.querySelector('#node-temp-input');
+    const timeUpBtn = editorElement.querySelector('#time-up');
+    const timeDownBtn = editorElement.querySelector('#time-down');
+    const tempUpBtn = editorElement.querySelector('#temp-up');
+    const tempDownBtn = editorElement.querySelector('#temp-down');
+    
+    const updateNodeFromInputs = () => {
+        const panel = editorElement.querySelector('#node-settings-panel');
+        const nodeIndex = parseInt(panel.dataset.nodeIndex);
+        if (isNaN(nodeIndex) || !graph) return;
+        
+        const node = graph.nodes[nodeIndex];
+        if (!node) return;
+        
+        // Update time
+        if (timeInput && timeInput.value) {
+            node.time = timeInput.value;
+        }
+        
+        // Update temperature
+        if (tempInput && tempInput.value) {
+            const temp = parseFloat(tempInput.value);
+            if (!isNaN(temp)) {
+                node.temp = temp;
+            }
+        }
+        
+        graph.render();
+        saveSchedule();
+    };
+    
+    if (timeInput) {
+        timeInput.addEventListener('change', updateNodeFromInputs);
+        timeInput.addEventListener('blur', updateNodeFromInputs);
+    }
+    
+    if (tempInput) {
+        tempInput.addEventListener('change', updateNodeFromInputs);
+        tempInput.addEventListener('blur', updateNodeFromInputs);
+    }
+    
+    if (timeUpBtn) {
+        timeUpBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            // Parse time and add 15 minutes
+            const [hours, minutes] = node.time.split(':').map(Number);
+            let totalMinutes = hours * 60 + minutes + 15;
+            if (totalMinutes >= 1440) totalMinutes -= 1440; // Wrap at 24h
+            
+            const newHours = Math.floor(totalMinutes / 60);
+            const newMinutes = totalMinutes % 60;
+            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            timeInput.value = node.time;
+            graph.render();
+            saveSchedule();
+        };
+    }
+    
+    if (timeDownBtn) {
+        timeDownBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            // Parse time and subtract 15 minutes
+            const [hours, minutes] = node.time.split(':').map(Number);
+            let totalMinutes = hours * 60 + minutes - 15;
+            if (totalMinutes < 0) totalMinutes += 1440; // Wrap at 0
+            
+            const newHours = Math.floor(totalMinutes / 60);
+            const newMinutes = totalMinutes % 60;
+            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            timeInput.value = node.time;
+            graph.render();
+            saveSchedule();
+        };
+    }
+    
+    if (tempUpBtn) {
+        tempUpBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            // Increment based on temperature unit (0.5°C or 1°F)
+            const increment = temperatureUnit === '°F' ? 1 : 0.5;
+            node.temp = Math.round((node.temp + increment) * 10) / 10;
+            
+            tempInput.value = node.temp;
+            graph.render();
+            saveSchedule();
+        };
+    }
+    
+    if (tempDownBtn) {
+        tempDownBtn.onclick = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            // Decrement based on temperature unit (0.5°C or 1°F)
+            const increment = temperatureUnit === '°F' ? 1 : 0.5;
+            node.temp = Math.round((node.temp - increment) * 10) / 10;
+            
+            tempInput.value = node.temp;
+            graph.render();
+            saveSchedule();
+        };
+    };
     
     // Delete node button
     const deleteNode = editorElement.querySelector('#delete-node');
@@ -1729,6 +1924,7 @@ function handleStateUpdate(data) {
     }
 }
 
+// Handle log entries from backend
 // Update a single entity card without re-rendering the entire list
 function updateEntityCard(entityId, entityState) {
     // Find the card in either the active or ignored entities list
@@ -2133,8 +2329,11 @@ function handleNodeSettings(event) {
     }
     
     // Update panel content
-    document.getElementById('node-time').textContent = node.time;
-    document.getElementById('node-temp').textContent = `${node.temp}${temperatureUnit}`;
+    const timeInput = document.getElementById('node-time-input');
+    const tempInput = document.getElementById('node-temp-input');
+    
+    if (timeInput) timeInput.value = node.time;
+    if (tempInput) tempInput.value = node.temp;
     
     // Populate HVAC mode dropdown
     const hvacModeSelect = document.getElementById('node-hvac-mode');
@@ -2390,6 +2589,65 @@ async function setupSettingsPanel() {
             
             // Auto-save the setting
             saveSettings();
+        });
+    }
+    
+    // Debug panel toggle
+    const debugToggle = document.getElementById('debug-panel-toggle');
+    const debugPanel = document.getElementById('debug-panel');
+    if (debugToggle && debugPanel) {
+        // Restore saved state
+        debugToggle.checked = debugPanelEnabled;
+        debugPanel.style.display = debugPanelEnabled ? 'block' : 'none';
+        
+        // Subscribe to logs if debug was previously enabled
+        if (debugPanelEnabled) {
+            debugLog('Debug panel restored from saved state');
+            // Set log level to debug
+            haAPI.setLogLevel('debug').then(() => {
+                debugLog('Log level set to debug (check Home Assistant logs)', 'info');
+            }).catch(error => {
+                debugLog('Failed to set log level: ' + error.message, 'error');
+            });
+        }
+        
+        debugToggle.addEventListener('change', async (e) => {
+            debugPanelEnabled = e.target.checked;
+            localStorage.setItem('debugPanelEnabled', debugPanelEnabled);
+            debugPanel.style.display = debugPanelEnabled ? 'block' : 'none';
+            
+            if (debugPanelEnabled) {
+                debugLog('Debug panel enabled');
+                // Set log level to debug
+                try {
+                    await haAPI.setLogLevel('debug');
+                    debugLog('Log level set to debug (check Home Assistant logs)', 'info');
+                    debugLog('Frontend operations will be logged here. Backend logs are in Home Assistant system log.', 'info');
+                } catch (error) {
+                    debugLog('Failed to set log level: ' + error.message, 'error');
+                }
+            } else {
+                debugLog('Debug panel disabled');
+                // Reset log level to info when disabling
+                try {
+                    await haAPI.setLogLevel('info');
+                    debugLog('Log level reset to info', 'info');
+                } catch (error) {
+                    debugLog('Failed to reset log level: ' + error.message, 'error');
+                }
+            }
+        });
+    }
+    
+    // Clear debug button
+    const clearDebugBtn = document.getElementById('clear-debug');
+    if (clearDebugBtn) {
+        clearDebugBtn.addEventListener('click', () => {
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                debugContent.innerHTML = '';
+                debugLog('Debug console cleared');
+            }
         });
     }
     
