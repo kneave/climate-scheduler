@@ -66,9 +66,6 @@ async function initApp() {
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
         
-        // Subscribe to system logs
-        haAPI.onLogEntry(handleLogEntry);
-        
         // Set up UI event listeners
         setupEventListeners();
     } catch (error) {
