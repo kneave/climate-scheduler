@@ -124,17 +124,31 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Check if we're turning off - if so, skip temperature and just turn off
                 target_hvac_mode = active_node.get("hvac_mode")
                 _LOGGER.info(f"{entity_id} target_hvac_mode: {target_hvac_mode}, supported modes: {hvac_modes}")
-                if target_hvac_mode == "off" and target_hvac_mode in hvac_modes:
+                if target_hvac_mode == "off":
                     _LOGGER.info(f"Turning off {entity_id}")
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {
-                            "entity_id": entity_id,
-                            "hvac_mode": "off",
-                        },
-                        blocking=True,
-                    )
+                    # Try using turn_off service first (more reliable for some integrations)
+                    try:
+                        await self.hass.services.async_call(
+                            "climate",
+                            "turn_off",
+                            {
+                                "entity_id": entity_id,
+                            },
+                            blocking=True,
+                        )
+                    except Exception as e:
+                        # Fallback to set_hvac_mode if turn_off not supported
+                        _LOGGER.debug(f"turn_off failed for {entity_id}, trying set_hvac_mode: {e}")
+                        if "off" in hvac_modes:
+                            await self.hass.services.async_call(
+                                "climate",
+                                "set_hvac_mode",
+                                {
+                                    "entity_id": entity_id,
+                                    "hvac_mode": "off",
+                                },
+                                blocking=True,
+                            )
                 else:
                     # Update to new node temperature
                     _LOGGER.info(
