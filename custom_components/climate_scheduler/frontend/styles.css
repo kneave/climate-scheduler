@@ -716,15 +716,16 @@ footer {
 
 .settings-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
     margin-bottom: 15px;
 }
 
 .setting-item {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 2px;
+    max-width: 150px;
 }
 
 .setting-item label {
@@ -740,15 +741,17 @@ footer {
 }
 
 .setting-item select {
-    padding: 8px 12px;
+    padding: 6px 10px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     cursor: pointer;
     outline: none;
     transition: border-color 0.2s;
+    max-width: 200px;
+    width: fit-content;
 }
 
 .setting-item select:enabled:hover {
