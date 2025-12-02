@@ -1043,6 +1043,13 @@ class TemperatureGraph {
         return this.nodes.map(n => ({ ...n }));
     }
     
+    updateNode(index, properties) {
+        if (index >= 0 && index < this.nodes.length) {
+            Object.assign(this.nodes[index], properties);
+            // Don't re-render - let the caller decide when to render
+        }
+    }
+    
     setHistoryData(historyData) {
         // Support both old format (array of {time, temp}) and new format (array of entities)
         if (!historyData || historyData.length === 0) {

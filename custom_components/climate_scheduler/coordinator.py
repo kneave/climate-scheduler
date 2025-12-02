@@ -30,13 +30,13 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
         self.storage = storage
-        self.last_node_temps = {}  # Track last node temperature for each entity
+        self.last_node_states = {}  # Track last node state (temp + modes) for each entity
 
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
         _LOGGER.info("Force updating all thermostats to scheduled temperatures")
         # Clear last node temps to force updates
-        self.last_node_temps.clear()
+        self.last_node_states.clear()
         # Trigger immediate refresh
         await self.async_request_refresh()
 
@@ -78,11 +78,20 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 target_temp = active_node["temp"]
                 _LOGGER.info(f"{entity_id} active node: {active_node}")
                 
+                # Create a state signature for the node (temp + modes)
+                node_signature = {
+                    "temp": target_temp,
+                    "hvac_mode": active_node.get("hvac_mode"),
+                    "fan_mode": active_node.get("fan_mode"),
+                    "swing_mode": active_node.get("swing_mode"),
+                    "preset_mode": active_node.get("preset_mode"),
+                }
+                
                 # Check if we've transitioned to a new node
-                last_temp = self.last_node_temps.get(entity_id)
-                if last_temp == target_temp:
+                last_node = self.last_node_states.get(entity_id)
+                if last_node == node_signature:
                     # Still on same node, don't override manual changes
-                    _LOGGER.debug(f"{entity_id} still on same node ({target_temp}°C), skipping")
+                    _LOGGER.debug(f"{entity_id} still on same node, skipping")
                     results[entity_id] = {
                         "updated": False,
                         "target_temp": target_temp,
@@ -91,8 +100,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     continue
                 
                 # Node has changed, update the temperature and settings
-                _LOGGER.info(f"{entity_id} node changed: {last_temp}°C -> {target_temp}°C")
-                self.last_node_temps[entity_id] = target_temp
+                _LOGGER.info(f"{entity_id} node changed: {last_node} -> {node_signature}")
+                self.last_node_states[entity_id] = node_signature
                 
                 # Get current state
                 state = self.hass.states.get(entity_id)
@@ -104,6 +113,13 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Get current target temperature
                 current_target = state.attributes.get("temperature")
                 _LOGGER.info(f"{entity_id} current target: {current_target}°C")
+                
+                # Get entity capabilities
+                supported_features = state.attributes.get("supported_features", 0)
+                hvac_modes = state.attributes.get("hvac_modes", [])
+                fan_modes = state.attributes.get("fan_modes", [])
+                swing_modes = state.attributes.get("swing_modes", [])
+                preset_modes = state.attributes.get("preset_modes", [])
                 
                 # Update to new node temperature
                 _LOGGER.info(
@@ -124,8 +140,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     blocking=True,
                 )
                 
-                # Apply HVAC mode if specified in node
-                if "hvac_mode" in active_node:
+                # Apply HVAC mode if specified in node and supported by entity
+                if "hvac_mode" in active_node and active_node["hvac_mode"] in hvac_modes:
                     _LOGGER.info(f"Setting HVAC mode to {active_node['hvac_mode']}")
                     await self.hass.services.async_call(
                         "climate",
@@ -136,9 +152,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                elif "hvac_mode" in active_node:
+                    _LOGGER.debug(f"HVAC mode {active_node['hvac_mode']} not supported by {entity_id}")
                 
-                # Apply fan mode if specified in node
-                if "fan_mode" in active_node:
+                # Apply fan mode if specified in node and supported by entity
+                if "fan_mode" in active_node and fan_modes and active_node["fan_mode"] in fan_modes:
                     _LOGGER.info(f"Setting fan mode to {active_node['fan_mode']}")
                     await self.hass.services.async_call(
                         "climate",
@@ -149,9 +167,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                elif "fan_mode" in active_node and fan_modes:
+                    _LOGGER.debug(f"Fan mode {active_node['fan_mode']} not supported by {entity_id}")
                 
-                # Apply swing mode if specified in node
-                if "swing_mode" in active_node:
+                # Apply swing mode if specified in node and supported by entity
+                if "swing_mode" in active_node and swing_modes and active_node["swing_mode"] in swing_modes:
                     _LOGGER.info(f"Setting swing mode to {active_node['swing_mode']}")
                     await self.hass.services.async_call(
                         "climate",
@@ -162,9 +182,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                elif "swing_mode" in active_node and swing_modes:
+                    _LOGGER.debug(f"Swing mode {active_node['swing_mode']} not supported by {entity_id}")
                 
-                # Apply preset mode if specified in node
-                if "preset_mode" in active_node:
+                # Apply preset mode if specified in node and supported by entity
+                if "preset_mode" in active_node and preset_modes and active_node["preset_mode"] in preset_modes:
                     _LOGGER.info(f"Setting preset mode to {active_node['preset_mode']}")
                     await self.hass.services.async_call(
                         "climate",
@@ -175,6 +197,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                elif "preset_mode" in active_node and preset_modes:
+                    _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
                 
                 results[entity_id] = {
                     "updated": True,

@@ -30,7 +30,11 @@ SET_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("nodes"): vol.All(cv.ensure_list, [
         vol.Schema({
             vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float)
+            vol.Required("temp"): vol.Coerce(float),
+            vol.Optional("hvac_mode"): cv.string,
+            vol.Optional("fan_mode"): cv.string,
+            vol.Optional("swing_mode"): cv.string,
+            vol.Optional("preset_mode"): cv.string
         })
     ])
 })
@@ -62,7 +66,11 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("nodes"): vol.All(cv.ensure_list, [
         vol.Schema({
             vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float)
+            vol.Required("temp"): vol.Coerce(float),
+            vol.Optional("hvac_mode"): cv.string,
+            vol.Optional("fan_mode"): cv.string,
+            vol.Optional("swing_mode"): cv.string,
+            vol.Optional("preset_mode"): cv.string
         })
     ])
 })
@@ -238,7 +246,14 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             file_path = frontend_path / "index.html"
             _LOGGER.info(f"Serving panel from: {file_path}, exists: {file_path.exists()}")
             if file_path.exists():
-                response = web.FileResponse(file_path)
+                # Read and inject VERSION
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                version_string = VERSION.replace('.', '')
+                content = content.replace('{{VERSION}}', version_string)
+                _LOGGER.info(f"Injecting VERSION={version_string} into index.html")
+                
+                response = web.Response(text=content, content_type='text/html')
                 # Allow iframe embedding
                 response.headers['X-Frame-Options'] = 'SAMEORIGIN'
                 response.headers['Content-Security-Policy'] = "frame-ancestors 'self'"
@@ -260,6 +275,22 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 return web.json_response({
                     "version": VERSION
                 })
+            
+            # Special handling for index.html - inject VERSION
+            if filename == "index.html":
+                file_path = frontend_path / filename
+                _LOGGER.info(f"Serving index.html with VERSION injection. VERSION={VERSION}")
+                if file_path.exists() and file_path.is_file():
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    # Replace {{VERSION}} placeholder with actual version
+                    version_string = VERSION.replace('.', '')
+                    _LOGGER.info(f"Replacing {{{{VERSION}}}} with {version_string}")
+                    content = content.replace('{{VERSION}}', version_string)
+                    _LOGGER.info(f"Content length after replacement: {len(content)}, contains placeholder: {'{' in content and 'VERSION' in content}")
+                    response = web.Response(text=content, content_type='text/html')
+                    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+                    return response
             
             file_path = frontend_path / filename
             _LOGGER.info(f"Serving static file: {file_path}, exists: {file_path.exists()}")

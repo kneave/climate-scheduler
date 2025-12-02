@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Climate Scheduler</title>
-    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css?v=37">
+    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css?v={{VERSION}}">
 </head>
 <body>
     <div class="container">
@@ -114,13 +114,13 @@
         </div>
 
         <footer>
-            <p id="version-info">Climate Scheduler v1.0.0 (build 22)</p>
+            <p id="version-info">Climate Scheduler v{{VERSION}}</p>
         </footer>
     </div>
 
-    <script src="/climate_scheduler_panel/graph.js?v=37"></script>
-    <script src="/climate_scheduler_panel/ha-api.js?v=37"></script>
-    <script src="/climate_scheduler_panel/app.js?v=37"></script>
+    <script src="/climate_scheduler_panel/graph.js?v={{VERSION}}"></script>
+    <script src="/climate_scheduler_panel/ha-api.js?v={{VERSION}}"></script>
+    <script src="/climate_scheduler_panel/app.js?v={{VERSION}}"></script>
     <script>
         // Load version info dynamically
         fetch('/climate_scheduler_panel/version.json')

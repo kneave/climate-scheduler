@@ -161,6 +161,19 @@ function renderGroups() {
     const groupsCount = document.getElementById('groups-count');
     if (!groupsList) return;
     
+    // Save current expanded/collapsed state and current editing group
+    const expandedStates = {};
+    const containers = groupsList.querySelectorAll('.group-container');
+    containers.forEach(container => {
+        const groupName = container.dataset.groupName;
+        if (groupName) {
+            expandedStates[groupName] = {
+                collapsed: container.classList.contains('collapsed'),
+                editing: container.classList.contains('expanded')
+            };
+        }
+    });
+    
     // Clear existing groups
     groupsList.innerHTML = '';
     
@@ -179,6 +192,23 @@ function renderGroups() {
     // Create container for each group
     groupNames.forEach(groupName => {
         const groupContainer = createGroupContainer(groupName, allGroups[groupName]);
+        
+        // Restore previous state if it existed
+        const savedState = expandedStates[groupName];
+        if (savedState) {
+            if (savedState.collapsed) {
+                groupContainer.classList.add('collapsed');
+                const toggleIcon = groupContainer.querySelector('.group-toggle-icon');
+                if (toggleIcon) {
+                    toggleIcon.style.transform = 'rotate(-90deg)';
+                }
+            }
+            if (savedState.editing) {
+                // Re-expand the editor for this group
+                setTimeout(() => editGroupSchedule(groupName), 0);
+            }
+        }
+        
         groupsList.appendChild(groupContainer);
     });
 }
@@ -976,36 +1006,45 @@ function attachEditorEventListeners(editorElement) {
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIndex) || !graph) return;
         
-        const nodes = graph.getNodes();
-        const node = nodes[nodeIndex];
+        // Get the actual node from the graph
+        const node = graph.nodes[nodeIndex];
         if (!node) return;
         
-        // Update node with new settings (only if available)
+        // Update or delete properties based on dropdown values
         if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
             const hvacMode = hvacModeSelect.value;
-            if (hvacMode) node.hvac_mode = hvacMode;
+            if (hvacMode) {
+                node.hvac_mode = hvacMode;
+            } else {
+                delete node.hvac_mode;
+            }
         }
         
         if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
             const fanMode = fanModeSelect.value;
-            if (fanMode) node.fan_mode = fanMode;
+            if (fanMode) {
+                node.fan_mode = fanMode;
+            } else {
+                delete node.fan_mode;
+            }
         }
         
         if (swingModeSelect && swingModeSelect.closest('.setting-item').style.display !== 'none') {
             const swingMode = swingModeSelect.value;
-            if (swingMode) node.swing_mode = swingMode;
+            if (swingMode) {
+                node.swing_mode = swingMode;
+            } else {
+                delete node.swing_mode;
+            }
         }
         
         if (presetModeSelect && presetModeSelect.closest('.setting-item').style.display !== 'none') {
             const presetMode = presetModeSelect.value;
-            if (presetMode) node.preset_mode = presetMode;
-        }
-        
-        // Refresh entity state before triggering update
-        try {
-            climateEntities = await haAPI.getClimateEntities();
-        } catch (error) {
-            console.error('Failed to refresh entity state:', error);
+            if (presetMode) {
+                node.preset_mode = presetMode;
+            } else {
+                delete node.preset_mode;
+            }
         }
         
         // This will trigger save and force immediate update
@@ -1598,7 +1637,8 @@ function handleStateUpdate(data) {
     const entityIndex = climateEntities.findIndex(e => e.entity_id === entityId);
     if (entityIndex !== -1) {
         climateEntities[entityIndex] = newState;
-        renderEntityList();
+        // Don't re-render entire list, just update the card if visible
+        updateEntityCard(entityId, newState);
     }
     
     // Update current entity status if selected
@@ -1612,6 +1652,25 @@ function handleStateUpdate(data) {
         if (groupData && groupData.entities && groupData.entities.includes(entityId)) {
             updateGroupMemberRow(entityId, newState);
         }
+    }
+}
+
+// Update a single entity card without re-rendering the entire list
+function updateEntityCard(entityId, entityState) {
+    // Find the card in either the active or ignored entities list
+    const card = document.querySelector(`.entity-card[data-entity-id="${entityId}"]`);
+    if (!card) return;
+    
+    // Update current temperature
+    const currentTempEl = card.querySelector('.current-temp');
+    if (currentTempEl && entityState.attributes.current_temperature !== undefined) {
+        currentTempEl.textContent = `${entityState.attributes.current_temperature.toFixed(1)}${temperatureUnit}`;
+    }
+    
+    // Update target temperature
+    const targetTempEl = card.querySelector('.target-temp');
+    if (targetTempEl && entityState.attributes.temperature !== undefined) {
+        targetTempEl.textContent = `${entityState.attributes.temperature.toFixed(1)}${temperatureUnit}`;
     }
 }
 
@@ -1987,6 +2046,14 @@ function handleNodeSettings(event) {
     if (allHvacModes.length > 0) {
         hvacModeItem.style.display = '';
         hvacModeSelect.disabled = false;
+        
+        // Add "No Change" option
+        const noneOption = document.createElement('option');
+        noneOption.value = '';
+        noneOption.textContent = '-- No Change --';
+        if (!node.hvac_mode) noneOption.selected = true;
+        hvacModeSelect.appendChild(noneOption);
+        
         allHvacModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
@@ -2006,6 +2073,14 @@ function handleNodeSettings(event) {
     if (allFanModes.length > 0) {
         fanModeItem.style.display = '';
         fanModeSelect.disabled = false;
+        
+        // Add "No Change" option
+        const noneOption = document.createElement('option');
+        noneOption.value = '';
+        noneOption.textContent = '-- No Change --';
+        if (!node.fan_mode) noneOption.selected = true;
+        fanModeSelect.appendChild(noneOption);
+        
         allFanModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
@@ -2025,6 +2100,14 @@ function handleNodeSettings(event) {
     if (allSwingModes.length > 0) {
         swingModeItem.style.display = '';
         swingModeSelect.disabled = false;
+        
+        // Add "No Change" option
+        const noneOption = document.createElement('option');
+        noneOption.value = '';
+        noneOption.textContent = '-- No Change --';
+        if (!node.swing_mode) noneOption.selected = true;
+        swingModeSelect.appendChild(noneOption);
+        
         allSwingModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
@@ -2044,6 +2127,14 @@ function handleNodeSettings(event) {
     if (allPresetModes.length > 0) {
         presetModeItem.style.display = '';
         presetModeSelect.disabled = false;
+        
+        // Add "No Change" option
+        const noneOption = document.createElement('option');
+        noneOption.value = '';
+        noneOption.textContent = '-- No Change --';
+        if (!node.preset_mode) noneOption.selected = true;
+        presetModeSelect.appendChild(noneOption);
+        
         allPresetModes.forEach(mode => {
             const option = document.createElement('option');
             option.value = mode;
