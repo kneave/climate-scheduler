@@ -11,6 +11,7 @@ let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
 let allGroups = {}; // Store all groups data
 let currentGroup = null; // Currently selected group
+let tooltipMode = 'history'; // 'history' or 'cursor'
 
 // Initialize application
 async function initApp() {
@@ -379,6 +380,7 @@ async function editGroupSchedule(groupName) {
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
         graph = new TemperatureGraph(svgElement, temperatureUnit);
+        graph.setTooltipMode(tooltipMode);
         
         // Connect undo button
         const undoBtn = editor.querySelector('#undo-btn');
@@ -699,9 +701,17 @@ function createEntityCard(entity, isIncluded = false) {
     temp.className = 'entity-temp';
     const currentTemp = entity.attributes.current_temperature;
     const targetTemp = entity.attributes.temperature;
-    temp.textContent = currentTemp !== undefined 
-        ? `${targetTemp.toFixed(1)}${temperatureUnit} (${currentTemp.toFixed(1)}${temperatureUnit})` 
-        : 'N/A';
+    
+    if (currentTemp !== undefined && currentTemp !== null) {
+        const targetDisplay = (targetTemp !== undefined && targetTemp !== null) 
+            ? `${targetTemp.toFixed(1)}${temperatureUnit}` 
+            : 'N/A';
+        temp.textContent = `${targetDisplay} (${currentTemp.toFixed(1)}${temperatureUnit})`;
+    } else if (targetTemp !== undefined && targetTemp !== null) {
+        temp.textContent = `${targetTemp.toFixed(1)}${temperatureUnit}`;
+    } else {
+        temp.textContent = 'N/A';
+    }
     
     content.appendChild(name);
     content.appendChild(temp);
@@ -911,6 +921,7 @@ async function selectEntity(entityId) {
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
         graph = new TemperatureGraph(svgElement, temperatureUnit);
+        graph.setTooltipMode(tooltipMode);
         
         // Connect undo button
         const undoBtn = editor.querySelector('#undo-btn');
@@ -2208,6 +2219,13 @@ async function loadSettings() {
         if (settings && settings.defaultSchedule) {
             defaultScheduleSettings = settings.defaultSchedule;
         }
+        if (settings && settings.tooltipMode) {
+            tooltipMode = settings.tooltipMode;
+            const tooltipSelect = document.getElementById('tooltip-mode');
+            if (tooltipSelect) {
+                tooltipSelect.value = tooltipMode;
+            }
+        }
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
@@ -2217,7 +2235,8 @@ async function loadSettings() {
 async function saveSettings() {
     try {
         const settings = {
-            defaultSchedule: defaultScheduleSettings
+            defaultSchedule: defaultScheduleSettings,
+            tooltipMode: tooltipMode
         };
         await haAPI.saveSettings(settings);
         console.log('Settings saved:', settings);
@@ -2231,6 +2250,8 @@ async function saveSettings() {
 // Handle default schedule graph changes
 function handleDefaultScheduleChange(event) {
     defaultScheduleSettings = event.detail.nodes;
+    // Auto-save when default schedule is modified
+    saveSettings();
 }
 
 // Setup settings panel event listeners
@@ -2241,6 +2262,7 @@ async function setupSettingsPanel() {
     const svgElement = document.getElementById('default-schedule-graph');
     if (svgElement) {
         defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit);
+        defaultScheduleGraph.setTooltipMode(tooltipMode);
         defaultScheduleGraph.setNodes(defaultScheduleSettings);
         
         // Attach event listener for changes
@@ -2271,6 +2293,25 @@ async function setupSettingsPanel() {
         });
     }
     
+    // Tooltip mode selector
+    const tooltipModeSelect = document.getElementById('tooltip-mode');
+    if (tooltipModeSelect) {
+        tooltipModeSelect.addEventListener('change', (e) => {
+            tooltipMode = e.target.value;
+            
+            // Update all graph instances
+            if (graph) {
+                graph.setTooltipMode(tooltipMode);
+            }
+            if (defaultScheduleGraph) {
+                defaultScheduleGraph.setTooltipMode(tooltipMode);
+            }
+            
+            // Auto-save the setting
+            saveSettings();
+        });
+    }
+    
     // Reset button
     const resetBtn = document.getElementById('reset-defaults');
     if (resetBtn) {
@@ -2297,26 +2338,6 @@ async function setupSettingsPanel() {
         });
     }
     
-    // Save button
-    const saveBtn = document.getElementById('save-settings');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', async () => {
-            const success = await saveSettings();
-            
-            // Visual feedback
-            if (success) {
-                saveBtn.textContent = '✓ Saved!';
-                setTimeout(() => {
-                    saveBtn.textContent = 'Save Settings';
-                }, 2000);
-            } else {
-                saveBtn.textContent = '✗ Failed';
-                setTimeout(() => {
-                    saveBtn.textContent = 'Save Settings';
-                }, 2000);
-            }
-        });
-    }
 }
 
 // Handle node settings for default schedule
@@ -2515,6 +2536,9 @@ function handleDefaultNodeSettings(event) {
         
         // Update the settings array
         defaultScheduleSettings = defaultScheduleGraph.getNodes();
+        
+        // Auto-save to server
+        await saveSettings();
     };
     
     // Attach change listeners to the freshly populated dropdowns
