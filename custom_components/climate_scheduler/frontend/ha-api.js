@@ -176,6 +176,12 @@ class HomeAssistantAPI {
         return await this.sendRequest(requestData);
     }
     
+    async setLogLevel(level = 'debug') {
+        return await this.callService('logger', 'set_level', {
+            'custom_components.climate_scheduler': level
+        });
+    }
+    
     async getSchedule(entityId) {
         try {
             // Call our custom service to get schedule with return_response
@@ -258,6 +264,18 @@ class HomeAssistantAPI {
         });
     }
     
+    async enableGroup(groupName) {
+        return await this.callService('climate_scheduler', 'enable_group', {
+            group_name: groupName
+        });
+    }
+    
+    async disableGroup(groupName) {
+        return await this.callService('climate_scheduler', 'disable_group', {
+            group_name: groupName
+        });
+    }
+    
     async getHistory(entityId, startTime, endTime) {
         try {
             // Format times as ISO strings
@@ -286,6 +304,26 @@ class HomeAssistantAPI {
             type: 'subscribe_events',
             event_type: 'state_changed'
         });
+    }
+    
+    async getSettings() {
+        try {
+            const result = await this.callService('climate_scheduler', 'get_settings', {}, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to get settings:', error);
+            return {};
+        }
+    }
+    
+    async saveSettings(settings) {
+        try {
+            await this.callService('climate_scheduler', 'save_settings', { settings: JSON.stringify(settings) });
+            return true;
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+            throw error;
+        }
     }
     
     onStateUpdate(callback) {

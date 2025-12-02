@@ -1,5 +1,6 @@
 """Storage management for Climate Scheduler."""
 import logging
+import copy
 from typing import Any, Dict, List, Optional
 from datetime import datetime, time
 
@@ -187,6 +188,13 @@ class ScheduleStorage:
         
         if entity_id not in self._data["groups"][group_name]["entities"]:
             self._data["groups"][group_name]["entities"].append(entity_id)
+            
+            # If the group has a schedule, apply it to the newly added entity
+            group_nodes = self._data["groups"][group_name].get("nodes")
+            if group_nodes and entity_id in self._data.get("entities", {}):
+                # Deep copy the nodes to ensure the entity has its own copy
+                self._data["entities"][entity_id]["nodes"] = copy.deepcopy(group_nodes)
+            
             await self.async_save()
             _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
 
@@ -222,10 +230,42 @@ class ScheduleStorage:
         # Update group schedule
         self._data["groups"][group_name]["nodes"] = nodes
         
-        # Apply to all entities in the group
+        # Apply to all entities in the group - use deep copy to prevent shared references
         for entity_id in self._data["groups"][group_name]["entities"]:
             if entity_id in self._data.get("entities", {}):
-                self._data["entities"][entity_id]["nodes"] = nodes
+                # Deep copy the nodes to ensure each entity has its own copy
+                self._data["entities"][entity_id]["nodes"] = copy.deepcopy(nodes)
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes")
+    
+    async def async_enable_group(self, group_name: str) -> None:
+        """Enable a group schedule."""
+        if group_name not in self._data.get("groups", {}):
+            raise ValueError(f"Group '{group_name}' does not exist")
+        
+        self._data["groups"][group_name]["enabled"] = True
+        await self.async_save()
+        _LOGGER.info(f"Enabled group '{group_name}'")
+    
+    async def async_disable_group(self, group_name: str) -> None:
+        """Disable a group schedule."""
+        if group_name not in self._data.get("groups", {}):
+            raise ValueError(f"Group '{group_name}' does not exist")
+        
+        self._data["groups"][group_name]["enabled"] = False
+        await self.async_save()
+        _LOGGER.info(f"Disabled group '{group_name}'")
+
+    async def async_get_settings(self) -> Dict[str, Any]:
+        """Get user settings."""
+        return self._data.get("settings", {})
+    
+    async def async_save_settings(self, settings: Dict[str, Any]) -> None:
+        """Save user settings."""
+        if "settings" not in self._data:
+            self._data["settings"] = {}
+        
+        self._data["settings"] = settings
+        await self.async_save()
+        _LOGGER.info(f"Saved settings: {settings}")

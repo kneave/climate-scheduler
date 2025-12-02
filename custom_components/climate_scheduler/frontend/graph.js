@@ -20,6 +20,9 @@ class TemperatureGraph {
         this.temperatureUnit = temperatureUnit;
         this.undoStack = [];
         this.undoButton = null;
+        this.tooltipMode = 'history'; // 'history' or 'cursor'
+        this.hoveredNode = null; // Track which node is being hovered
+        this.selectedNodeIndex = null; // Track which node has settings panel visible
         
         // Graph dimensions
         this.width = 800;
@@ -294,6 +297,50 @@ class TemperatureGraph {
         const bbox = text.getBBox();
         const tooltipWidth = Math.max(150, bbox.width + (padding * 2));
         const totalHeight = (temps.length * lineHeight) + (padding * 2);
+        
+        bg.setAttribute('height', totalHeight);
+        bg.setAttribute('width', tooltipWidth);
+        
+        // Position tooltip (keep it within graph bounds)
+        const halfWidth = tooltipWidth / 2;
+        const tooltipX = Math.max(halfWidth, Math.min(this.width - halfWidth, mouseX));
+        const tooltipY = Math.max(totalHeight + 10, mouseY - 20);
+        
+        this.tooltip.setAttribute('transform', `translate(${tooltipX - halfWidth}, ${tooltipY - totalHeight})`);
+        this.tooltip.style.display = 'block';
+    }
+    
+    showCursorTooltip(mouseX, mouseY, timeStr, temp) {
+        const text = this.tooltip.querySelector('.tooltip-text');
+        const bg = this.tooltip.querySelector('rect');
+        
+        // Clear existing content
+        text.textContent = '';
+        
+        // Simple tooltip showing cursor position
+        const lineHeight = 18;
+        const padding = 10;
+        
+        const timeTspan = this.createSVGElement('tspan', {
+            x: padding,
+            y: padding + 4,
+            'text-anchor': 'start'
+        });
+        timeTspan.textContent = `Time: ${timeStr}`;
+        text.appendChild(timeTspan);
+        
+        const tempTspan = this.createSVGElement('tspan', {
+            x: padding,
+            y: padding + 4 + lineHeight,
+            'text-anchor': 'start'
+        });
+        tempTspan.textContent = `Temp: ${temp}${this.temperatureUnit}`;
+        text.appendChild(tempTspan);
+        
+        // Calculate required width based on content
+        const bbox = text.getBBox();
+        const tooltipWidth = Math.max(120, bbox.width + (padding * 2));
+        const totalHeight = (2 * lineHeight) + (padding * 2);
         
         bg.setAttribute('height', totalHeight);
         bg.setAttribute('width', tooltipWidth);
@@ -707,11 +754,12 @@ class TemperatureGraph {
             touchTarget.classList.add('node-touch-target');
             
             // Visible node
+            const isSelected = this.selectedNodeIndex === index;
             const circle = this.createSVGElement('circle', {
                 cx: x,
                 cy: y,
                 r: this.nodeRadius,
-                fill: '#03a9f4',
+                fill: isSelected ? '#4caf50' : '#03a9f4',
                 stroke: '#fff',
                 'stroke-width': 2,
                 cursor: 'pointer',
@@ -751,6 +799,10 @@ class TemperatureGraph {
         this.svg.addEventListener('mouseup', this.handlePointerUp.bind(this));
         this.svg.addEventListener('mouseleave', (e) => {
             this.hideTooltip();
+            if (this.hoveredNode !== null) {
+                this.hoveredNode = null;
+                this.render();
+            }
         });
         
         // Also listen for mouseup on document to catch releases outside the SVG
@@ -819,15 +871,35 @@ class TemperatureGraph {
         const point = this.getEventPoint(event);
         
         if (this.draggingNode === null) {
-            // Not dragging - show history tooltip at current mouse position
+            // Update hovered node based on cursor position
+            const hoveredNodeIndex = this.getNodeAtPoint(point);
+            if (hoveredNodeIndex !== this.hoveredNode) {
+                this.hoveredNode = hoveredNodeIndex;
+                this.render();
+            }
+            
+            // Not dragging - show tooltip based on mode
             const isInGraphArea = point.x >= this.padding.left && 
                                    point.x <= this.width - this.padding.right &&
                                    point.y >= this.padding.top && 
                                    point.y <= this.height - this.padding.bottom;
             
-            if (isInGraphArea && this.historyData && this.historyData.length > 0) {
+            if (isInGraphArea) {
                 const mouseTime = this.xToTime(point.x);
-                this.showHistoryTooltipAtTime(point.x, point.y, mouseTime);
+                
+                if (this.tooltipMode === 'history' && this.historyData && this.historyData.length > 0) {
+                    // Show historical temperature
+                    this.showHistoryTooltipAtTime(point.x, point.y, mouseTime);
+                } else if (this.tooltipMode === 'cursor') {
+                    // Show cursor position (time and temperature)
+                    const mouseTemp = this.yToTemp(point.y);
+                    const clampedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, mouseTemp));
+                    const roundedTemp = Math.round(clampedTemp * 2) / 2;
+                    const snappedTime = this.snapToInterval(mouseTime);
+                    this.showCursorTooltip(point.x, point.y, snappedTime, roundedTemp);
+                } else {
+                    this.hideTooltip();
+                }
             } else {
                 this.hideTooltip();
             }
@@ -857,13 +929,27 @@ class TemperatureGraph {
         
         this.nodes[this.draggingNode].temp = roundedTemp;
         
-        // Show tooltip with current values
-        this.updateTooltip(
-            this.timeToX(this.nodes[this.draggingNode].time),
-            this.tempToY(roundedTemp),
-            this.nodes[this.draggingNode].time,
-            roundedTemp
-        );
+        // Update the settings panel if it's showing this node
+        this.updateNodeSettingsIfVisible(this.draggingNode);
+        
+        // Show tooltip based on mode
+        if (this.tooltipMode === 'cursor') {
+            // Show cursor position (time and temperature being dragged to)
+            this.updateTooltip(
+                this.timeToX(this.nodes[this.draggingNode].time),
+                this.tempToY(roundedTemp),
+                this.nodes[this.draggingNode].time,
+                roundedTemp
+            );
+        } else {
+            // History mode - show time/temp at cursor position
+            const mouseTime = this.xToTime(point.x);
+            const snappedMouseTime = this.snapToInterval(mouseTime);
+            const mouseTemp = this.yToTemp(point.y);
+            const clampedMouseTemp = Math.max(this.minTemp, Math.min(this.maxTemp, mouseTemp));
+            const roundedMouseTemp = Math.round(clampedMouseTemp * 2) / 2;
+            this.showCursorTooltip(point.x, point.y, snappedMouseTime, roundedMouseTemp);
+        }
         
         this.render();
     }
@@ -874,8 +960,8 @@ class TemperatureGraph {
             const dragDistance = this.startDragPoint ? 
                 Math.sqrt(Math.pow(point.x - this.startDragPoint.x, 2) + Math.pow(point.y - this.startDragPoint.y, 2)) : 999;
             
-            // If didn't drag much (less than 5 pixels), treat as a click to show settings
-            if (dragDistance < 5) {
+            // If didn't drag much (less than 10 pixels), treat as a click to show settings
+            if (dragDistance < 10) {
                 // No actual drag happened - remove the saved state
                 if (this.undoStack.length > 0) {
                     this.undoStack.pop();
@@ -950,7 +1036,6 @@ class TemperatureGraph {
     }
     
     getEventPoint(event) {
-        const rect = this.svg.getBoundingClientRect();
         let clientX, clientY;
         
         if (event.type.startsWith('touch')) {
@@ -962,13 +1047,15 @@ class TemperatureGraph {
             clientY = event.clientY;
         }
         
-        // Convert to SVG coordinates
-        const scaleX = this.width / rect.width;
-        const scaleY = this.height / rect.height;
+        // Use SVG's native coordinate transformation
+        const pt = this.svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
         
         return {
-            x: (clientX - rect.left) * scaleX,
-            y: (clientY - rect.top) * scaleY
+            x: svgP.x,
+            y: svgP.y
         };
     }
     
@@ -1026,11 +1113,27 @@ class TemperatureGraph {
         const node = this.nodes[nodeIndex];
         if (!node) return;
         
+        // Update selected node and re-render to show green highlight
+        this.selectedNodeIndex = nodeIndex;
+        this.render();
+        
         // Dispatch event so app.js can handle it with entity context
         const event = new CustomEvent('nodeSettings', {
             detail: { nodeIndex, node }
         });
         this.svg.dispatchEvent(event);
+    }
+    
+    updateNodeSettingsIfVisible(nodeIndex) {
+        // Dispatch update event if this node's settings are currently visible
+        const event = new CustomEvent('nodeSettingsUpdate', {
+            detail: { nodeIndex, node: this.nodes[nodeIndex] }
+        });
+        this.svg.dispatchEvent(event);
+    }
+    
+    setTooltipMode(mode) {
+        this.tooltipMode = mode;
     }
     
     // Public methods
@@ -1041,6 +1144,13 @@ class TemperatureGraph {
     
     getNodes() {
         return this.nodes.map(n => ({ ...n }));
+    }
+    
+    updateNode(index, properties) {
+        if (index >= 0 && index < this.nodes.length) {
+            Object.assign(this.nodes[index], properties);
+            // Don't re-render - let the caller decide when to render
+        }
     }
     
     setHistoryData(historyData) {

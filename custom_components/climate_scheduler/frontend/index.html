@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Climate Scheduler</title>
-    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css?v=37">
+    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css?v={{VERSION}}">
 </head>
 <body>
     <div class="container">
@@ -102,9 +102,11 @@
                 </div>
                 <div class="modal-body">
                     <p>Add <strong id="add-entity-name"></strong> to group:</p>
-                    <select id="add-to-group-select" style="width: 100%; padding: 8px; margin-top: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
+                    <select id="add-to-group-select" style="width: 100%; padding: 8px; margin-top: 8px; margin-bottom: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
                         <!-- Populated dynamically -->
                     </select>
+                    <p style="text-align: center; color: var(--text-secondary); margin: 8px 0;">or</p>
+                    <input type="text" id="new-group-name-inline" placeholder="Create new group..." style="width: 100%; padding: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;" />
                 </div>
                 <div class="modal-actions">
                     <button id="add-to-group-cancel" class="btn-secondary">Cancel</button>
@@ -113,14 +115,96 @@
             </div>
         </div>
 
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel collapsed">
+            <div class="settings-header" id="settings-toggle">
+                <h3>⚙️ Settings</h3>
+                <span class="collapse-indicator">▼</span>
+            </div>
+            <div class="settings-content">
+                <div class="settings-section">
+                    <h4>Default Schedule</h4>
+                    <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>
+                    
+                    <div class="graph-container">
+                        <svg id="default-schedule-graph" class="temperature-graph"></svg>
+                    </div>
+                    
+                    <!-- Default Schedule Node Settings Panel -->
+                    <div id="default-node-settings-panel" class="node-settings-panel" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4>Node Settings</h4>
+                            <button id="default-delete-node-btn" class="btn-danger-outline" style="padding: 4px 12px; font-size: 0.9rem;">Delete Node</button>
+                        </div>
+                        <div class="node-info">
+                            <span>Time: <strong id="default-node-time">--:--</strong></span>
+                            <span>Temperature: <strong id="default-node-temp">--°C</strong></span>
+                        </div>
+                        
+                        <div class="setting-item" id="default-hvac-mode-item">
+                            <label for="default-node-hvac-mode">HVAC Mode:</label>
+                            <select id="default-node-hvac-mode"><option value="">-- No Change --</option></select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-fan-mode-item">
+                            <label for="default-node-fan-mode">Fan Mode:</label>
+                            <select id="default-node-fan-mode"><option value="">-- No Change --</option></select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-swing-mode-item">
+                            <label for="default-node-swing-mode">Swing Mode:</label>
+                            <select id="default-node-swing-mode"><option value="">-- No Change --</option></select>
+                        </div>
+                        
+                        <div class="setting-item" id="default-preset-mode-item">
+                            <label for="default-node-preset-mode">Preset Mode:</label>
+                            <select id="default-node-preset-mode"><option value="">-- No Change --</option></select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h4>Graph Options</h4>
+                    <div class="setting-item">
+                        <label for="tooltip-mode">Tooltip Display:</label>
+                        <select id="tooltip-mode">
+                            <option value="history">Show Historical Temperature</option>
+                            <option value="cursor">Show Cursor Position</option>
+                        </select>
+                        <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
+                    </div>
+                    <div class="setting-item" style="margin-top: 15px;">
+                        <label>
+                            <input type="checkbox" id="debug-panel-toggle" style="margin-right: 8px;"> Show Debug Panel
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-actions">
+                    <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Panel -->
+        <div id="debug-panel" class="debug-panel" style="display: none;">
+            <div class="debug-header">
+                <h3>Debug Console</h3>
+                <button id="clear-debug" class="btn-secondary" style="padding: 4px 8px; font-size: 0.85rem;">Clear</button>
+            </div>
+            <div id="debug-content" class="debug-content">
+                <!-- Debug messages will appear here -->
+            </div>
+        </div>
+
         <footer>
-            <p id="version-info">Climate Scheduler v1.0.0 (build 22)</p>
+            <p id="version-info">Climate Scheduler v{{VERSION}}</p>
         </footer>
     </div>
 
-    <script src="/climate_scheduler_panel/graph.js?v=37"></script>
-    <script src="/climate_scheduler_panel/ha-api.js?v=37"></script>
-    <script src="/climate_scheduler_panel/app.js?v=37"></script>
+    <script src="/climate_scheduler_panel/graph.js?v={{VERSION}}"></script>
+    <script src="/climate_scheduler_panel/ha-api.js?v={{VERSION}}"></script>
+    <script src="/climate_scheduler_panel/app.js?v={{VERSION}}"></script>
     <script>
         // Load version info dynamically
         fetch('/climate_scheduler_panel/version.json')
