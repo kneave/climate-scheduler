@@ -540,6 +540,7 @@ async function removeEntityFromGroup(groupName, entityId) {
 function showAddToGroupModal(entityId) {
     const modal = document.getElementById('add-to-group-modal');
     const select = document.getElementById('add-to-group-select');
+    const newGroupInput = document.getElementById('new-group-name-inline');
     
     if (!modal || !select) return;
     
@@ -554,6 +555,11 @@ function showAddToGroupModal(entityId) {
         option.textContent = groupName;
         select.appendChild(option);
     });
+    
+    // Clear new group input
+    if (newGroupInput) {
+        newGroupInput.value = '';
+    }
     
     modal.style.display = 'flex';
 }
@@ -1996,10 +2002,31 @@ function setupEventListeners() {
             const modal = document.getElementById('add-to-group-modal');
             const entityId = modal ? modal.dataset.entityId : null;
             const selectElement = document.getElementById('add-to-group-select');
-            const groupName = selectElement ? selectElement.value : null;
-        
+            const newGroupInput = document.getElementById('new-group-name-inline');
+            
+            let groupName = selectElement ? selectElement.value : null;
+            const newGroupName = newGroupInput ? newGroupInput.value.trim() : '';
+            
+            // Check if user wants to create a new group
+            if (newGroupName) {
+                if (allGroups[newGroupName]) {
+                    alert('A group with this name already exists. Please select it from the dropdown or use a different name.');
+                    return;
+                }
+                groupName = newGroupName;
+                
+                try {
+                    // Create the new group first
+                    await haAPI.createGroup(groupName);
+                } catch (error) {
+                    console.error('Failed to create group:', error);
+                    alert('Failed to create group');
+                    return;
+                }
+            }
+            
             if (!groupName) {
-                alert('Please select a group');
+                alert('Please select or create a group');
                 return;
             }
             

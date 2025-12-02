@@ -102,9 +102,11 @@
                 </div>
                 <div class="modal-body">
                     <p>Add <strong id="add-entity-name"></strong> to group:</p>
-                    <select id="add-to-group-select" style="width: 100%; padding: 8px; margin-top: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
+                    <select id="add-to-group-select" style="width: 100%; padding: 8px; margin-top: 8px; margin-bottom: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
                         <!-- Populated dynamically -->
                     </select>
+                    <p style="text-align: center; color: var(--text-secondary); margin: 8px 0;">or</p>
+                    <input type="text" id="new-group-name-inline" placeholder="Create new group..." style="width: 100%; padding: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;" />
                 </div>
                 <div class="modal-actions">
                     <button id="add-to-group-cancel" class="btn-secondary">Cancel</button>

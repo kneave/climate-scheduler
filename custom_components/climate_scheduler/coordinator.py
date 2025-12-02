@@ -121,39 +121,54 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 swing_modes = state.attributes.get("swing_modes", [])
                 preset_modes = state.attributes.get("preset_modes", [])
                 
-                # Update to new node temperature
-                _LOGGER.info(
-                    f"Updating {entity_id} to new node: temp={target_temp}°C"
-                )
-                
-                # Build service data
-                service_data = {
-                    "entity_id": entity_id,
-                    ATTR_TEMPERATURE: target_temp,
-                }
-                
-                # Call climate service to set temperature
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    service_data,
-                    blocking=True,
-                )
-                
-                # Apply HVAC mode if specified in node and supported by entity
-                if "hvac_mode" in active_node and active_node["hvac_mode"] in hvac_modes:
-                    _LOGGER.info(f"Setting HVAC mode to {active_node['hvac_mode']}")
+                # Check if we're turning off - if so, skip temperature and just turn off
+                target_hvac_mode = active_node.get("hvac_mode")
+                _LOGGER.info(f"{entity_id} target_hvac_mode: {target_hvac_mode}, supported modes: {hvac_modes}")
+                if target_hvac_mode == "off" and target_hvac_mode in hvac_modes:
+                    _LOGGER.info(f"Turning off {entity_id}")
                     await self.hass.services.async_call(
                         "climate",
                         "set_hvac_mode",
                         {
                             "entity_id": entity_id,
-                            "hvac_mode": active_node["hvac_mode"],
+                            "hvac_mode": "off",
                         },
                         blocking=True,
                     )
-                elif "hvac_mode" in active_node:
-                    _LOGGER.debug(f"HVAC mode {active_node['hvac_mode']} not supported by {entity_id}")
+                else:
+                    # Update to new node temperature
+                    _LOGGER.info(
+                        f"Updating {entity_id} to new node: temp={target_temp}°C"
+                    )
+                    
+                    # Build service data
+                    service_data = {
+                        "entity_id": entity_id,
+                        ATTR_TEMPERATURE: target_temp,
+                    }
+                    
+                    # Call climate service to set temperature
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        service_data,
+                        blocking=True,
+                    )
+                    
+                    # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
+                    if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
+                        _LOGGER.info(f"Setting HVAC mode to {active_node['hvac_mode']}")
+                        await self.hass.services.async_call(
+                            "climate",
+                            "set_hvac_mode",
+                            {
+                                "entity_id": entity_id,
+                                "hvac_mode": active_node["hvac_mode"],
+                            },
+                            blocking=True,
+                        )
+                    elif "hvac_mode" in active_node and active_node["hvac_mode"] != "off":
+                        _LOGGER.debug(f"HVAC mode {active_node['hvac_mode']} not supported by {entity_id}")
                 
                 # Apply fan mode if specified in node and supported by entity
                 if "fan_mode" in active_node and fan_modes and active_node["fan_mode"] in fan_modes:
