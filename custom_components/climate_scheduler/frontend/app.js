@@ -13,6 +13,8 @@ let allGroups = {}; // Store all groups data
 let currentGroup = null; // Currently selected group
 let tooltipMode = 'history'; // 'history' or 'cursor'
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
+let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
+let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
 
 // Debug logging function
 function debugLog(message, type = 'info') {
@@ -377,7 +379,7 @@ function createGroupContainer(groupName, groupData) {
 }
 
 // Edit group schedule - load group schedule into editor
-async function editGroupSchedule(groupName) {
+async function editGroupSchedule(groupName, day = null) {
     const groupData = allGroups[groupName];
     if (!groupData) return;
     
@@ -387,6 +389,25 @@ async function editGroupSchedule(groupName) {
     // Set current group and clear entity selection
     currentGroup = groupName;
     currentEntityId = null;
+    
+    // Load schedule mode and day
+    currentScheduleMode = groupData.schedule_mode || 'all_days';
+    
+    if (!day) {
+        // Determine which day to load based on mode
+        const now = new Date();
+        const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+        
+        if (currentScheduleMode === 'all_days') {
+            currentDay = 'all_days';
+        } else if (currentScheduleMode === '5/2') {
+            currentDay = (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+        } else {
+            currentDay = weekday;
+        }
+    } else {
+        currentDay = day;
+    }
     
     // Find the group container
     const groupContainer = document.querySelector(`.group-container[data-group-name="${groupName}"]`);
@@ -431,15 +452,20 @@ async function editGroupSchedule(groupName) {
         svgElement.addEventListener('nodeSettings', handleNodeSettings);
     }
     
-    // Load schedule nodes into editor
-    if (groupData.nodes && groupData.nodes.length > 0) {
-        currentSchedule = groupData.nodes.map(n => ({...n}));
-        graph.setNodes(currentSchedule);
-    } else {
-        // Start with empty schedule
-        currentSchedule = [];
-        graph.setNodes([{ time: '00:00', temp: 18 }]);
+    // Load nodes for the selected day
+    let nodes = [];
+    if (groupData.schedules && groupData.schedules[currentDay]) {
+        nodes = groupData.schedules[currentDay];
+    } else if (groupData.nodes) {
+        // Backward compatibility
+        nodes = groupData.nodes;
     }
+    
+    currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
+    graph.setNodes(currentSchedule.length > 0 ? currentSchedule : [{ time: '00:00', temp: 18 }]);
+    
+    // Update schedule mode UI
+    updateScheduleModeUI();
     
     // Load history data for all entities in the group
     await loadGroupHistoryData(groupData.entities);
@@ -858,6 +884,42 @@ function createScheduleEditor() {
             <div class="status-item" id="current-preset-mode-item" style="display: none;">
                 <span class="status-label">Preset Mode:</span>
                 <span id="current-preset-mode" class="status-value">--</span>
+            </div>
+        </div>
+
+        <!-- Schedule Mode and Day Selector -->
+        <div class="schedule-mode-selector">
+            <h3>Schedule Mode</h3>
+            <div class="mode-options">
+                <div class="mode-option">
+                    <input type="radio" name="schedule-mode" value="all_days" id="mode-all-days" checked>
+                    <label for="mode-all-days">All Days</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" name="schedule-mode" value="5/2" id="mode-5-2">
+                    <label for="mode-5-2">5/2 (Weekday/Weekend)</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" name="schedule-mode" value="individual" id="mode-individual">
+                    <label for="mode-individual">Individual Days</label>
+                </div>
+            </div>
+            <div class="day-selector" id="day-selector">
+                <div class="day-buttons">
+                    <button class="day-btn" data-day="mon">Mon</button>
+                    <button class="day-btn" data-day="tue">Tue</button>
+                    <button class="day-btn" data-day="wed">Wed</button>
+                    <button class="day-btn" data-day="thu">Thu</button>
+                    <button class="day-btn" data-day="fri">Fri</button>
+                    <button class="day-btn" data-day="sat">Sat</button>
+                    <button class="day-btn" data-day="sun">Sun</button>
+                </div>
+            </div>
+            <div class="weekday-selector" id="weekday-selector">
+                <div class="day-buttons">
+                    <button class="day-btn weekday-btn" data-day="weekday">Weekday</button>
+                    <button class="day-btn weekday-btn" data-day="weekend">Weekend</button>
+                </div>
             </div>
         </div>
 
@@ -1306,6 +1368,35 @@ function attachEditorEventListeners(editorElement) {
     if (fanModeSelect) fanModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (swingModeSelect) swingModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (presetModeSelect) presetModeSelect.addEventListener('change', autoSaveNodeSettings);
+    
+    // Schedule mode radio buttons
+    const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', async (e) => {
+            if (e.target.checked) {
+                const newMode = e.target.value;
+                await switchScheduleMode(newMode);
+            }
+        });
+    });
+    
+    // Day selector buttons (for individual mode)
+    const dayButtons = editorElement.querySelectorAll('#day-selector .day-btn');
+    dayButtons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const day = btn.dataset.day;
+            await switchDay(day);
+        });
+    });
+    
+    // Weekday selector buttons (for 5/2 mode)
+    const weekdayButtons = editorElement.querySelectorAll('#weekday-selector .day-btn');
+    weekdayButtons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const day = btn.dataset.day;
+            await switchDay(day);
+        });
+    });
 }
 
 // Clear schedule for an entity
@@ -1336,32 +1427,184 @@ async function clearScheduleForEntity(entityId) {
 }
 
 // Load schedule for entity
-async function loadEntitySchedule(entityId) {
+async function loadEntitySchedule(entityId, day = null) {
     try {
-        // Check local state first
-        let schedule;
-        if (entitySchedules.has(entityId)) {
-            schedule = { nodes: entitySchedules.get(entityId) };
-        } else {
-            const result = await haAPI.getSchedule(entityId);
-            // Extract schedule from response wrapper
-            schedule = result?.response || result;
-        }
+        const result = await haAPI.getSchedule(entityId);
+        const schedule = result?.response || result;
         
-        if (schedule && schedule.nodes) {
-            graph.setNodes(schedule.nodes);
+        if (schedule) {
+            // Update schedule mode from backend
+            currentScheduleMode = schedule.schedule_mode || 'all_days';
+            
+            // Determine which day's schedule to load
+            let dayToLoad = day;
+            if (!dayToLoad) {
+                // Default to current day based on mode
+                const now = new Date();
+                const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                
+                if (currentScheduleMode === 'all_days') {
+                    dayToLoad = 'all_days';
+                } else if (currentScheduleMode === '5/2') {
+                    dayToLoad = (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+                } else {
+                    dayToLoad = weekday;
+                }
+            }
+            
+            currentDay = dayToLoad;
+            
+            // Get nodes for the selected day
+            let nodes = [];
+            if (schedule.schedules && schedule.schedules[dayToLoad]) {
+                nodes = schedule.schedules[dayToLoad];
+            } else if (schedule.nodes) {
+                // Backward compatibility - old format
+                nodes = schedule.nodes;
+            }
+            
+            // Update UI
+            updateScheduleModeUI();
+            graph.setNodes(nodes.length > 0 ? nodes : [{ time: '00:00', temp: 18 }]);
             document.getElementById('schedule-enabled').checked = schedule.enabled !== false;
         } else {
-            // New schedule - load default and enable it
-            graph.setNodes([
-                { time: '00:00', temp: 18 }
-            ]);
+            // New schedule - set defaults
+            currentScheduleMode = 'all_days';
+            currentDay = 'all_days';
+            updateScheduleModeUI();
+            graph.setNodes([{ time: '00:00', temp: 18 }]);
             document.getElementById('schedule-enabled').checked = true;
         }
         
         updateScheduledTemp();
     } catch (error) {
         console.error('Failed to load schedule:', error);
+    }
+}
+
+// Update schedule mode UI to reflect current mode and day
+function updateScheduleModeUI() {
+    console.log('updateScheduleModeUI called - mode:', currentScheduleMode, 'day:', currentDay);
+    
+    // Update mode radio buttons
+    const modeRadios = document.querySelectorAll('input[name="schedule-mode"]');
+    console.log('Found', modeRadios.length, 'mode radio buttons');
+    modeRadios.forEach(radio => {
+        radio.checked = (radio.value === currentScheduleMode);
+    });
+    
+    // Show/hide appropriate day selectors
+    const daySelector = document.getElementById('day-selector');
+    const weekdaySelector = document.getElementById('weekday-selector');
+    
+    console.log('daySelector:', daySelector, 'weekdaySelector:', weekdaySelector);
+    
+    if (daySelector && weekdaySelector) {
+        // Hide both first
+        daySelector.classList.remove('visible');
+        weekdaySelector.classList.remove('visible');
+        
+        // Show the appropriate one
+        if (currentScheduleMode === 'individual') {
+            console.log('Showing individual day selector');
+            daySelector.classList.add('visible');
+        } else if (currentScheduleMode === '5/2') {
+            console.log('Showing 5/2 weekday selector');
+            weekdaySelector.classList.add('visible');
+        }
+    }
+    
+    // Update active day button
+    if (currentScheduleMode === 'individual') {
+        document.querySelectorAll('#day-selector .day-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.day === currentDay);
+        });
+    } else if (currentScheduleMode === '5/2') {
+        document.querySelectorAll('#weekday-selector .day-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.day === currentDay);
+        });
+    }
+    
+    // Update graph title to show current day
+    updateGraphTitle();
+}
+
+// Update graph title to show which day is being edited
+function updateGraphTitle() {
+    const graphWrapper = document.querySelector('.graph-wrapper');
+    let titleElement = graphWrapper.querySelector('.schedule-day-title');
+    
+    if (!titleElement) {
+        titleElement = document.createElement('div');
+        titleElement.className = 'schedule-day-title';
+        titleElement.style.marginBottom = '10px';
+        titleElement.style.fontSize = '0.9rem';
+        titleElement.style.color = 'var(--text-secondary)';
+        graphWrapper.insertBefore(titleElement, graphWrapper.firstChild);
+    }
+    
+    if (currentScheduleMode === 'all_days') {
+        titleElement.textContent = 'Schedule (All Days)';
+    } else if (currentScheduleMode === '5/2') {
+        const dayName = currentDay === 'weekday' ? 'Weekdays' : 'Weekend';
+        titleElement.textContent = `Schedule (${dayName})`;
+    } else {
+        const dayNames = {
+            'mon': 'Monday',
+            'tue': 'Tuesday', 
+            'wed': 'Wednesday',
+            'thu': 'Thursday',
+            'fri': 'Friday',
+            'sat': 'Saturday',
+            'sun': 'Sunday'
+        };
+        titleElement.textContent = `Schedule (${dayNames[currentDay] || currentDay})`;
+    }
+}
+
+// Switch to a different schedule mode
+async function switchScheduleMode(newMode) {
+    if (!currentEntityId && !currentGroup) return;
+    
+    currentScheduleMode = newMode;
+    
+    // Determine default day for new mode
+    const now = new Date();
+    const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+    
+    if (newMode === 'all_days') {
+        currentDay = 'all_days';
+    } else if (newMode === '5/2') {
+        currentDay = (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+    } else {
+        currentDay = weekday;
+    }
+    
+    // Update UI
+    updateScheduleModeUI();
+    
+    // Reload schedule for current entity/group with new mode
+    if (currentGroup) {
+        await loadGroupSchedule(currentGroup);
+    } else {
+        await loadEntitySchedule(currentEntityId);
+    }
+}
+
+// Switch to a different day
+async function switchDay(day) {
+    if (!currentEntityId && !currentGroup) return;
+    
+    currentDay = day;
+    
+    // Update UI
+    updateScheduleModeUI();
+    
+    // Reload schedule for selected day
+    if (currentGroup) {
+        await loadGroupSchedule(currentGroup, day);
+    } else {
+        await loadEntitySchedule(currentEntityId, day);
     }
 }
 
@@ -1527,8 +1770,8 @@ async function saveSchedule() {
             const nodes = graph.getNodes();
             const enabled = document.getElementById('schedule-enabled').checked;
             
-            // Save to group schedule
-            await haAPI.setGroupSchedule(currentGroup, nodes);
+            // Save to group schedule with day and mode
+            await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
             
             // Update enabled state
             if (enabled) {
@@ -1557,8 +1800,8 @@ async function saveSchedule() {
         // Update local state immediately with the current entity's schedule
         entitySchedules.set(currentEntityId, JSON.parse(JSON.stringify(nodes)));
         
-        // Save schedule to HA in background
-        await haAPI.setSchedule(currentEntityId, nodes);
+        // Save schedule to HA in background with day and mode
+        await haAPI.setSchedule(currentEntityId, nodes, currentDay, currentScheduleMode);
         
         // Update enabled state
         if (enabled) {
@@ -2054,6 +2297,35 @@ async function toggleEntityInclusion(entityId, include) {
 
 // Set up event listeners
 function setupEventListeners() {
+    // Schedule mode radio buttons
+    const modeRadios = document.querySelectorAll('input[name="schedule-mode"]');
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', async (e) => {
+            if (e.target.checked) {
+                const newMode = e.target.value;
+                await switchScheduleMode(newMode);
+            }
+        });
+    });
+    
+    // Day selector buttons (for individual mode)
+    const dayButtons = document.querySelectorAll('.day-btn');
+    dayButtons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const day = btn.dataset.day;
+            await switchDay(day);
+        });
+    });
+    
+    // Weekday selector buttons (for 5/2 mode)
+    const weekdayButtons = document.querySelectorAll('.weekday-btn');
+    weekdayButtons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const day = btn.dataset.day;
+            await switchDay(day);
+        });
+    });
+    
     // Menu button and dropdown
     const menuButton = document.getElementById('menu-button');
     const dropdownMenu = document.getElementById('dropdown-menu');

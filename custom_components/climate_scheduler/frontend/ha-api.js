@@ -182,12 +182,19 @@ class HomeAssistantAPI {
         });
     }
     
-    async getSchedule(entityId) {
+    async getSchedule(entityId, day = null) {
         try {
-            // Call our custom service to get schedule with return_response
-            const result = await this.callService('climate_scheduler', 'get_schedule', {
+            const serviceData = {
                 entity_id: entityId
-            }, true);  // Pass true to enable return_response
+            };
+            
+            if (day) {
+                serviceData.day = day;
+            }
+            
+            // Call our custom service to get schedule with return_response
+            const result = await this.callService('climate_scheduler', 'get_schedule', 
+                serviceData, true);  // Pass true to enable return_response
             return result;
         } catch (error) {
             console.error('Failed to get schedule:', error);
@@ -195,11 +202,20 @@ class HomeAssistantAPI {
         }
     }
     
-    async setSchedule(entityId, nodes) {
-        return await this.callService('climate_scheduler', 'set_schedule', {
+    async setSchedule(entityId, nodes, day = null, scheduleMode = null) {
+        const serviceData = {
             entity_id: entityId,
             nodes: nodes
-        });
+        };
+        
+        if (day) {
+            serviceData.day = day;
+        }
+        if (scheduleMode) {
+            serviceData.schedule_mode = scheduleMode;
+        }
+        
+        return await this.callService('climate_scheduler', 'set_schedule', serviceData);
     }
     
     async enableSchedule(entityId) {
@@ -257,11 +273,20 @@ class HomeAssistantAPI {
         }
     }
     
-    async setGroupSchedule(groupName, nodes) {
-        return await this.callService('climate_scheduler', 'set_group_schedule', {
+    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+        const serviceData = {
             group_name: groupName,
             nodes: nodes
-        });
+        };
+        
+        if (day) {
+            serviceData.day = day;
+        }
+        if (scheduleMode) {
+            serviceData.schedule_mode = scheduleMode;
+        }
+        
+        return await this.callService('climate_scheduler', 'set_group_schedule', serviceData);
     }
     
     async enableGroup(groupName) {

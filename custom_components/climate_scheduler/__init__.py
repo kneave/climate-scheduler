@@ -1,6 +1,7 @@
 """The Climate Scheduler integration."""
 import logging
 import json
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -16,13 +17,26 @@ from .const import DOMAIN, UPDATE_INTERVAL_SECONDS
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
 
+_LOGGER = logging.getLogger(__name__)
+
 # Load version from manifest.json
 manifest_path = Path(__file__).parent / "manifest.json"
 with open(manifest_path) as f:
     manifest_data = json.load(f)
     VERSION = manifest_data.get("version", "unknown")
 
-_LOGGER = logging.getLogger(__name__)
+# Check if this is a dev/manual deployment by looking for a .dev marker file
+# HACS deployments won't have this file
+is_dev_deployment = (Path(__file__).parent / ".dev").exists()
+
+# Generate cache-busting timestamp for dev deployments only
+# For HACS releases, use version-based cache busting
+if is_dev_deployment:
+    CACHE_BUST = str(int(time.time()))
+    _LOGGER.info(f"Dev deployment detected - using timestamp cache busting: {CACHE_BUST}")
+else:
+    CACHE_BUST = VERSION.replace('.', '')
+    _LOGGER.info(f"HACS deployment detected - using version cache busting: {CACHE_BUST}")
 
 # Service schemas
 SET_SCHEDULE_SCHEMA = vol.Schema({
@@ -127,21 +141,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         """Handle set_schedule service call."""
         entity_id = call.data["entity_id"]
         nodes = call.data["nodes"]
-        await storage.async_set_schedule(entity_id, nodes)
-        _LOGGER.info(f"Schedule set for {entity_id}")
+        day = call.data.get("day")  # Optional: mon, tue, wed, thu, fri, sat, sun, weekday, weekend, all_days
+        schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
+        await storage.async_set_schedule(entity_id, nodes, day, schedule_mode)
+        _LOGGER.info(f"Schedule set for {entity_id} (day: {day}, mode: {schedule_mode})")
     
     async def handle_get_schedule(call: ServiceCall) -> dict:
         """Handle get_schedule service call."""
         entity_id = call.data["entity_id"]
-        schedule = await storage.async_get_schedule(entity_id)
-        _LOGGER.info(f"Schedule for {entity_id}: {schedule}")
+        day = call.data.get("day")  # Optional: which day to get
+        schedule = await storage.async_get_schedule(entity_id, day)
+        _LOGGER.info(f"Schedule for {entity_id} (day: {day}): {schedule}")
         # Return as service response data including enabled state
         if schedule:
             return {
                 "nodes": schedule.get("nodes", []),
-                "enabled": schedule.get("enabled", True)
+                "enabled": schedule.get("enabled", True),
+                "schedule_mode": schedule.get("schedule_mode", "all_days"),
+                "schedules": schedule.get("schedules", {})
             }
-        return {"nodes": [], "enabled": False}
+        return {"nodes": [], "enabled": False, "schedule_mode": "all_days", "schedules": {}}
     
     async def handle_clear_schedule(call: ServiceCall) -> None:
         """Handle clear_schedule service call."""
@@ -216,9 +235,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         """Handle set_group_schedule service call."""
         group_name = call.data["group_name"]
         nodes = call.data["nodes"]
+        day = call.data.get("day")  # Optional: mon, tue, wed, thu, fri, sat, sun, weekday, weekend, all_days
+        schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
         try:
-            await storage.async_set_group_schedule(group_name, nodes)
-            _LOGGER.info(f"Set schedule for group '{group_name}'")
+            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            _LOGGER.info(f"Set schedule for group '{group_name}' (day: {day}, mode: {schedule_mode})")
         except ValueError as err:
             _LOGGER.error(f"Error setting group schedule: {err}")
             raise
@@ -311,12 +332,11 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             file_path = frontend_path / "index.html"
             _LOGGER.info(f"Serving panel from: {file_path}, exists: {file_path.exists()}")
             if file_path.exists():
-                # Read and inject VERSION
+                # Read and inject cache-busting timestamp
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                version_string = VERSION.replace('.', '')
-                content = content.replace('{{VERSION}}', version_string)
-                _LOGGER.info(f"Injecting VERSION={version_string} into index.html")
+                content = content.replace('{{VERSION}}', CACHE_BUST)
+                _LOGGER.info(f"Injecting CACHE_BUST={CACHE_BUST} into index.html")
                 
                 response = web.Response(text=content, content_type='text/html')
                 # Allow iframe embedding
@@ -341,18 +361,17 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                     "version": VERSION
                 })
             
-            # Special handling for index.html - inject VERSION
+            # Special handling for index.html - inject cache-busting timestamp
             if filename == "index.html":
                 file_path = frontend_path / filename
-                _LOGGER.info(f"Serving index.html with VERSION injection. VERSION={VERSION}")
+                _LOGGER.info(f"Serving index.html with cache-busting timestamp. CACHE_BUST={CACHE_BUST}")
                 if file_path.exists() and file_path.is_file():
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                    # Replace {{VERSION}} placeholder with actual version
-                    version_string = VERSION.replace('.', '')
-                    _LOGGER.info(f"Replacing {{{{VERSION}}}} with {version_string}")
-                    content = content.replace('{{VERSION}}', version_string)
-                    _LOGGER.info(f"Content length after replacement: {len(content)}, contains placeholder: {'{' in content and 'VERSION' in content}")
+                    # Replace {{VERSION}} placeholder with cache-busting timestamp
+                    _LOGGER.info(f"Replacing {{{{VERSION}}}} with {CACHE_BUST}")
+                    content = content.replace('{{VERSION}}', CACHE_BUST)
+                    _LOGGER.info(f"Content length after replacement: {len(content)}")
                     response = web.Response(text=content, content_type='text/html')
                     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
                     return response
@@ -380,7 +399,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         sidebar_icon="mdi:calendar-clock",
         frontend_url_path="climate_scheduler",
         config={
-            "url": f"/climate_scheduler_panel/index.html?v={VERSION.replace('.', '')}"
+            "url": f"/climate_scheduler_panel/index.html?v={CACHE_BUST}"
         },
         require_admin=False
     )

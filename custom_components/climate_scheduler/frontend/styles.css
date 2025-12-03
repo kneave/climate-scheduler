@@ -557,6 +557,86 @@ body {
     color: var(--accent);
 }
 
+/* Schedule Mode Selector */
+.schedule-mode-selector {
+    background: var(--background);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.schedule-mode-selector h3 {
+    margin: 0 0 10px 0;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.mode-options {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
+}
+
+.mode-option {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.mode-option input[type="radio"] {
+    margin: 0;
+}
+
+.mode-option label {
+    margin: 0;
+    cursor: pointer;
+}
+
+.day-selector {
+    display: none;
+    margin-top: 10px;
+}
+
+.day-selector.visible {
+    display: block;
+}
+
+.day-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.day-btn {
+    padding: 8px 12px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.day-btn:hover {
+    background: var(--surface);
+    border-color: var(--primary);
+}
+
+.day-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.weekday-selector {
+    display: none;
+    margin-top: 10px;
+}
+
+.weekday-selector.visible {
+    display: block;
+}
+
 /* Graph Container */
 .graph-container {
     margin-top: 20px;

@@ -31,7 +31,43 @@ class ScheduleStorage:
             # Ensure groups key exists for backwards compatibility
             if "groups" not in self._data:
                 self._data["groups"] = {}
+            # Migrate old single-schedule format to new day-based format
+            await self._migrate_to_day_schedules()
         _LOGGER.debug(f"Loaded schedule data: {self._data}")
+    
+    async def _migrate_to_day_schedules(self) -> None:
+        """Migrate existing schedules to day-based format."""
+        migrated = False
+        for entity_id, entity_data in self._data.get("entities", {}).items():
+            # Check if already in new format (has schedule_mode key)
+            if "schedule_mode" not in entity_data:
+                # Migrate from old format
+                old_nodes = entity_data.get("nodes", [])
+                entity_data["schedule_mode"] = "all_days"  # Default to all days
+                entity_data["schedules"] = {
+                    "all_days": old_nodes
+                }
+                # Remove old nodes key
+                if "nodes" in entity_data:
+                    del entity_data["nodes"]
+                migrated = True
+                _LOGGER.info(f"Migrated {entity_id} to day-based schedule format")
+        
+        # Migrate groups
+        for group_name, group_data in self._data.get("groups", {}).items():
+            if "schedule_mode" not in group_data:
+                old_nodes = group_data.get("nodes", [])
+                group_data["schedule_mode"] = "all_days"
+                group_data["schedules"] = {
+                    "all_days": old_nodes
+                }
+                if "nodes" in group_data:
+                    del group_data["nodes"]
+                migrated = True
+                _LOGGER.info(f"Migrated group '{group_name}' to day-based schedule format")
+        
+        if migrated:
+            await self.async_save()
 
     async def async_save(self) -> None:
         """Save data to storage."""
@@ -42,22 +78,88 @@ class ScheduleStorage:
         """Get list of all entity IDs with schedules."""
         return list(self._data.get("entities", {}).keys())
 
-    async def async_get_schedule(self, entity_id: str) -> Optional[Dict[str, Any]]:
-        """Get schedule for an entity."""
-        return self._data.get("entities", {}).get(entity_id)
+    async def async_get_schedule(self, entity_id: str, day: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get schedule for an entity. If day is specified, returns nodes for that day."""
+        entity_data = self._data.get("entities", {}).get(entity_id)
+        if not entity_data:
+            return None
+        
+        # If no day specified, return the whole schedule structure
+        if day is None:
+            return entity_data
+        
+        # Return nodes for specific day based on schedule mode
+        return {
+            "nodes": self._get_nodes_for_day(entity_data, day),
+            "enabled": entity_data.get("enabled", True),
+            "schedule_mode": entity_data.get("schedule_mode", "all_days")
+        }
+    
+    def _get_nodes_for_day(self, entity_data: Dict[str, Any], day: str) -> List[Dict[str, Any]]:
+        """Get nodes for a specific day based on schedule mode."""
+        schedule_mode = entity_data.get("schedule_mode", "all_days")
+        schedules = entity_data.get("schedules", {})
+        
+        if schedule_mode == "all_days":
+            return schedules.get("all_days", [])
+        elif schedule_mode == "5/2":
+            # Weekdays: mon, tue, wed, thu, fri -> "weekday"
+            # Weekends: sat, sun -> "weekend"
+            if day in ["mon", "tue", "wed", "thu", "fri"]:
+                return schedules.get("weekday", [])
+            else:
+                return schedules.get("weekend", [])
+        elif schedule_mode == "individual":
+            return schedules.get(day, [])
+        
+        return []
 
-    async def async_set_schedule(self, entity_id: str, nodes: List[Dict[str, Any]]) -> None:
-        """Set schedule nodes for an entity."""
+    async def async_set_schedule(self, entity_id: str, nodes: List[Dict[str, Any]], day: Optional[str] = None, schedule_mode: Optional[str] = None) -> None:
+        """Set schedule nodes for an entity. Supports day-specific schedules."""
         if "entities" not in self._data:
             self._data["entities"] = {}
         
         if entity_id not in self._data["entities"]:
             self._data["entities"][entity_id] = {
                 "enabled": True,
-                "nodes": nodes
+                "schedule_mode": schedule_mode or "all_days",
+                "schedules": {}
             }
+        
+        entity_data = self._data["entities"][entity_id]
+        
+        # Update schedule mode if provided
+        if schedule_mode is not None:
+            entity_data["schedule_mode"] = schedule_mode
+        
+        # Ensure schedules dict exists
+        if "schedules" not in entity_data:
+            entity_data["schedules"] = {}
+        
+        # Set nodes for the appropriate day/mode
+        current_mode = entity_data.get("schedule_mode", "all_days")
+        
+        if day is None:
+            # No day specified - update the primary schedule based on mode
+            if current_mode == "all_days":
+                entity_data["schedules"]["all_days"] = nodes
+            elif current_mode == "5/2":
+                # If no day specified in 5/2 mode, update weekday by default
+                entity_data["schedules"]["weekday"] = nodes
+            else:
+                # Individual mode - update Monday by default
+                entity_data["schedules"]["mon"] = nodes
         else:
-            self._data["entities"][entity_id]["nodes"] = nodes
+            # Specific day provided
+            if current_mode == "5/2":
+                # Map day to weekday/weekend
+                if day in ["mon", "tue", "wed", "thu", "fri"]:
+                    entity_data["schedules"]["weekday"] = nodes
+                else:
+                    entity_data["schedules"]["weekend"] = nodes
+            else:
+                # Individual mode or updating specific day
+                entity_data["schedules"][day] = nodes
         
         await self.async_save()
 
@@ -69,7 +171,10 @@ class ScheduleStorage:
         if entity_id not in self._data["entities"]:
             self._data["entities"][entity_id] = {
                 "enabled": True,
-                "nodes": DEFAULT_SCHEDULE.copy()
+                "schedule_mode": "all_days",
+                "schedules": {
+                    "all_days": DEFAULT_SCHEDULE.copy()
+                }
             }
             await self.async_save()
             _LOGGER.info(f"Added entity {entity_id} with default schedule")
@@ -169,7 +274,10 @@ class ScheduleStorage:
         
         self._data["groups"][group_name] = {
             "entities": [],
-            "nodes": [{"time": "00:00", "temp": 18}]
+            "schedule_mode": "all_days",
+            "schedules": {
+                "all_days": [{"time": "00:00", "temp": 18}]
+            }
         }
         await self.async_save()
         _LOGGER.info(f"Created group '{group_name}'")
@@ -190,10 +298,14 @@ class ScheduleStorage:
             self._data["groups"][group_name]["entities"].append(entity_id)
             
             # If the group has a schedule, apply it to the newly added entity
-            group_nodes = self._data["groups"][group_name].get("nodes")
-            if group_nodes and entity_id in self._data.get("entities", {}):
-                # Deep copy the nodes to ensure the entity has its own copy
-                self._data["entities"][entity_id]["nodes"] = copy.deepcopy(group_nodes)
+            group_data = self._data["groups"][group_name]
+            group_schedules = group_data.get("schedules")
+            group_mode = group_data.get("schedule_mode", "all_days")
+            
+            if group_schedules and entity_id in self._data.get("entities", {}):
+                # Deep copy the schedules and mode to ensure the entity has its own copy
+                self._data["entities"][entity_id]["schedules"] = copy.deepcopy(group_schedules)
+                self._data["entities"][entity_id]["schedule_mode"] = group_mode
             
             await self.async_save()
             _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
@@ -222,22 +334,55 @@ class ScheduleStorage:
                 return group_name
         return None
 
-    async def async_set_group_schedule(self, group_name: str, nodes: List[Dict[str, Any]]) -> None:
+    async def async_set_group_schedule(self, group_name: str, nodes: List[Dict[str, Any]], day: Optional[str] = None, schedule_mode: Optional[str] = None) -> None:
         """Set schedule for a group (applies to all entities in the group)."""
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
-        # Update group schedule
-        self._data["groups"][group_name]["nodes"] = nodes
+        group_data = self._data["groups"][group_name]
         
-        # Apply to all entities in the group - use deep copy to prevent shared references
-        for entity_id in self._data["groups"][group_name]["entities"]:
+        # Update schedule mode if provided
+        if schedule_mode is not None:
+            group_data["schedule_mode"] = schedule_mode
+        
+        # Ensure schedules dict exists
+        if "schedules" not in group_data:
+            group_data["schedules"] = {}
+        
+        # Determine which schedule to update
+        current_mode = group_data.get("schedule_mode", "all_days")
+        
+        if day is None:
+            # No day specified - update the primary schedule based on mode
+            if current_mode == "all_days":
+                group_data["schedules"]["all_days"] = nodes
+            elif current_mode == "5/2":
+                group_data["schedules"]["weekday"] = nodes
+            else:
+                group_data["schedules"]["mon"] = nodes
+        else:
+            # Specific day provided
+            if current_mode == "5/2":
+                # Map day to weekday/weekend
+                if day in ["mon", "tue", "wed", "thu", "fri"]:
+                    group_data["schedules"]["weekday"] = nodes
+                else:
+                    group_data["schedules"]["weekend"] = nodes
+            else:
+                group_data["schedules"][day] = nodes
+        
+        # Apply to all entities in the group - update their schedule mode and schedules
+        for entity_id in group_data["entities"]:
             if entity_id in self._data.get("entities", {}):
-                # Deep copy the nodes to ensure each entity has its own copy
-                self._data["entities"][entity_id]["nodes"] = copy.deepcopy(nodes)
+                entity_data = self._data["entities"][entity_id]
+                entity_data["schedule_mode"] = current_mode
+                if "schedules" not in entity_data:
+                    entity_data["schedules"] = {}
+                # Deep copy all schedules from group to entity
+                entity_data["schedules"] = copy.deepcopy(group_data["schedules"])
         
         await self.async_save()
-        _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes")
+        _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes (day: {day}, mode: {schedule_mode})")
     
     async def async_enable_group(self, group_name: str) -> None:
         """Enable a group schedule."""
