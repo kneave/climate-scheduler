@@ -55,10 +55,6 @@ if (Test-Path "$SOURCE\.dev") {
 # Copy all files
 Copy-Item -Path $SOURCE -Destination (Split-Path $TARGET -Parent) -Recurse -Force
 
-# Create .dev marker file to enable timestamp-based cache busting
-Write-Host "Creating dev deployment marker..." -ForegroundColor Cyan
-New-Item -ItemType File -Force -Path "$TARGET\.dev" | Out-Null
-
 Write-Host "Files copied successfully" -ForegroundColor Green
 Write-Host ""
 
@@ -70,9 +66,7 @@ Write-Host ""
 Write-Host "=== Deployment Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Go to Developer Tools -> YAML" -ForegroundColor White
-Write-Host "  2. Click 'Restart' or reload the integration" -ForegroundColor White
-Write-Host "  3. Refresh the Climate Scheduler panel (Ctrl+F5)" -ForegroundColor White
+Write-Host "  1. Use the 'Reload Integration (Dev)' button in the menu" -ForegroundColor White
+Write-Host "  2. Or restart Home Assistant to load new code" -ForegroundColor White
 Write-Host ""
-Write-Host "Note: Dev deployment marker created - using timestamp cache busting" -ForegroundColor Gray
-Write-Host "      HACS deployments will use version-based cache busting" -ForegroundColor Gray
+Write-Host "Note: Custom panel uses version-based cache busting - changes should load immediately" -ForegroundColor Gray

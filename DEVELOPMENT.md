@@ -1,5 +1,21 @@
 # Development Guide
 
+## Architecture
+
+Climate Scheduler uses a **modern custom panel** architecture (as of v1.4.0+):
+
+- **Frontend**: Custom Web Component (`climate-scheduler-panel`) loaded as a JavaScript module
+- **Backend**: Python integration with service-based API
+- **Panel Type**: Custom panel (not iframe) with version-based cache busting
+- **Communication**: Hass object passed from Home Assistant to panel
+
+### Key Benefits
+
+- ✅ **Proper cache control** - Version parameter forces reload on updates
+- ✅ **No iframe limitations** - Direct access to Home Assistant context
+- ✅ **Fast development** - Changes load immediately without hard refresh
+- ✅ **Modern pattern** - Follows current Home Assistant best practices
+
 ## Quick Start Development
 
 ### Method 1: Live Development on HA Server (Recommended)
@@ -93,19 +109,29 @@ Use VS Code Remote SSH extension to edit files directly on the HA server:
 
 ### Hot Reload Frontend Changes
 
-Frontend files (HTML/CSS/JS) can be refreshed without restarting HA:
-- Just refresh the browser (Ctrl+F5 for hard refresh)
-- Clear browser cache if needed
+**Custom panel supports instant reload:**
+1. Make changes to `app.js`, `graph.js`, `ha-api.js`, or `panel.js`
+2. Deploy: `.\deploy-to-production.ps1`
+3. Click "Reload Integration (Dev)" button in the menu
+4. Changes load immediately - no browser refresh needed!
 
-### Backend Changes Require Restart
+**Version-based cache busting:**
+- Each deployment with new version number forces reload
+- No need for Ctrl+F5 or clearing browser cache
+- Works on mobile apps too
 
-Python files require HA restart:
+### Backend Changes Require Reload
+
+Python files require integration reload:
 ```powershell
-# Via SSH
+# Option 1: Use the "Reload Integration (Dev)" button in the UI
+
+# Option 2: Via SSH
 ssh user@ha-ip "ha core restart"
 
-# Or use HA Developer Tools > Services
-# Service: homeassistant.restart
+# Option 3: Use HA Developer Tools > Actions
+# Action: homeassistant.reload_config_entry
+# Target: Climate Scheduler integration
 ```
 
 ## Debugging
@@ -129,5 +155,45 @@ logger:
 ### Browser Developer Tools:
 - F12 to open DevTools
 - Console tab: Check for JavaScript errors
-- Network tab: Monitor API calls
-- Application tab: Check localStorage/WebSocket connections
+- Network tab: Monitor API calls (look for `/api/climate_scheduler/` requests)
+- Elements tab: Inspect `<climate-scheduler-panel>` custom element
+
+## File Structure
+
+```
+custom_components/climate_scheduler/
+├── __init__.py              # Integration setup, panel registration, services
+├── const.py                 # Constants
+├── coordinator.py           # Data polling coordinator  
+├── manifest.json            # Integration metadata
+├── services.yaml            # Service definitions
+├── storage.py               # JSON storage management
+├── version.py               # Version string
+└── frontend/
+    ├── panel.js             # Custom panel entry point (Web Component)
+    ├── app.js               # Main application logic
+    ├── graph.js             # Interactive temperature graph
+    ├── ha-api.js            # Home Assistant API wrapper
+    ├── styles.css           # All styling
+    └── index.html           # (Legacy - not used in custom panel mode)
+```
+
+## Migration Notes
+
+### v1.3.x → v1.4.0+ (Iframe → Custom Panel)
+
+**What Changed:**
+- Panel registration changed from `component_name="iframe"` to `component_name="custom"`
+- Frontend now loads as JavaScript module via `/api/climate_scheduler/panel.js`
+- Cache busting uses version parameter (`?v=140`) instead of file timestamps
+- Direct access to hass object instead of WebSocket authentication
+
+**Breaking Changes:**
+- None for users - panel path remains `/climate_scheduler`
+- Developers: Old URL `/climate_scheduler_panel/index.html` redirects to new module system
+
+**Benefits:**
+- Instant reload on version change
+- No more aggressive iframe caching
+- Modern HA integration pattern
+- Better mobile app compatibility

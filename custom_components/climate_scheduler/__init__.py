@@ -25,18 +25,7 @@ with open(manifest_path) as f:
     manifest_data = json.load(f)
     VERSION = manifest_data.get("version", "unknown")
 
-# Check if this is a dev/manual deployment by looking for a .dev marker file
-# HACS deployments won't have this file
-is_dev_deployment = (Path(__file__).parent / ".dev").exists()
-
-# Generate cache-busting timestamp for dev deployments only
-# For HACS releases, use version-based cache busting
-if is_dev_deployment:
-    CACHE_BUST = str(int(time.time()))
-    _LOGGER.info(f"Dev deployment detected - using timestamp cache busting: {CACHE_BUST}")
-else:
-    CACHE_BUST = VERSION.replace('.', '')
-    _LOGGER.info(f"HACS deployment detected - using version cache busting: {CACHE_BUST}")
+# No cache busting - browser caching through iframe is too aggressive
 
 # Service schemas
 SET_SCHEDULE_SCHEMA = vol.Schema({
@@ -50,7 +39,9 @@ SET_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("swing_mode"): cv.string,
             vol.Optional("preset_mode"): cv.string
         })
-    ])
+    ]),
+    vol.Optional("day"): cv.string,
+    vol.Optional("schedule_mode"): cv.string
 })
 
 ENTITY_SCHEMA = vol.Schema({
@@ -86,7 +77,9 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("swing_mode"): cv.string,
             vol.Optional("preset_mode"): cv.string
         })
-    ])
+    ]),
+    vol.Optional("day"): cv.string,
+    vol.Optional("schedule_mode"): cv.string
 })
 
 ENABLE_GROUP_SCHEMA = vol.Schema({
@@ -290,6 +283,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             _LOGGER.error(f"Failed to save settings: {e}")
             raise
     
+    async def handle_reload_integration(call: ServiceCall) -> None:
+        """Handle reload_integration service call - reloads this integration."""
+        _LOGGER.info("Reloading Climate Scheduler integration via service call")
+        # Find this integration's config entry
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            await hass.config_entries.async_reload(entry.entry_id)
+            _LOGGER.info(f"Reloaded config entry: {entry.entry_id}")
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -306,6 +307,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, schema=DISABLE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
+    hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
     
     # Register frontend panel
     await async_register_panel(hass)
@@ -320,88 +322,83 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     _LOGGER.info(f"Frontend path: {frontend_path}")
     _LOGGER.info(f"Frontend path exists: {frontend_path.exists()}")
     
-    class HeatingSchedulerPanelView(HomeAssistantView):
-        """View to serve the climate scheduler panel."""
+    class ClimateSchedulerStaticView(HomeAssistantView):
+        """View to serve static files with proper versioning."""
         
-        url = "/climate_scheduler_panel/index.html"
-        name = "climate_scheduler:panel"
-        requires_auth = False
-        
-        async def get(self, request):
-            """Serve the panel HTML."""
-            file_path = frontend_path / "index.html"
-            _LOGGER.info(f"Serving panel from: {file_path}, exists: {file_path.exists()}")
-            if file_path.exists():
-                # Read and inject cache-busting timestamp
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                content = content.replace('{{VERSION}}', CACHE_BUST)
-                _LOGGER.info(f"Injecting CACHE_BUST={CACHE_BUST} into index.html")
-                
-                response = web.Response(text=content, content_type='text/html')
-                # Allow iframe embedding
-                response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-                response.headers['Content-Security-Policy'] = "frame-ancestors 'self'"
-                return response
-            else:
-                return web.Response(text="File not found", status=404)
-    
-    class HeatingSchedulerStaticView(HomeAssistantView):
-        """View to serve static files."""
-        
-        url = r"/climate_scheduler_panel/{filename:.+}"
+        url = r"/api/climate_scheduler/{filename:.+}"
         name = "climate_scheduler:static"
         requires_auth = False
         
         async def get(self, request, filename):
-            """Serve static files."""
-            # Special endpoint for version info
-            if filename == "version.json":
-                return web.json_response({
-                    "version": VERSION
-                })
-            
-            # Special handling for index.html - inject cache-busting timestamp
-            if filename == "index.html":
-                file_path = frontend_path / filename
-                _LOGGER.info(f"Serving index.html with cache-busting timestamp. CACHE_BUST={CACHE_BUST}")
-                if file_path.exists() and file_path.is_file():
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    # Replace {{VERSION}} placeholder with cache-busting timestamp
-                    _LOGGER.info(f"Replacing {{{{VERSION}}}} with {CACHE_BUST}")
-                    content = content.replace('{{VERSION}}', CACHE_BUST)
-                    _LOGGER.info(f"Content length after replacement: {len(content)}")
-                    response = web.Response(text=content, content_type='text/html')
-                    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-                    return response
-            
+            """Serve static files with proper MIME types and versioning."""
             file_path = frontend_path / filename
-            _LOGGER.info(f"Serving static file: {file_path}, exists: {file_path.exists()}")
-            if file_path.exists() and file_path.is_file():
-                response = web.FileResponse(file_path)
-                # Allow iframe embedding
-                response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-                return response
-            return web.Response(text=f"File not found: {filename}", status=404)
+            _LOGGER.debug(f"Serving file: {filename}, path: {file_path}, exists: {file_path.exists()}")
+            
+            if not file_path.exists() or not file_path.is_file():
+                _LOGGER.warning(f"File not found: {filename}")
+                return web.Response(text=f"File not found: {filename}", status=404)
+            
+            # Determine content type based on file extension
+            content_type = 'text/plain'
+            if filename.endswith('.js'):
+                content_type = 'application/javascript'
+            elif filename.endswith('.css'):
+                content_type = 'text/css'
+            elif filename.endswith('.html'):
+                content_type = 'text/html'
+            elif filename.endswith('.json'):
+                content_type = 'application/json'
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Create response with proper headers
+            response = web.Response(text=content, content_type=content_type)
+            
+            # Add cache control headers that work with version parameter
+            # Files with ?v= parameter can be cached, others should not
+            if 'v' in request.query:
+                # Long cache for versioned files
+                response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            else:
+                # No cache for non-versioned files
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+            
+            return response
     
-    hass.http.register_view(HeatingSchedulerPanelView())
-    hass.http.register_view(HeatingSchedulerStaticView())
+    hass.http.register_view(ClimateSchedulerStaticView())
     
-    _LOGGER.info("Views registered successfully")
+    _LOGGER.info("Static file view registered successfully")
     
-    # Register the panel
+    # Register the custom panel
     from homeassistant.components import frontend
+    import time
+    
+    # Get version string for cache busting
+    # Use timestamp in development mode for instant updates
+    version_param = VERSION.replace('.', '')
+    # Add timestamp to force reload on integration reload
+    version_param = f"{version_param}_{int(time.time())}"
+    
+    # Register panel as custom panel with module URL
     frontend.async_register_built_in_panel(
         hass,
-        component_name="iframe",
+        component_name="custom",
         sidebar_title="Climate Scheduler",
         sidebar_icon="mdi:calendar-clock",
         frontend_url_path="climate_scheduler",
         config={
-            "url": f"/climate_scheduler_panel/index.html?v={CACHE_BUST}"
+            "_panel_custom": {
+                "name": "climate-scheduler-panel",
+                "module_url": f"/api/climate_scheduler/panel.js?v={version_param}",
+                "embed_iframe": False
+            }
         },
         require_admin=False
     )
     
-    _LOGGER.info("Panel registered successfully")
+    _LOGGER.info(f"Custom panel registered successfully with version {version_param}")
+

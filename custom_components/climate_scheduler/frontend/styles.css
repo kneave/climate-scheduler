@@ -4,7 +4,7 @@
     box-sizing: border-box;
 }
 
-:root {
+:host {
     --primary-color: #03a9f4;
     --primary-dark: #0288d1;
     --background: #1e1e1e;
@@ -20,9 +20,8 @@
     --node-color: #03a9f4;
     --node-hover: #29b6f6;
     --line-color: #ff9800;
-}
-
-body {
+    
+    display: block;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background-color: var(--background);
     color: var(--text-primary);
@@ -31,6 +30,7 @@ body {
     -moz-osx-font-smoothing: grayscale;
     touch-action: pan-y;
     overflow-x: hidden;
+    min-height: 100vh;
 }
 
 .container {
