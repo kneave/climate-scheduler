@@ -1,13 +1,11 @@
 # Climate Scheduler for Home Assistant
 
-A custom Home Assistant integration that provides intelligent 24-hour scheduling for climate entities (thermostats, HVAC systems, and heaters) with an intuitive touch-friendly graph interface.
+A custom Home Assistant integration that provides intelligent 24-hour, weekday/weekend, and 7-day scheduling for climate entities (thermostats, HVAC systems, and heaters) with an intuitive touch-friendly graph interface.
 
 ## Future Features
 - Scheduling for switching on/off switches (boilers, pumps, fans, etc)
 - Enchanced scheduling
-  - 7 Day scheduling
-  - weekend/weekday
-  - holiday mode with timer
+- holiday mode with timer
 - Sync to thermostats
   - If a room thermostat is in use stat supports standalone scheduling it should sync with this add-on in case of outages
 
