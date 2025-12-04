@@ -103,9 +103,13 @@ class ScheduleStorage:
         if schedule_mode == "all_days":
             return schedules.get("all_days", [])
         elif schedule_mode == "5/2":
+            # If day is already weekday/weekend, use it directly
+            if day in ["weekday", "weekend"]:
+                return schedules.get(day, [])
+            # Otherwise map individual days to weekday/weekend
             # Weekdays: mon, tue, wed, thu, fri -> "weekday"
             # Weekends: sat, sun -> "weekend"
-            if day in ["mon", "tue", "wed", "thu", "fri"]:
+            elif day in ["mon", "tue", "wed", "thu", "fri"]:
                 return schedules.get("weekday", [])
             else:
                 return schedules.get("weekend", [])
@@ -152,13 +156,17 @@ class ScheduleStorage:
         else:
             # Specific day provided
             if current_mode == "5/2":
-                # Map day to weekday/weekend
-                if day in ["mon", "tue", "wed", "thu", "fri"]:
+                # Map individual days to weekday/weekend, or use weekday/weekend directly
+                if day == "weekday":
                     entity_data["schedules"]["weekday"] = nodes
-                else:
+                elif day == "weekend":
+                    entity_data["schedules"]["weekend"] = nodes
+                elif day in ["mon", "tue", "wed", "thu", "fri"]:
+                    entity_data["schedules"]["weekday"] = nodes
+                else:  # sat, sun
                     entity_data["schedules"]["weekend"] = nodes
             else:
-                # Individual mode or updating specific day
+                # Individual mode or all_days mode
                 entity_data["schedules"][day] = nodes
         
         await self.async_save()
@@ -363,12 +371,17 @@ class ScheduleStorage:
         else:
             # Specific day provided
             if current_mode == "5/2":
-                # Map day to weekday/weekend
-                if day in ["mon", "tue", "wed", "thu", "fri"]:
+                # Map individual days to weekday/weekend, or use weekday/weekend directly
+                if day == "weekday":
                     group_data["schedules"]["weekday"] = nodes
-                else:
+                elif day == "weekend":
+                    group_data["schedules"]["weekend"] = nodes
+                elif day in ["mon", "tue", "wed", "thu", "fri"]:
+                    group_data["schedules"]["weekday"] = nodes
+                else:  # sat, sun
                     group_data["schedules"]["weekend"] = nodes
             else:
+                # Individual mode or all_days mode
                 group_data["schedules"][day] = nodes
         
         # Apply to all entities in the group - update their schedule mode and schedules

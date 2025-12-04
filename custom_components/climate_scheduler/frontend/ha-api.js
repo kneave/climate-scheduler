@@ -343,7 +343,13 @@ class HomeAssistantAPI {
             serviceData.schedule_mode = scheduleMode;
         }
         
-        return await this.callService('climate_scheduler', 'set_group_schedule', serviceData);
+        try {
+            const result = await this.callService('climate_scheduler', 'set_group_schedule', serviceData);
+            return result;
+        } catch (error) {
+            console.error('setGroupSchedule failed:', error);
+            throw error;
+        }
     }
     
     async enableGroup(groupName) {

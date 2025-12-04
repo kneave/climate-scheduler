@@ -25,7 +25,7 @@ let isLoadingSchedule = false; // Flag to prevent auto-save during schedule load
 // Debug logging function
 function debugLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] ${message}`);
+        //
     
     if (debugPanelEnabled) {
         const debugContent = getDocumentRoot().querySelector('#debug-content');
@@ -45,7 +45,7 @@ async function initApp() {
         // Detect mobile app environment
         const isMobileApp = /HomeAssistant|Home%20Assistant/.test(navigator.userAgent);
         if (isMobileApp) {
-            console.log('Running in Home Assistant mobile app');
+            // Running in Home Assistant mobile app
         }
         
         // Initialize Home Assistant API (only if not already initialized)
@@ -112,7 +112,7 @@ async function loadClimateEntities() {
     try {
         climateEntities = await haAPI.getClimateEntities();
         await renderEntityList();
-        console.log('renderEntityList completed');
+        // Entity list rendered
     } catch (error) {
         console.error('Failed to load climate entities:', error);
         alert('Failed to load climate entities');
@@ -379,7 +379,7 @@ async function editGroupSchedule(groupName, day = null) {
     
     // Set loading flag to prevent auto-saves during editor setup
     isLoadingSchedule = true;
-    console.log('editGroupSchedule - set isLoadingSchedule = true');
+        //
     
     // Collapse all other editors first
     collapseAllEditors();
@@ -450,12 +450,25 @@ async function editGroupSchedule(groupName, day = null) {
     }
     
     // Load nodes for the selected day
+    console.log('editGroupSchedule - Loading nodes for day:', currentDay, 'Available schedules:', Object.keys(groupData.schedules || {}));
     let nodes = [];
     if (groupData.schedules && groupData.schedules[currentDay]) {
         nodes = groupData.schedules[currentDay];
+        //
+    } else if (currentDay === "weekday" && groupData.schedules && groupData.schedules["mon"]) {
+        // If weekday key doesn't exist, try loading from Monday
+        nodes = groupData.schedules["mon"];
+        //
+    } else if (currentDay === "weekend" && groupData.schedules && groupData.schedules["sat"]) {
+        // If weekend key doesn't exist, try loading from Saturday
+        nodes = groupData.schedules["sat"];
+        //
     } else if (groupData.nodes) {
         // Backward compatibility
         nodes = groupData.nodes;
+        //
+    } else {
+        //
     }
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
@@ -465,7 +478,7 @@ async function editGroupSchedule(groupName, day = null) {
     
     // Set up one-time listener that WON'T save (just update display)
     const captureGraphChange = (e) => {
-        console.log('One-time listener fired - blocking save during load');
+        //
         // Just update the display, don't save
         updateScheduledTemp();
     };
@@ -499,8 +512,11 @@ async function editGroupSchedule(groupName, day = null) {
     // Reattach event listeners
     attachEditorEventListeners(editor);
     
+    // Update paste button state
+    updatePasteButtonState();
+    
     // Clear loading flag now that setup is complete
-    console.log('editGroupSchedule - clearing isLoadingSchedule');
+        //
     isLoadingSchedule = false;
 }
 
@@ -594,7 +610,7 @@ async function removeEntityFromGroup(groupName, entityId) {
         // Reload entity list (entity should reappear in active/disabled)
         await renderEntityList();
         
-        console.log(`Removed ${entityId} from group ${groupName}`);
+        // Entity removed from group
     } catch (error) {
         console.error('Failed to remove entity from group:', error);
         alert('Failed to remove entity from group');
@@ -666,7 +682,7 @@ async function toggleGroupEnabled(groupName, enabled) {
             allGroups[groupName].enabled = enabled;
         }
         
-        console.log(`Group '${groupName}' ${enabled ? 'enabled' : 'disabled'}`);
+        // Group toggled
     } catch (error) {
         console.error(`Failed to ${enabled ? 'enable' : 'disable'} group:`, error);
         // Reload to sync state
@@ -869,6 +885,8 @@ function createScheduleEditor() {
         <div class="editor-header-inline">
             <div class="editor-controls">
                 <button id="undo-btn" class="btn-secondary-outline" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
+                <button id="copy-schedule-btn" class="btn-secondary-outline" title="Copy current schedule">Copy Schedule</button>
+                <button id="paste-schedule-btn" class="btn-secondary-outline" title="Paste copied schedule" disabled>Paste Schedule</button>
                 <button id="ignore-entity-btn" class="btn-secondary-outline" title="Disable this thermostat">Ignore</button>
                 <button id="clear-schedule-btn" class="btn-danger-outline" title="Clear entire schedule">Clear Schedule</button>
                 <label class="toggle-switch">
@@ -1107,6 +1125,9 @@ async function selectEntity(entityId) {
     
     // Reattach event listeners for the new editor elements
     attachEditorEventListeners(editor);
+    
+    // Update paste button state
+    updatePasteButtonState();
 }
 
 // Attach event listeners to editor elements (for dynamically created editors)
@@ -1121,6 +1142,22 @@ function attachEditorEventListeners(editorElement) {
             await toggleEntityInclusion(currentEntityId, false);
             collapseAllEditors();
             currentEntityId = null;
+        };
+    }
+    
+    // Copy schedule button
+    const copyBtn = editorElement.querySelector('#copy-schedule-btn');
+    if (copyBtn) {
+        copyBtn.onclick = () => {
+            copySchedule();
+        };
+    }
+    
+    // Paste schedule button
+    const pasteBtn = editorElement.querySelector('#paste-schedule-btn');
+    if (pasteBtn) {
+        pasteBtn.onclick = () => {
+            pasteSchedule();
         };
     }
     
@@ -1421,6 +1458,68 @@ function attachEditorEventListeners(editorElement) {
     });
 }
 
+// Clipboard for schedule copy/paste
+let scheduleClipboard = null;
+
+// Update paste button state based on clipboard
+function updatePasteButtonState() {
+    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
+    if (pasteBtn) {
+        pasteBtn.disabled = !scheduleClipboard || scheduleClipboard.length === 0;
+    }
+}
+
+// Copy current schedule to clipboard
+function copySchedule() {
+    const nodes = graph.getNodes();
+    if (nodes && nodes.length > 0) {
+        // Deep copy the nodes
+        scheduleClipboard = nodes.map(n => ({...n}));
+        
+        // Enable paste button
+        const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
+        if (pasteBtn) {
+            pasteBtn.disabled = false;
+        }
+        
+        // Visual feedback
+        const copyBtn = getDocumentRoot().querySelector('#copy-schedule-btn');
+        if (copyBtn) {
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyBtn.textContent = originalText;
+            }, 1000);
+        }
+    }
+}
+
+// Paste schedule from clipboard
+async function pasteSchedule() {
+    if (!scheduleClipboard || scheduleClipboard.length === 0) {
+        return;
+    }
+    
+    // Deep copy from clipboard
+    const nodes = scheduleClipboard.map(n => ({...n}));
+    
+    // Update graph
+    graph.setNodes(nodes);
+    
+    // Save the pasted schedule
+    await saveSchedule();
+    
+    // Visual feedback
+    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
+    if (pasteBtn) {
+        const originalText = pasteBtn.textContent;
+        pasteBtn.textContent = 'Pasted!';
+        setTimeout(() => {
+            pasteBtn.textContent = originalText;
+        }, 1000);
+    }
+}
+
 // Clear schedule for an entity
 async function clearScheduleForEntity(entityId) {
     try {
@@ -1455,13 +1554,13 @@ async function loadEntitySchedule(entityId, day = null) {
         const result = await haAPI.getSchedule(entityId);
         const schedule = result?.response || result;
         
-        console.log('Received schedule from backend:', schedule);
+        //
         
         if (schedule) {
             // Update schedule mode from backend (but don't override if already set correctly)
             if (!currentScheduleMode || currentScheduleMode !== schedule.schedule_mode) {
                 currentScheduleMode = schedule.schedule_mode || 'all_days';
-                console.log('Updated schedule mode to:', currentScheduleMode);
+        //
             }
             
             // Determine which day's schedule to load
@@ -1470,7 +1569,7 @@ async function loadEntitySchedule(entityId, day = null) {
                 // If no day specified and currentDay is already set, use it
                 if (currentDay && currentDay !== 'all_days') {
                     dayToLoad = currentDay;
-                    console.log('Using existing currentDay:', dayToLoad);
+        //
                 } else {
                     // Default to current day based on mode
                     const now = new Date();
@@ -1483,29 +1582,29 @@ async function loadEntitySchedule(entityId, day = null) {
                     } else {
                         dayToLoad = weekday;
                     }
-                    console.log('Calculated default day:', dayToLoad);
+        //
                 }
             }
             
             currentDay = dayToLoad;
-            console.log('Loading schedule for mode:', currentScheduleMode, 'day:', currentDay);
+        //
             
             // Get nodes for the selected day
             let nodes = [];
             if (schedule.schedules && schedule.schedules[dayToLoad]) {
                 nodes = schedule.schedules[dayToLoad];
-                console.log('Loaded nodes from schedules[' + dayToLoad + ']:', nodes);
+        //
             } else if (schedule.nodes) {
                 // Backward compatibility - old format
                 nodes = schedule.nodes;
-                console.log('Loaded nodes from legacy format:', nodes);
+        //
             } else {
-                console.log('No nodes found for day:', dayToLoad);
+        //
             }
             
             // Update UI
             updateScheduleModeUI();
-            console.log('Setting graph nodes:', nodes.length > 0 ? nodes : [{ time: '00:00', temp: 18 }]);
+        //
             graph.setNodes(nodes.length > 0 ? nodes : [{ time: '00:00', temp: 18 }]);
             getDocumentRoot().querySelector('#schedule-enabled').checked = schedule.enabled !== false;
         } else {
@@ -1518,6 +1617,7 @@ async function loadEntitySchedule(entityId, day = null) {
         }
         
         updateScheduledTemp();
+        updatePasteButtonState();
     } catch (error) {
         console.error('Failed to load schedule:', error);
     }
@@ -1647,6 +1747,12 @@ async function switchScheduleMode(newMode) {
         let nodes = [];
         if (groupData.schedules && groupData.schedules[currentDay]) {
             nodes = groupData.schedules[currentDay];
+        } else if (currentDay === "weekday" && groupData.schedules && groupData.schedules["mon"]) {
+            // If weekday key doesn't exist, try loading from Monday
+            nodes = groupData.schedules["mon"];
+        } else if (currentDay === "weekend" && groupData.schedules && groupData.schedules["sat"]) {
+            // If weekend key doesn't exist, try loading from Saturday
+            nodes = groupData.schedules["sat"];
         } else if (groupData.nodes) {
             // Backward compatibility
             nodes = groupData.nodes;
@@ -1656,7 +1762,7 @@ async function switchScheduleMode(newMode) {
         
         // Set loading flag to prevent auto-save during graph update
         isLoadingSchedule = true;
-        console.log('switchScheduleMode - set isLoadingSchedule = true');
+        //
         
         // Update graph with new nodes
         graph.setNodes(currentSchedule.length > 0 ? currentSchedule : [{ time: '00:00', temp: 18 }]);
@@ -1664,7 +1770,7 @@ async function switchScheduleMode(newMode) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
-            console.log('switchScheduleMode - set isLoadingSchedule = false');
+        //
         }, 100);
         
         // Update scheduled temp display
@@ -1678,7 +1784,7 @@ async function switchScheduleMode(newMode) {
 async function switchDay(day) {
     if (!currentEntityId && !currentGroup) return;
     
-    console.log('switchDay called - day:', day, 'currentDay before:', currentDay, 'currentScheduleMode:', currentScheduleMode);
+    // Switching day
     
     // Save current schedule before switching
     console.log('Saving current schedule before switch...');
@@ -1687,7 +1793,7 @@ async function switchDay(day) {
     
     currentDay = day;
     
-    console.log('currentDay after assignment:', currentDay);
+    // Day updated
     
     // Update UI first
     updateScheduleModeUI();
@@ -1698,7 +1804,7 @@ async function switchDay(day) {
     // Reload schedule for selected day - update in place without recreating editor
     if (currentGroup) {
         // Reload group data from backend to get latest saved state
-        console.log('Reloading group data from backend...');
+        // Reloading group data
         const result = await haAPI.getGroups();
         let groups = result?.response || result || {};
         if (groups.groups && typeof groups.groups === 'object') {
@@ -1713,6 +1819,12 @@ async function switchDay(day) {
         let nodes = [];
         if (groupData.schedules && groupData.schedules[currentDay]) {
             nodes = groupData.schedules[currentDay];
+        } else if (currentDay === "weekday" && groupData.schedules && groupData.schedules["mon"]) {
+            // If weekday key doesn't exist, try loading from Monday
+            nodes = groupData.schedules["mon"];
+        } else if (currentDay === "weekend" && groupData.schedules && groupData.schedules["sat"]) {
+            // If weekend key doesn't exist, try loading from Saturday
+            nodes = groupData.schedules["sat"];
         } else if (groupData.nodes) {
             // Backward compatibility
             nodes = groupData.nodes;
@@ -1722,7 +1834,7 @@ async function switchDay(day) {
         
         // Set loading flag to prevent auto-save during graph update
         isLoadingSchedule = true;
-        console.log('switchDay - set isLoadingSchedule = true');
+        //
         
         // Update graph with new nodes
         graph.setNodes(currentSchedule.length > 0 ? currentSchedule : [{ time: '00:00', temp: 18 }]);
@@ -1730,7 +1842,7 @@ async function switchDay(day) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
-            console.log('switchDay - set isLoadingSchedule = false');
+        //
         }, 100);
         
         // Update scheduled temp display
@@ -1950,7 +2062,7 @@ async function saveSchedule() {
 
 // Handle graph changes - auto-save and sync if needed
 async function handleGraphChange(event, force = false) {
-    console.log('handleGraphChange called - isLoadingSchedule:', isLoadingSchedule);
+    // Handle graph change
     
     // If event has detail.force, use that
     if (event && event.detail && event.detail.force !== undefined) {
@@ -2007,7 +2119,7 @@ async function handleGraphChange(event, force = false) {
                             entity_id: entityId,
                             temperature: scheduledTemp
                         });
-                        console.log(`Updated ${entityId} to ${scheduledTemp}°C`);
+                        // Temperature updated
                     } catch (error) {
                         console.error(`Failed to update ${entityId}:`, error);
                     }
@@ -2018,7 +2130,7 @@ async function handleGraphChange(event, force = false) {
                     entity.attributes.hvac_modes.includes(activeNode.hvac_mode)) {
                     const currentHvacMode = entity.state || entity.attributes.hvac_mode;
                     if (force || currentHvacMode !== activeNode.hvac_mode) {
-                        console.log(`Group ${currentGroup}: Setting ${entityId} HVAC mode to ${activeNode.hvac_mode}`);
+                        // HVAC mode updated
                         try {
                             await haAPI.callService('climate', 'set_hvac_mode', {
                                 entity_id: entityId,
@@ -2034,7 +2146,7 @@ async function handleGraphChange(event, force = false) {
                 if (activeNode.fan_mode && entity.attributes.fan_modes && 
                     entity.attributes.fan_modes.includes(activeNode.fan_mode)) {
                     if (force || entity.attributes.fan_mode !== activeNode.fan_mode) {
-                        console.log(`Group ${currentGroup}: Setting ${entityId} fan mode to ${activeNode.fan_mode}`);
+                        // Fan mode updated
                         try {
                             await haAPI.callService('climate', 'set_fan_mode', {
                                 entity_id: entityId,
@@ -2050,7 +2162,7 @@ async function handleGraphChange(event, force = false) {
                 if (activeNode.swing_mode && entity.attributes.swing_modes && 
                     entity.attributes.swing_modes.includes(activeNode.swing_mode)) {
                     if (force || entity.attributes.swing_mode !== activeNode.swing_mode) {
-                        console.log(`Group ${currentGroup}: Setting ${entityId} swing mode to ${activeNode.swing_mode}`);
+                        // Swing mode updated
                         try {
                             await haAPI.callService('climate', 'set_swing_mode', {
                                 entity_id: entityId,
@@ -2066,7 +2178,7 @@ async function handleGraphChange(event, force = false) {
                 if (activeNode.preset_mode && entity.attributes.preset_modes && 
                     entity.attributes.preset_modes.includes(activeNode.preset_mode)) {
                     if (force || entity.attributes.preset_mode !== activeNode.preset_mode) {
-                        console.log(`Group ${currentGroup}: Setting ${entityId} preset mode to ${activeNode.preset_mode}`);
+                        // Preset mode updated
                         try {
                             await haAPI.callService('climate', 'set_preset_mode', {
                                 entity_id: entityId,
@@ -2218,9 +2330,9 @@ function updateEntityStatus(entity) {
     const targetTemp = entity.attributes.temperature;
     
     currentTempEl.textContent = 
-        currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+        (currentTemp !== undefined && currentTemp !== null) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
     targetTempEl.textContent = 
-        targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+        (targetTemp !== undefined && targetTemp !== null) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
     
     // Update HVAC mode if available
     const hvacModeEl = getDocumentRoot().querySelector('#current-hvac-mode');
@@ -2503,15 +2615,11 @@ function setupEventListeners() {
     if (reloadIntegrationMenu) {
         reloadIntegrationMenu.addEventListener('click', async () => {
             if (dropdownMenu) dropdownMenu.style.display = 'none';
-            if (confirm('Reload the Climate Scheduler integration? This will refresh cache busting in dev mode.')) {
-                try {
-                    await haAPI.callService('climate_scheduler', 'reload_integration', {});
-                    alert('Integration reloaded. Refreshing page in 2 seconds...');
-                    setTimeout(() => window.location.reload(), 2000);
-                } catch (error) {
-                    console.error('Failed to reload integration:', error);
-                    alert('Failed to reload integration. Check console for details.');
-                }
+            try {
+                await haAPI.callService('climate_scheduler', 'reload_integration', {});
+                setTimeout(() => window.location.reload(), 2000);
+            } catch (error) {
+                console.error('Failed to reload integration:', error);
             }
         });
     }
@@ -2943,7 +3051,7 @@ async function saveSettings() {
             tooltipMode: tooltipMode
         };
         await haAPI.saveSettings(settings);
-        console.log('Settings saved:', settings);
+        // Settings saved
         return true;
     } catch (error) {
         console.error('Failed to save settings:', error);
@@ -3107,16 +3215,16 @@ async function setupSettingsPanel() {
 function handleDefaultNodeSettings(event) {
     const { nodeIndex, node } = event.detail;
     
-    console.log('Default schedule node clicked:', nodeIndex, node);
+    // Node clicked
     
     // Check if default node settings panel exists
     const panel = getDocumentRoot().querySelector('#default-node-settings-panel');
     if (!panel) {
-        console.log('Default node settings panel not available');
+        // Node settings panel not available
         return;
     }
     
-    console.log('Panel found, updating with node data...');
+    // Updating panel
     
     // Aggregate all possible modes from all climate entities
     const hvacModesSet = new Set();
@@ -3152,7 +3260,7 @@ function handleDefaultNodeSettings(event) {
     nodeTimeEl.textContent = node.time;
     nodeTempEl.textContent = `${node.temp}${temperatureUnit}`;
     
-    console.log('Updated time and temp displays');
+    // Displays updated
     
     // Get fresh references to all elements
     const hvacModeSelect = getDocumentRoot().querySelector('#default-node-hvac-mode');
@@ -3163,13 +3271,6 @@ function handleDefaultNodeSettings(event) {
     const swingModeItem = getDocumentRoot().querySelector('#default-swing-mode-item');
     const presetModeSelect = getDocumentRoot().querySelector('#default-node-preset-mode');
     const presetModeItem = getDocumentRoot().querySelector('#default-preset-mode-item');
-    
-    console.log('Populating dropdowns...', {
-        hvacModes: allHvacModes.length,
-        fanModes: allFanModes.length,
-        swingModes: allSwingModes.length,
-        presetModes: allPresetModes.length
-    });
     
     // Populate HVAC mode dropdown
     if (hvacModeSelect && hvacModeItem) {
@@ -3323,7 +3424,7 @@ function handleDefaultNodeSettings(event) {
         finalPresetSelect.addEventListener('change', autoSaveDefaultNodeSettings);
     }
     
-    console.log('Event listeners attached, showing panel');
+    // Panel ready
     
     // Setup delete button
     const deleteBtn = getDocumentRoot().querySelector('#default-delete-node-btn');
@@ -3389,4 +3490,5 @@ if (document.readyState === 'loading') {
         initApp();
     }
 }
+
 

@@ -232,7 +232,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
         try:
             await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
-            _LOGGER.info(f"Set schedule for group '{group_name}' (day: {day}, mode: {schedule_mode})")
         except ValueError as err:
             _LOGGER.error(f"Error setting group schedule: {err}")
             raise
