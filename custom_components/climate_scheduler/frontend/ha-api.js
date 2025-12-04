@@ -1,6 +1,7 @@
 /**
  * Home Assistant API Integration
  * Handles communication with Home Assistant via WebSocket API
+ * Supports both custom panel mode (using hass object) and iframe mode (WebSocket)
  */
 
 class HomeAssistantAPI {
@@ -9,9 +10,25 @@ class HomeAssistantAPI {
         this.messageId = 1;
         this.pendingRequests = new Map();
         this.stateUpdateCallbacks = [];
+        this.hass = null; // For custom panel mode
+        this.usingHassObject = false; // Track which mode we're in
+    }
+    
+    /**
+     * Set hass object (custom panel mode)
+     */
+    setHassObject(hass) {
+        this.hass = hass;
+        this.usingHassObject = true;
     }
     
     async connect() {
+        // If we already have a hass object, we're in custom panel mode
+        if (this.hass && this.usingHassObject) {
+            console.log('Using existing hass connection from custom panel');
+            return Promise.resolve();
+        }
+        
         try {
             // Get auth token - works in both browser and mobile app
             const authToken = await this.getAuthToken();
@@ -131,6 +148,17 @@ class HomeAssistantAPI {
     }
     
     async sendRequest(message) {
+        // If using hass object (custom panel mode), use hass.callWS
+        if (this.hass && this.usingHassObject) {
+            try {
+                return await this.hass.callWS(message);
+            } catch (error) {
+                console.error('Error calling hass.callWS:', error);
+                throw error;
+            }
+        }
+        
+        // Fallback to WebSocket mode
         const id = this.messageId++;
         const request = { id, ...message };
         
@@ -149,10 +177,20 @@ class HomeAssistantAPI {
     }
     
     async getStates() {
+        // Custom panel mode
+        if (this.hass && this.usingHassObject) {
+            return Object.values(this.hass.states);
+        }
+        // WebSocket mode
         return await this.sendRequest({ type: 'get_states' });
     }
     
     async getConfig() {
+        // Custom panel mode
+        if (this.hass && this.usingHassObject) {
+            return this.hass.config;
+        }
+        // WebSocket mode
         return await this.sendRequest({ type: 'get_config' });
     }
     
@@ -162,6 +200,25 @@ class HomeAssistantAPI {
     }
     
     async callService(domain, service, serviceData, returnResponse = false) {
+        // Custom panel mode
+        if (this.hass && this.usingHassObject) {
+            // Use callWS for return_response to avoid triggering haptic feedback
+            if (returnResponse) {
+                const result = await this.hass.callWS({
+                    type: 'call_service',
+                    domain,
+                    service,
+                    service_data: serviceData,
+                    return_response: true
+                });
+                return result?.response;
+            } else {
+                // Use callService for non-return-response calls
+                return await this.hass.callService(domain, service, serviceData);
+            }
+        }
+        
+        // WebSocket mode
         const requestData = {
             type: 'call_service',
             domain,
@@ -182,12 +239,19 @@ class HomeAssistantAPI {
         });
     }
     
-    async getSchedule(entityId) {
+    async getSchedule(entityId, day = null) {
         try {
-            // Call our custom service to get schedule with return_response
-            const result = await this.callService('climate_scheduler', 'get_schedule', {
+            const serviceData = {
                 entity_id: entityId
-            }, true);  // Pass true to enable return_response
+            };
+            
+            if (day) {
+                serviceData.day = day;
+            }
+            
+            // Call our custom service to get schedule with return_response
+            const result = await this.callService('climate_scheduler', 'get_schedule', 
+                serviceData, true);  // Pass true to enable return_response
             return result;
         } catch (error) {
             console.error('Failed to get schedule:', error);
@@ -195,11 +259,20 @@ class HomeAssistantAPI {
         }
     }
     
-    async setSchedule(entityId, nodes) {
-        return await this.callService('climate_scheduler', 'set_schedule', {
+    async setSchedule(entityId, nodes, day = null, scheduleMode = null) {
+        const serviceData = {
             entity_id: entityId,
             nodes: nodes
-        });
+        };
+        
+        if (day) {
+            serviceData.day = day;
+        }
+        if (scheduleMode) {
+            serviceData.schedule_mode = scheduleMode;
+        }
+        
+        return await this.callService('climate_scheduler', 'set_schedule', serviceData);
     }
     
     async enableSchedule(entityId) {
@@ -257,11 +330,26 @@ class HomeAssistantAPI {
         }
     }
     
-    async setGroupSchedule(groupName, nodes) {
-        return await this.callService('climate_scheduler', 'set_group_schedule', {
+    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+        const serviceData = {
             group_name: groupName,
             nodes: nodes
-        });
+        };
+        
+        if (day) {
+            serviceData.day = day;
+        }
+        if (scheduleMode) {
+            serviceData.schedule_mode = scheduleMode;
+        }
+        
+        try {
+            const result = await this.callService('climate_scheduler', 'set_group_schedule', serviceData);
+            return result;
+        } catch (error) {
+            console.error('setGroupSchedule failed:', error);
+            throw error;
+        }
     }
     
     async enableGroup(groupName) {
@@ -300,6 +388,15 @@ class HomeAssistantAPI {
     }
     
     async subscribeToStateChanges() {
+        // Custom panel mode - hass object handles state updates automatically
+        if (this.hass && this.usingHassObject) {
+            // Set up listener for hass state changes
+            // The panel will call updateHassConnection when hass changes
+            console.log('Using hass object state updates');
+            return Promise.resolve();
+        }
+        
+        // WebSocket mode
         return await this.sendRequest({
             type: 'subscribe_events',
             event_type: 'state_changed'

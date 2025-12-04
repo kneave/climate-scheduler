@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Climate Scheduler</title>
-    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css?v={{VERSION}}">
+    <link rel="stylesheet" href="/climate_scheduler_panel/styles.css">
 </head>
 <body>
     <div class="container">
@@ -22,6 +25,10 @@
                 <button id="sync-all-menu" class="menu-item">
                     <span class="menu-icon">⟲</span>
                     <span>Sync All Thermostats</span>
+                </button>
+                <button id="reload-integration-menu" class="menu-item">
+                    <span class="menu-icon">🔄</span>
+                    <span>Reload Integration (Dev)</span>
                 </button>
             </div>
             
@@ -202,9 +209,9 @@
         </footer>
     </div>
 
-    <script src="/climate_scheduler_panel/graph.js?v={{VERSION}}"></script>
-    <script src="/climate_scheduler_panel/ha-api.js?v={{VERSION}}"></script>
-    <script src="/climate_scheduler_panel/app.js?v={{VERSION}}"></script>
+    <script src="/climate_scheduler_panel/graph.js"></script>
+    <script src="/climate_scheduler_panel/ha-api.js"></script>
+    <script src="/climate_scheduler_panel/app.js"></script>
     <script>
         // Load version info dynamically
         fetch('/climate_scheduler_panel/version.json')

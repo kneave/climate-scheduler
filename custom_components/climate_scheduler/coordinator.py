@@ -45,7 +45,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         _LOGGER.info("=== COORDINATOR UPDATE CYCLE START ===")
         try:
             current_time = datetime.now().time()
-            _LOGGER.info(f"Current time: {current_time}")
+            current_day = datetime.now().strftime('%a').lower()  # Get day: mon, tue, wed, etc.
+            _LOGGER.info(f"Current time: {current_time}, day: {current_day}")
             entities = await self.storage.async_get_all_entities()
             _LOGGER.info(f"Found {len(entities)} entities with schedules: {entities}")
             
@@ -59,15 +60,15 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     continue
                 
                 _LOGGER.info(f"{entity_id} is enabled")
-                # Get schedule
-                schedule_data = await self.storage.async_get_schedule(entity_id)
-                _LOGGER.info(f"{entity_id} schedule data: {schedule_data}")
+                # Get schedule for current day
+                schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+                _LOGGER.info(f"{entity_id} schedule data for {current_day}: {schedule_data}")
                 if not schedule_data or "nodes" not in schedule_data:
                     _LOGGER.debug(f"No schedule nodes for {entity_id}")
                     continue
                 
                 nodes = schedule_data["nodes"]
-                _LOGGER.info(f"{entity_id} has {len(nodes)} nodes")
+                _LOGGER.info(f"{entity_id} has {len(nodes)} nodes for {current_day}")
                 
                 # Get active node (includes temp and other settings)
                 active_node = self.storage.get_active_node(nodes, current_time)

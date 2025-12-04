@@ -13,6 +13,20 @@ set_schedule:
       description: List of schedule nodes with time and temperature
       required: true
       example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
+    day:
+      description: Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)
+      required: false
+      default: "all_days"
+      example: "mon"
+      selector:
+        text:
+    schedule_mode:
+      description: Schedule mode (all_days, 5/2, individual)
+      required: false
+      default: "all_days"
+      example: "individual"
+      selector:
+        text:
 
 get_schedule:
   name: Get climate schedule
@@ -138,3 +152,17 @@ set_group_schedule:
       description: List of schedule nodes with time and temperature
       required: true
       example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
+    day:
+      description: Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)
+      required: false
+      default: "all_days"
+      example: "mon"
+      selector:
+        text:
+    schedule_mode:
+      description: Schedule mode (all_days, 5/2, individual)
+      required: false
+      default: "all_days"
+      example: "individual"
+      selector:
+        text:

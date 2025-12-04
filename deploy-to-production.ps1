@@ -39,15 +39,22 @@ if (Test-Path $TARGET) {
     
     # Remove old installation
     Write-Host "Removing old installation..." -ForegroundColor Yellow
-    Get-ChildItem -Path $TARGET -Recurse | Remove-Item -Force -Recurse
-    Remove-Item -Force $TARGET
+    Remove-Item -Path $TARGET -Recurse -Force
     Write-Host "Old installation removed" -ForegroundColor Green
     Write-Host ""
 }
 
 # Deploy new version
 Write-Host "Deploying new version..." -ForegroundColor Cyan
-Copy-Item -Recurse -Force $SOURCE $TARGET
+
+# Remove .dev file from source if it exists (shouldn't be there, but just in case)
+if (Test-Path "$SOURCE\.dev") {
+    Remove-Item "$SOURCE\.dev" -Force
+}
+
+# Copy all files
+Copy-Item -Path $SOURCE -Destination (Split-Path $TARGET -Parent) -Recurse -Force
+
 Write-Host "Files copied successfully" -ForegroundColor Green
 Write-Host ""
 
@@ -59,10 +66,7 @@ Write-Host ""
 Write-Host "=== Deployment Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Restart Home Assistant" -ForegroundColor White
-Write-Host "  2. Go to Settings -> Devices & Services" -ForegroundColor White
-Write-Host "  3. Clear browser cache (Ctrl+Shift+R)" -ForegroundColor White
-Write-Host "  4. Navigate to Climate Scheduler panel" -ForegroundColor White
+Write-Host "  1. Use the 'Reload Integration (Dev)' button in the menu" -ForegroundColor White
+Write-Host "  2. Or restart Home Assistant to load new code" -ForegroundColor White
 Write-Host ""
-Write-Host "Or restart via SSH:" -ForegroundColor Gray
-Write-Host "  ha core restart" -ForegroundColor DarkGray
+Write-Host "Note: Custom panel uses version-based cache busting - changes should load immediately" -ForegroundColor Gray
