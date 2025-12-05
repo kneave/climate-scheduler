@@ -1,13 +1,13 @@
 # Changelog
 
 
-## [1.3.0] - 2025-12-04
+
+## [1.4.0] - 2025-12-05
 ### Added
-- Daily, Weekday/Weekend, Individual Day Modes
-- Copy and Paste Schedules
-- Switched from legacy iframe to modern panels
+- Draggable time periods in the graph editor
+- Improved installation via HACS
 
 ### Fixed
-- Various
+- Changes to active time period weren't being applied live
 
-## [1.4.0] - 2025-12-04
+## [1.3.0] - 2025-12-04
