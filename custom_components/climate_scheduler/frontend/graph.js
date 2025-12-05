@@ -9,6 +9,7 @@ class TemperatureGraph {
         this.nodes = [];
         this.historyData = []; // Array of {entityId, entityName, data: [{time, temp}], color}
         this.draggingNode = null;
+        this.draggingSegment = null; // {startIndex, endIndex, initialStartTime, initialEndTime, initialPointerMinutes}
         this.dragOffset = { x: 0, y: 0 };
         this.lastTapTime = 0;
         this.lastTapNode = null;
@@ -847,22 +848,41 @@ class TemperatureGraph {
             // Render to hide the label
             this.render();
         } else {
-            // Check for double-click to add new node
-            const now = Date.now();
-            const timeSinceLastClick = now - this.lastClickTime;
-            const isSameLocation = this.lastClickPoint && 
-                Math.abs(point.x - this.lastClickPoint.x) < 10 &&
-                Math.abs(point.y - this.lastClickPoint.y) < 10;
+            // Check if clicking on a segment
+            const clickedSegment = this.getSegmentAtPoint(point);
             
-            if (timeSinceLastClick < 500 && isSameLocation) {
-                // Double-click detected - add node
-                this.addNode(point);
-                this.lastClickTime = 0; // Reset to prevent triple-click issues
-                this.lastClickPoint = null;
+            if (clickedSegment !== null) {
+                // Save state before dragging segment
+                this.saveState();
+                
+                // Start segment drag
+                this.draggingSegment = {
+                    startIndex: clickedSegment.startIndex,
+                    endIndex: clickedSegment.endIndex,
+                    initialStartTime: this.nodes[clickedSegment.startIndex].time,
+                    initialEndTime: this.nodes[clickedSegment.endIndex].time,
+                    initialPointerMinutes: this.xToMinutes(point.x)
+                };
+                
+                this.render();
             } else {
-                // First click - just record it
-                this.lastClickTime = now;
-                this.lastClickPoint = point;
+                // Check for double-click to add new node
+                const now = Date.now();
+                const timeSinceLastClick = now - this.lastClickTime;
+                const isSameLocation = this.lastClickPoint && 
+                    Math.abs(point.x - this.lastClickPoint.x) < 10 &&
+                    Math.abs(point.y - this.lastClickPoint.y) < 10;
+                
+                if (timeSinceLastClick < 500 && isSameLocation) {
+                    // Double-click detected - add node
+                    this.addNode(point);
+                    this.lastClickTime = 0; // Reset to prevent triple-click issues
+                    this.lastClickPoint = null;
+                } else {
+                    // First click - just record it
+                    this.lastClickTime = now;
+                    this.lastClickPoint = point;
+                }
             }
         }
     }
@@ -870,7 +890,7 @@ class TemperatureGraph {
     handlePointerMove(event) {
         const point = this.getEventPoint(event);
         
-        if (this.draggingNode === null) {
+        if (this.draggingNode === null && this.draggingSegment === null) {
             // Update hovered node based on cursor position
             const hoveredNodeIndex = this.getNodeAtPoint(point);
             if (hoveredNodeIndex !== this.hoveredNode) {
@@ -907,6 +927,45 @@ class TemperatureGraph {
         }
         
         event.preventDefault();
+        
+        // Handle segment dragging
+        if (this.draggingSegment !== null) {
+            const pointerMinutes = this.xToMinutes(point.x);
+            const deltaMinutes = pointerMinutes - this.draggingSegment.initialPointerMinutes;
+            const snappedDelta = Math.round(deltaMinutes / this.minutesPerSlot) * this.minutesPerSlot;
+            
+            const startMinutes = this.timeToMinutes(this.draggingSegment.initialStartTime);
+            const endMinutes = this.timeToMinutes(this.draggingSegment.initialEndTime);
+            
+            const newStartMinutes = startMinutes + snappedDelta;
+            const newEndMinutes = endMinutes + snappedDelta;
+            
+            // Check if both times are within bounds (0-1440 minutes)
+            if (newStartMinutes >= 0 && newEndMinutes <= 1440) {
+                const newStartTime = this.minutesToTime(newStartMinutes);
+                const newEndTime = this.minutesToTime(newEndMinutes);
+                
+                // Check if any other nodes conflict with these times
+                const hasConflict = this.nodes.some((n, i) => {
+                    if (i === this.draggingSegment.startIndex || i === this.draggingSegment.endIndex) {
+                        return false;
+                    }
+                    return n.time === newStartTime || n.time === newEndTime;
+                });
+                
+                if (!hasConflict) {
+                    this.nodes[this.draggingSegment.startIndex].time = newStartTime;
+                    this.nodes[this.draggingSegment.endIndex].time = newEndTime;
+                    
+                    // Update settings panels if visible
+                    this.updateNodeSettingsIfVisible(this.draggingSegment.startIndex);
+                    this.updateNodeSettingsIfVisible(this.draggingSegment.endIndex);
+                }
+            }
+            
+            this.render();
+            return;
+        }
         
         // Update node time (horizontal movement)
         const newTime = this.xToTime(point.x - this.dragOffset.x);
@@ -974,12 +1033,20 @@ class TemperatureGraph {
             }
             
             this.draggingNode = null;
+            this.draggingSegment = null;
             this.hideTooltip();
             this.startDragPoint = null;
             // Render to show the label again
             this.render();
+        } else if (this.draggingSegment !== null) {
+            // Segment drag completed - notify change
+            this.notifyChange();
+            this.draggingSegment = null;
+            this.hideTooltip();
+            this.render();
         } else {
             this.draggingNode = null;
+            this.draggingSegment = null;
             this.hideTooltip();
         }
     }
@@ -1034,6 +1101,56 @@ class TemperatureGraph {
         }
         return null;
     }
+
+    getSortedNodeIndices() {
+        return [...Array(this.nodes.length).keys()].sort((a, b) => 
+            this.timeToMinutes(this.nodes[a].time) - this.timeToMinutes(this.nodes[b].time)
+        );
+    }
+
+    getSegments() {
+        const indices = this.getSortedNodeIndices();
+        const segments = [];
+
+        for (let i = 0; i < indices.length - 1; i++) {
+            const startIndex = indices[i];
+            const endIndex = indices[i + 1];
+            const startNode = this.nodes[startIndex];
+            const endNode = this.nodes[endIndex];
+
+            const xStart = this.timeToX(startNode.time);
+            const xEnd = this.timeToX(endNode.time);
+            const y = this.tempToY(startNode.temp);
+
+            segments.push({
+                startIndex,
+                endIndex,
+                xStart: Math.min(xStart, xEnd),
+                xEnd: Math.max(xStart, xEnd),
+                tempY: y
+            });
+        }
+
+        return segments;
+    }
+
+    getSegmentAtPoint(point) {
+        if (this.nodes.length < 2) return null;
+
+        const segments = this.getSegments();
+        const threshold = 12; // px buffer for easier grabbing
+
+        for (const segment of segments) {
+            if (point.x >= segment.xStart - threshold && point.x <= segment.xEnd + threshold) {
+                const distance = Math.abs(point.y - segment.tempY);
+                if (distance <= threshold) {
+                    return { startIndex: segment.startIndex, endIndex: segment.endIndex };
+                }
+            }
+        }
+
+        return null;
+    }
     
     getEventPoint(event) {
         let clientX, clientY;
@@ -1070,6 +1187,10 @@ class TemperatureGraph {
         const graphWidth = this.width - this.padding.left - this.padding.right;
         const minutes = ((x - this.padding.left) / graphWidth) * 1440;
         return this.minutesToTime(Math.max(0, Math.min(1440, minutes)));
+    }
+
+    xToMinutes(x) {
+        return this.timeToMinutes(this.xToTime(x));
     }
     
     tempToY(temp) {

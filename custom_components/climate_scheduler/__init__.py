@@ -138,6 +138,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
         await storage.async_set_schedule(entity_id, nodes, day, schedule_mode)
         _LOGGER.info(f"Schedule set for {entity_id} (day: {day}, mode: {schedule_mode})")
+        
+        # Clear last node state to force immediate update
+        if entity_id in coordinator.last_node_states:
+            del coordinator.last_node_states[entity_id]
+        
+        # Trigger immediate coordinator update
+        await coordinator.async_request_refresh()
     
     async def handle_get_schedule(call: ServiceCall) -> dict:
         """Handle get_schedule service call."""
@@ -232,6 +239,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
         try:
             await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            
+            # Force immediate update for all entities in the group
+            group_data = await storage.async_get_groups()
+            if group_name in group_data and "entities" in group_data[group_name]:
+                for entity_id in group_data[group_name]["entities"]:
+                    if entity_id in coordinator.last_node_states:
+                        del coordinator.last_node_states[entity_id]
+                
+                # Trigger immediate coordinator update
+                await coordinator.async_request_refresh()
         except ValueError as err:
             _LOGGER.error(f"Error setting group schedule: {err}")
             raise
