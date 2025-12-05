@@ -1028,9 +1028,11 @@ function createScheduleEditor() {
                 </div>
             </div>
             <div class="graph-instructions">
-                <p>📍 <strong>Tap</strong> on the graph to add a temperature point</p>
-                <p>👆 <strong>Drag</strong> points to adjust time/temperature</p>
-                <p>⚙️ <strong>Tap</strong> a point to edit settings</p>
+                <p>📍 <strong>Double-click or double-tap</strong> the line to add a new node</p>
+                <p>👆 <strong>Drag nodes</strong> vertically to change temperature or horizontally to move their time</p>
+                <p>⬌ <strong>Drag the horizontal segment</strong> between two nodes to shift that period while preserving its duration</p>
+                <p>📋 <strong>Copy / Paste</strong> buttons duplicate a schedule across days or entities</p>
+                <p>⚙️ <strong>Tap a node</strong> to open its settings panel for HVAC/fan/swing/preset values</p>
             </div>
         </div>
     `;

@@ -2,27 +2,60 @@
 
 A custom Home Assistant integration that provides intelligent 24-hour, weekday/weekend, and 7-day scheduling for climate entities (thermostats, HVAC systems, and heaters) with an intuitive touch-friendly graph interface.
 
-## Future Features
-- Scheduling for switching on/off switches (boilers, pumps, fans, etc)
-- Enchanced scheduling
-- holiday mode with timer
-- Sync to thermostats
-  - If a room thermostat is in use stat supports standalone scheduling it should sync with this add-on in case of outages
+![Graph Editor](screenshots/graph-editor.png)
+
 
 ## Features
 
-- 📱 **Mobile-Optimized Interface** - Touch-friendly graph editor works seamlessly on phones, tablets, and desktop browsers
+- 📱 **User Friendly Interface** - Touch-friendly graph editor works seamlessly on tablets and desktop browsers. 
 - ⏰ **15-Minute Precision** - Schedule temperature changes at 15-minute intervals throughout the day
-- 📊 **Visual Graph Editor** - Interactive SVG graph with draggable nodes for easy schedule creation
-- 📈 **Temperature History** - View actual room temperature overlaid on your schedule for the current day
-- 🏠 **Multi-Zone Support** - Manage schedules for unlimited climate entities independently
-- 🔄 **Automatic Execution** - Schedules run automatically, updating thermostats throughout the day
-- 💾 **Persistent Storage** - Schedules saved and restored across Home Assistant restarts
-- ⚙️ **Advanced Climate Controls** - Set HVAC mode, fan mode, swing mode, and preset modes per schedule node
-- 🌡️ **Unit Support** - Automatically detects and uses your Home Assistant temperature unit (°C or °F)
-- 🎯 **Precision Control** - Enable/disable schedules individually without losing configuration
+- 📊 **Visual Graph Editor** - Interactive SVG graph with draggable nodes, segment dragging, and copy/paste controls for fast schedule reuse
+- 📈 **Temperature History Overlay** - Actual room temperature for the current day is drawn as a secondary line so you can compare target vs. measured
+- 🏠 **Multi-Entity & Group Support** - Manage and sync schedules for individual climate entities and pre-defined groups
+- 🔄 **Immediate Apply** - Saving a schedule forces the coordinator to rerun so the active period changes without waiting for the next cycle
+- 💾 **Persistent Storage** - Schedules are stored in `.storage/climate_scheduler_data` and survive Home Assistant restarts
+- ⚙️ **Advanced Climate Controls** - Set HVAC mode, fan mode, swing mode, preset, and enabled state per schedule node
+- 🌡️ **Unit Awareness** - Automatically uses your Home Assistant temperature unit (°C or °F)
+- 🎯 **Fine-Grained Control** - Toggle schedules on/off without losing configuration and clear them when you want a fresh start
+- 🧩 **UI-Based Setup (Config Flow)** - Add via Settings → Devices & Services → Add Integration; YAML is optional and auto-imported if present
+
+## Usage
+
+1. After installation, go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it (no YAML needed)
+2. Click on "Climate Scheduler" in the sidebar
+3. Check the climate entities you want to schedule (they move to "Active")
+4. Click on an entity or group to open the inline schedule editor
+5. **Tap or double-tap** lines on the graph to add nodes at desired times
+6. **Drag nodes** horizontally/vertically for time and temperature adjustments
+7. **Drag the horizontal segment** between two nodes to slide that entire heating/cooling period while keeping the duration fixed
+8. Use the **Copy** button to copy the currently visible day's pattern, then **Paste** it onto another day or entity
+9. **Tap a node** to open its settings panel for HVAC/fan/swing/preset options
+10. Changes auto-save and immediately trigger the coordinator so active periods update right away
+11. Use the **three-dot menu** to refresh entities, enable/disable schedules, or sync groups
+12. Toggle **Enabled** to activate/deactivate a schedule without losing configuration
+13. Use **Clear Schedule** to remove a schedule entirely (confirmation required)
+
+## Screenshots
+
+![Daily Scheduler](screenshots/daily-scheduler.png)
+_Daily scheduler (all days) with draggable nodes and segments._
+
+![5/2 Editor](screenshots/5-2-editor.png)
+_5/2 mode editor showing separate Weekday and Weekend schedules._
+
+![7-Day Scheduler](screenshots/7-day-scheduler.png)
+_Seven-day individual schedules with per-day editing._
+
+![Grouped Entities](screenshots/grouped-entities.png)
+_Grouped entities for managing multiple thermostats together._
+
+![Schedule Editor](screenshots/schedule_editor.png)
+_Schedule editor with copy/paste controls and segment dragging._
+
 
 ## Installation
+
+This integration supports UI-based setup (config entry). No YAML is required.
 
 ### HACS (Recommended)
 
@@ -34,30 +67,17 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 6. Select category: "Integration"
 7. Click "Add"
 8. Search for "Climate Scheduler" and install
-9. Restart Home Assistant
+9. Go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it (if it doesn't appear, restart Home Assistant and try again)
 
 ### Manual Installation
 
 1. Download the latest release from [GitHub](https://github.com/kneave/climate-scheduler/releases)
 2. Copy the `custom_components/climate_scheduler` folder to your `config/custom_components/` directory
 3. Restart Home Assistant
-4. Add `climate_scheduler:` to your `configuration.yaml`
-5. Restart Home Assistant again
+4. Go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it
+	- Optional (legacy): Add `climate_scheduler:` to your `configuration.yaml`; it will be auto-imported into a config entry
+5. Restart Home Assistant again (only if you used YAML)
 
-## Usage
-
-1. After installation, add `climate_scheduler:` to your `configuration.yaml`
-2. Restart Home Assistant
-3. Click on "Climate Scheduler" in the sidebar
-4. Check the climate entities you want to schedule (they move to "Active")
-5. Click on an entity to view and edit its schedule graph
-6. **Tap** on the graph to add temperature nodes at specific times
-7. **Drag** nodes to adjust time (horizontally) or temperature (vertically)
-8. **Tap a node** to edit advanced settings (HVAC mode, fan mode, swing mode, preset)
-9. Changes auto-save - no save button needed!
-10. Use the **three-dot menu** to refresh entities or sync all thermostats
-11. Toggle **Enabled** to activate/deactivate a schedule without losing it
-12. Use **Clear Schedule** to completely remove a schedule (with confirmation)
 
 ## Default Schedule
 
@@ -72,10 +92,12 @@ You can customize this by:
 
 ## Graph Features
 
-- **Blue line**: Actual room temperature (current day history)
+- **Blue line**: Actual room temperature history for the current day
 - **Orange line**: Your scheduled target temperature
 - **Green dashed line**: Current time indicator
 - **Circles**: Schedule nodes (tap to edit, drag to move)
+- **Horizontal segments**: Drag the line between two nodes to shift that time block without changing its duration
+- **Copy/Paste controls**: Copy a day's configuration and paste it onto another day or thermostat for instant duplication
 
 ## Requirements
 

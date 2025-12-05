@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.http import HomeAssistantView
@@ -91,44 +92,50 @@ DISABLE_GROUP_SCHEMA = vol.Schema({
 })
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Climate Scheduler component."""
-    hass.data[DOMAIN] = {}
-    
-    # Initialize storage
-    storage = ScheduleStorage(hass)
-    await storage.async_load()
-    hass.data[DOMAIN]["storage"] = storage
-    
-    # Initialize coordinator
-    coordinator = HeatingSchedulerCoordinator(
-        hass,
-        storage,
-        timedelta(seconds=UPDATE_INTERVAL_SECONDS)
-    )
-    hass.data[DOMAIN]["coordinator"] = coordinator
-    
-    # Start coordinator updates
-    _LOGGER.info(f"Starting coordinator with {UPDATE_INTERVAL_SECONDS}s update interval")
-    await coordinator.async_refresh()
-    
-    # Force initial temperature sync on startup
-    _LOGGER.info("Forcing initial temperature sync for all entities")
-    await coordinator.force_update_all()
-    
-    # Schedule periodic updates
-    async def _scheduled_update(now):
-        """Handle scheduled update."""
-        await coordinator.async_request_refresh()
-    
-    # Use async_track_time_interval for periodic updates
-    from homeassistant.helpers.event import async_track_time_interval
-    async_track_time_interval(
-        hass,
-        _scheduled_update,
-        timedelta(seconds=UPDATE_INTERVAL_SECONDS)
-    )
-    
+async def _async_setup_common(hass: HomeAssistant) -> None:
+    """Common setup for storage, coordinator, services and panel."""
+    if DOMAIN not in hass.data:
+        hass.data[DOMAIN] = {}
+
+    # Initialize storage once
+    storage: ScheduleStorage | None = hass.data[DOMAIN].get("storage")
+    if storage is None:
+        storage = ScheduleStorage(hass)
+        await storage.async_load()
+        hass.data[DOMAIN]["storage"] = storage
+
+    # Initialize coordinator once
+    coordinator: HeatingSchedulerCoordinator | None = hass.data[DOMAIN].get("coordinator")
+    if coordinator is None:
+        coordinator = HeatingSchedulerCoordinator(
+            hass,
+            storage,
+            timedelta(seconds=UPDATE_INTERVAL_SECONDS)
+        )
+        hass.data[DOMAIN]["coordinator"] = coordinator
+
+        # Start coordinator updates
+        _LOGGER.info(f"Starting coordinator with {UPDATE_INTERVAL_SECONDS}s update interval")
+        await coordinator.async_refresh()
+        _LOGGER.info("Forcing initial temperature sync for all entities")
+        await coordinator.force_update_all()
+
+        # Schedule periodic updates
+        async def _scheduled_update(now):
+            """Handle scheduled update."""
+            await coordinator.async_request_refresh()
+
+        from homeassistant.helpers.event import async_track_time_interval
+        async_track_time_interval(
+            hass,
+            _scheduled_update,
+            timedelta(seconds=UPDATE_INTERVAL_SECONDS)
+        )
+
+    # Avoid re-registering services
+    if hass.data[DOMAIN].get("services_registered"):
+        return
+
     # Register services
     async def handle_set_schedule(call: ServiceCall) -> None:
         """Handle set_schedule service call."""
@@ -324,10 +331,54 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
     hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
-    
+
+    hass.data[DOMAIN]["services_registered"] = True
+
     # Register frontend panel
     await async_register_panel(hass)
-    
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up via YAML by importing into a config entry, else no-op."""
+    if DOMAIN in config:
+        # Import legacy YAML into a config entry
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": config_entries.SOURCE_IMPORT}
+            )
+        )
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Climate Scheduler from a config entry."""
+    await _async_setup_common(hass)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    # Remove panel and services only if this is the last entry
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if len(entries) <= 1:
+        # Unregister services
+        for svc in [
+            "set_schedule","get_schedule","clear_schedule","enable_schedule","disable_schedule",
+            "sync_all","create_group","delete_group","add_to_group","remove_from_group",
+            "get_groups","set_group_schedule","enable_group","disable_group","get_settings",
+            "save_settings","reload_integration"
+        ]:
+            try:
+                hass.services.async_remove(DOMAIN, svc)
+            except Exception:  # noqa: BLE001
+                pass
+        # Attempt to remove panel
+        try:
+            from homeassistant.components import frontend
+            frontend.async_remove_panel(hass, "climate_scheduler")
+        except Exception:  # noqa: BLE001
+            pass
+        hass.data.pop(DOMAIN, None)
     return True
 
 

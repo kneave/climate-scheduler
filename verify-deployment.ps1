@@ -12,7 +12,7 @@ if (-not (Test-Path $TARGET)) {
     exit 1
 }
 
-Write-Host "✓ Directory exists" -ForegroundColor Green
+Write-Host "[OK] Directory exists" -ForegroundColor Green
 Write-Host ""
 
 # Check required files
@@ -21,6 +21,7 @@ $requiredFiles = @(
     "manifest.json",
     "coordinator.py",
     "storage.py",
+    "frontend\panel.js",
     "frontend\index.html",
     "frontend\app.js",
     "frontend\ha-api.js",
@@ -32,9 +33,9 @@ Write-Host "Checking required files:" -ForegroundColor Cyan
 foreach ($file in $requiredFiles) {
     $path = Join-Path $TARGET $file
     if (Test-Path $path) {
-        Write-Host "  ✓ $file" -ForegroundColor Green
+        Write-Host "  [OK] $file" -ForegroundColor Green
     } else {
-        Write-Host "  ✗ $file MISSING!" -ForegroundColor Red
+        Write-Host "  [MISSING] $file" -ForegroundColor Red
     }
 }
 Write-Host ""
@@ -47,20 +48,22 @@ Write-Host "Manifest name: $($manifest.name)" -ForegroundColor Gray
 Write-Host "Manifest version: $($manifest.version)" -ForegroundColor Gray
 Write-Host ""
 
-# Check configuration.yaml
+# Config setup guidance (UI-based)
 $configPath = "\\homeassistant.local\config\configuration.yaml"
+Write-Host "Configuration method:" -ForegroundColor Cyan
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw
     if ($config -match "climate_scheduler:") {
-        Write-Host "✓ climate_scheduler found in configuration.yaml" -ForegroundColor Green
+        Write-Host "  [OK] YAML entry found (legacy)." -ForegroundColor Green
+        Write-Host "    Tip: The integration now supports UI setup (Add Integration)." -ForegroundColor Gray
+        Write-Host "    YAML will be auto-imported into a config entry." -ForegroundColor Gray
     } else {
-        Write-Host "✗ climate_scheduler NOT in configuration.yaml" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Add this line to configuration.yaml:" -ForegroundColor Yellow
-        Write-Host "  climate_scheduler:" -ForegroundColor White
+        Write-Host "  Info: No YAML entry found (that is fine)." -ForegroundColor Yellow
+        Write-Host "    Use Home Assistant: Settings -> Devices and Services -> Add Integration -> Climate Scheduler" -ForegroundColor Gray
     }
 } else {
-    Write-Host "⚠ Cannot access configuration.yaml" -ForegroundColor Yellow
+    Write-Host "  Info: Could not access configuration.yaml (skipping YAML check)." -ForegroundColor Yellow
+    Write-Host "    Use Home Assistant: Settings -> Devices and Services -> Add Integration -> Climate Scheduler" -ForegroundColor Gray
 }
 Write-Host ""
 
