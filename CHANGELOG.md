@@ -2,12 +2,13 @@
 
 
 
-## [1.4.0] - 2025-12-05
+
+## [1.4.1] - 2025-12-06
 ### Added
-- Draggable time periods in the graph editor
-- Improved installation via HACS
+- Added installations shield because I'm vain...
 
-### Fixed
-- Changes to active time period weren't being applied live
+### Changed
+- Now hiding the "active" list if there are no active individual entities
+- Fixed a layout issue with the inactive/ignored entities
 
-## [1.3.0] - 2025-12-04
+## [1.4.0] - 2025-12-05
