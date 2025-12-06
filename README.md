@@ -21,6 +21,10 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 - 🎯 **Fine-Grained Control** - Toggle schedules on/off without losing configuration and clear them when you want a fresh start
 - 🧩 **UI-Based Setup (Config Flow)** - Add via Settings → Devices & Services → Add Integration; YAML is optional and auto-imported if present
 
+## Known Issues
+- Editing the graph on the mobile app doesn't seem to work, as a workaround you can tap on a node and edit using the UI below the graph.
+- Sometimes auto-save doesn't function consistently, you may need to refresh the page to see the new values in the graph or to try updating the schedule again.
+
 ## Usage
 
 1. After installation, go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it (no YAML needed)
