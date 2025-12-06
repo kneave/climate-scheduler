@@ -444,6 +444,14 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     
     _LOGGER.info("Static file view registered successfully")
     
+    # Ensure Lovelace loads the custom card resource automatically
+    try:
+        from homeassistant.components import frontend
+        frontend.add_extra_js_url(hass, "/api/climate_scheduler/card.js")
+        _LOGGER.info("Registered extra JS resource for climate-scheduler-card")
+    except Exception as e:
+        _LOGGER.warning(f"Failed to register extra JS resource: {e}")
+    
     # Register the custom panel
     from homeassistant.components import frontend
     import time
