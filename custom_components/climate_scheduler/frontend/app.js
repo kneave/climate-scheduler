@@ -771,13 +771,19 @@ async function renderEntityList() {
             return;
         }
         
-        activeSection.style.display = 'block';
-        ignoredSection.style.display = 'block';
-        
-        // Show message if no active entities
+        // Hide Active section if there are no ungrouped active entities
         if (activeEntitiesCount === 0) {
-            entityList.innerHTML = '<p style="color: #b0b0b0; padding: 20px; text-align: center;">No active thermostats. Check boxes below to enable.</p>';
+            activeSection.style.display = 'none';
+        } else {
+            activeSection.style.display = 'block';
         }
+        
+        // Ignored section remains available for enabling entities when present
+        if (ignoredSection) {
+            ignoredSection.style.display = 'block';
+        }
+        
+        // No message needed if active section is hidden
     
     } catch (error) {
         console.error('ERROR in renderEntityList:', error);
@@ -2536,7 +2542,10 @@ async function toggleEntityInclusion(entityId, include) {
             // If it was selected, deselect it
             if (currentEntityId === entityId) {
                 currentEntityId = null;
-                getDocumentRoot().querySelector('#schedule-editor').style.display = 'none';
+                const editorEl = getDocumentRoot().querySelector('#schedule-editor');
+                if (editorEl) {
+                    editorEl.style.display = 'none';
+                }
             }
             
             // Re-render to move to disabled list

@@ -403,7 +403,12 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             
             if not file_path.exists() or not file_path.is_file():
                 _LOGGER.warning(f"File not found: {filename}")
-                return web.Response(text=f"File not found: {filename}", status=404)
+                # Return 404 with explicit cache control to avoid diagnostics warnings
+                resp = web.Response(text=f"File not found: {filename}", status=404)
+                # Use lightweight cache control to avoid warnings
+                resp.headers['Cache-Control'] = 'no-cache'
+                resp.headers['Pragma'] = 'no-cache'
+                return resp
             
             # Determine content type based on file extension
             content_type = 'text/plain'
@@ -429,10 +434,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 # Long cache for versioned files
                 response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
             else:
-                # No cache for non-versioned files
-                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                # Avoid aggressive directives; prefer revalidation-friendly header
+                response.headers['Cache-Control'] = 'no-cache'
                 response.headers['Pragma'] = 'no-cache'
-                response.headers['Expires'] = '0'
             
             return response
     

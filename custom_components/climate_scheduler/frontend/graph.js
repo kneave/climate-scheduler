@@ -52,6 +52,8 @@ class TemperatureGraph {
     
     initialize() {
         this.svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
+        // Prevent default touch scrolling; enables passive listeners without preventDefault
+        this.svg.style.touchAction = 'none';
         this.createTooltip();
         this.setupKeyboardShortcuts();
         this.render();
@@ -809,15 +811,18 @@ class TemperatureGraph {
         // Also listen for mouseup on document to catch releases outside the SVG
         document.addEventListener('mouseup', this.handlePointerUp.bind(this));
         
-        // Touch events
-        this.svg.addEventListener('touchstart', this.handlePointerDown.bind(this), { passive: false });
-        this.svg.addEventListener('touchmove', this.handlePointerMove.bind(this), { passive: false });
+        // Touch events (passive for performance; touch-action disables scrolling)
+        this.svg.addEventListener('touchstart', this.handlePointerDown.bind(this), { passive: true });
+        this.svg.addEventListener('touchmove', this.handlePointerMove.bind(this), { passive: true });
         this.svg.addEventListener('touchend', this.handlePointerUp.bind(this));
         this.svg.addEventListener('touchcancel', this.handlePointerUp.bind(this));
     }
     
     handlePointerDown(event) {
-        event.preventDefault();
+        // Avoid preventDefault on touch events; touch-action handles scroll behavior
+        if (event.type !== 'touchstart') {
+            event.preventDefault();
+        }
         
         const point = this.getEventPoint(event);
         const clickedNode = this.getNodeAtPoint(point);
@@ -926,7 +931,10 @@ class TemperatureGraph {
             return;
         }
         
-        event.preventDefault();
+        // Avoid preventDefault on touchmove; touch-action handles scroll behavior
+        if (event.type !== 'touchmove') {
+            event.preventDefault();
+        }
         
         // Handle segment dragging
         if (this.draggingSegment !== null) {

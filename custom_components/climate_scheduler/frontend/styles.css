@@ -284,16 +284,17 @@
 
 .ignored-list {
     margin-top: 12px;
-    max-height: 400px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: column; /* stack filter above grid */
+    width: 100%;
+    gap: 12px;
 }
 
 .filter-box {
     padding: 0 4px 8px 4px;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+    grid-column: 1 / -1; /* ensure filter spans full width above grid */
 }
 
 .filter-box input {
@@ -321,8 +322,16 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
-    overflow-y: auto;
-    max-height: 300px;
+    /* Let container grow to fit; scrolling handled by page */
+    overflow: visible;
+}
+
+/* Ignored entities list container should fill width under filter */
+#ignored-entities-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    width: 100%;
 }
 
 .entity-card {

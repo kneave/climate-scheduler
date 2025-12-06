@@ -1,6 +1,8 @@
 # Climate Scheduler for Home Assistant
+![Integration Usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total)
 
 A custom Home Assistant integration that provides intelligent 24-hour, weekday/weekend, and 7-day scheduling for climate entities (thermostats, HVAC systems, and heaters) with an intuitive touch-friendly graph interface.
+
 
 ![Graph Editor](screenshots/graph-editor.png)
 
