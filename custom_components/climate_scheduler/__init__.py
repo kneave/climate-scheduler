@@ -382,60 +382,12 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     _LOGGER.info(f"Frontend path: {frontend_path}")
     _LOGGER.info(f"Frontend path exists: {frontend_path.exists()}")
     
-    class ClimateSchedulerStaticView(HomeAssistantView):
-        """View to serve static files with proper versioning."""
-        
-        url = r"/api/climate_scheduler/{filename:.+}"
-        name = "climate_scheduler:static"
-        requires_auth = False
-        
-        async def get(self, request, filename):
-            """Serve static files with proper MIME types and versioning."""
-            file_path = frontend_path / filename
-            _LOGGER.debug(f"Serving file: {filename}, path: {file_path}, exists: {file_path.exists()}")
-            
-            if not file_path.exists() or not file_path.is_file():
-                _LOGGER.warning(f"File not found: {filename}")
-                # Return 404 with explicit cache control to avoid diagnostics warnings
-                resp = web.Response(text=f"File not found: {filename}", status=404)
-                # Use lightweight cache control to avoid warnings
-                resp.headers['Cache-Control'] = 'no-cache'
-                resp.headers['Pragma'] = 'no-cache'
-                return resp
-            
-            # Determine content type based on file extension
-            content_type = 'text/plain'
-            if filename.endswith('.js'):
-                content_type = 'application/javascript'
-            elif filename.endswith('.css'):
-                content_type = 'text/css'
-            elif filename.endswith('.html'):
-                content_type = 'text/html'
-            elif filename.endswith('.json'):
-                content_type = 'application/json'
-            
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Create response with proper headers
-            response = web.Response(text=content, content_type=content_type)
-            
-            # Add cache control headers that work with version parameter
-            # Files with ?v= parameter can be cached, others should not
-            if 'v' in request.query:
-                # Long cache for versioned files
-                response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-            else:
-                # Avoid aggressive directives; prefer revalidation-friendly header
-                response.headers['Cache-Control'] = 'no-cache'
-                response.headers['Pragma'] = 'no-cache'
-            
-            return response
-    
-    hass.http.register_view(ClimateSchedulerStaticView())
-    
-    _LOGGER.info("Static file view registered successfully")
+    # Serve frontend files using Home Assistant's built-in static path API
+    # This follows official guidance for custom integrations
+    hass.http.register_static_path(
+        "/api/climate_scheduler", str(frontend_path), cache_headers=False
+    )
+    _LOGGER.info("Static path registered for Climate Scheduler frontend")
     
     # Ensure Lovelace loads the custom card resource automatically
     try:
