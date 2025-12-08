@@ -20,13 +20,6 @@ from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
 
-# Load version from manifest.json
-manifest_path = Path(__file__).parent / "manifest.json"
-with open(manifest_path) as f:
-    manifest_data = json.load(f)
-    VERSION = manifest_data.get("version", "unknown")
-
-# No cache busting - browser caching through iframe is too aggressive
 
 # Service schemas
 SET_SCHEDULE_SCHEMA = vol.Schema({
@@ -456,11 +449,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     from homeassistant.components import frontend
     import time
     
-    # Get version string for cache busting
-    # Use timestamp in development mode for instant updates
-    version_param = VERSION.replace('.', '')
-    # Add timestamp to force reload on integration reload
-    version_param = f"{version_param}_{int(time.time())}"
+    # Get cache-busting parameter using timestamp only
+    version_param = f"{int(time.time())}"
     
     # Register panel as custom panel with module URL
     frontend.async_register_built_in_panel(
