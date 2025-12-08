@@ -27,9 +27,10 @@ class ClimateSchedulerCard extends HTMLElement {
 
     // Load the existing panel module and render the same UI inline
     try {
-      // Attempt to import the panel module that defines 'climate-scheduler-panel'
-      // Cache-busting is handled by HA panel registration; the bare path works for cards
-      await import('/api/climate_scheduler/panel.js');
+      // Avoid re-importing if the element is already registered
+      if (!customElements.get('climate-scheduler-panel')) {
+        await import('/api/climate_scheduler/panel.js');
+      }
     } catch (e) {
       this._container.innerHTML = `<div>Failed to load panel module: ${e}</div>`;
       return;
