@@ -890,11 +890,12 @@ function createScheduleEditor() {
     editor.innerHTML = `
         <div class="editor-header-inline">
             <div class="editor-controls">
-                <button id="undo-btn" class="btn-secondary-outline" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
-                <button id="copy-schedule-btn" class="btn-secondary-outline" title="Copy current schedule">Copy Schedule</button>
-                <button id="paste-schedule-btn" class="btn-secondary-outline" title="Paste copied schedule" disabled>Paste Schedule</button>
-                <button id="ignore-entity-btn" class="btn-secondary-outline" title="Disable this thermostat">Ignore</button>
-                <button id="clear-schedule-btn" class="btn-danger-outline" title="Clear entire schedule">Clear Schedule</button>
+                <button id="undo-btn" class="btn-secondary-outline schedule-btn" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
+                <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
+                <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
+                <button id="ignore-entity-btn" class="btn-secondary-outline schedule-btn" title="Disable this thermostat">Ignore</button>
+                <button id="clear-schedule-btn" class="btn-danger-outline schedule-btn" title="Clear entire schedule">Clear Schedule</button>
+                <button id="save-schedule-btn" class="btn-primary schedule-btn" title="Save schedule">Save</button>
                 <label class="toggle-switch">
                     <input type="checkbox" id="schedule-enabled">
                     <span class="slider"></span>
@@ -1188,6 +1189,22 @@ function attachEditorEventListeners(editorElement) {
     const enabledToggle = editorElement.querySelector('#schedule-enabled');
     if (enabledToggle) {
         enabledToggle.onchange = () => saveSchedule();
+    }
+
+    // Save button
+    const saveBtn = editorElement.querySelector('#save-schedule-btn');
+    if (saveBtn) {
+        saveBtn.onclick = async () => {
+            saveBtn.disabled = true;
+            await saveSchedule();
+            // Visual feedback
+            const originalText = saveBtn.textContent;
+            saveBtn.textContent = 'Saved!';
+            setTimeout(() => {
+                saveBtn.textContent = originalText;
+                saveBtn.disabled = false;
+            }, 1000);
+        };
     }
     
     // Node settings panel close

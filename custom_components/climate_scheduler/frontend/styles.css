@@ -21,53 +21,77 @@
     --node-hover: #29b6f6;
     --line-color: #ff9800;
     
-    display: block;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background-color: var(--background);
-    color: var(--text-primary);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    touch-action: pan-y;
-    overflow-x: hidden;
-    min-height: 100vh;
-}
+    /* Buttons */
+    .schedule-btn {
+        min-width: 110px;
+        padding: 8px 16px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        border-radius: 6px;
+        margin: 0;
+        box-sizing: border-box;
+    }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
+    .btn-primary {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        transition: all 0.2s;
+    }
 
-/* Entity Selector */
-.entity-selector {
-    background: var(--surface);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    position: relative;
-}
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(3, 169, 244, 0.3);
+    }
 
-.disabled-entities-section {
-    margin-bottom: 30px;
-}
+    .btn-primary:active {
+        transform: translateY(0);
+    }
 
-.selector-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-}
+    .btn-secondary {
+        background: var(--surface-light);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        transition: all 0.2s;
+    }
 
-.selector-header h2 {
-    font-size: 1.5rem;
-    font-weight: 500;
-}
+    .btn-secondary:hover {
+        background: var(--surface);
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+    }
 
-.header-actions {
-    display: flex;
-    gap: 8px;
+    .btn-secondary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary-outline {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+        transition: all 0.2s;
+    }
+
+    .btn-secondary-outline:hover {
+        background: var(--surface-light);
+        border-color: var(--text-secondary);
+    }
+
+    .btn-danger-outline {
+        background: transparent;
+        color: var(--danger);
+        border: 1px solid var(--danger);
+        transition: all 0.2s;
+    }
+
+    .btn-danger-outline:hover {
+        background: var(--danger);
+        color: white;
+    }
+
+    /* ...existing code... */
     align-items: center;
 }
 
