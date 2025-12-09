@@ -1026,7 +1026,7 @@ class TemperatureGraph {
             const point = this.getEventPoint(event);
             const dragDistance = this.startDragPoint ? 
                 Math.sqrt(Math.pow(point.x - this.startDragPoint.x, 2) + Math.pow(point.y - this.startDragPoint.y, 2)) : 999;
-            
+
             // If didn't drag much (less than 10 pixels), treat as a click to show settings
             if (dragDistance < 10) {
                 // No actual drag happened - remove the saved state
@@ -1038,8 +1038,10 @@ class TemperatureGraph {
             } else {
                 // Actual drag - notify change
                 this.notifyChange();
+                // Show node settings for the dragged node
+                this.showNodeSettings(this.draggingNode);
             }
-            
+
             this.draggingNode = null;
             this.draggingSegment = null;
             this.hideTooltip();

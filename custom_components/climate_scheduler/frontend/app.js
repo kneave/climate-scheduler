@@ -476,22 +476,12 @@ async function editGroupSchedule(groupName, day = null) {
     // Find the SVG element
     const svg = editor.querySelector('#temperature-graph');
     
-    // Set up one-time listener that WON'T save (just update display)
-    const captureGraphChange = (e) => {
-        //
-        // Just update the display, don't save
-        updateScheduledTemp();
-    };
-    
-    if (svg) {
-        svg.addEventListener('nodesChanged', captureGraphChange, { once: true });
-    }
-    
-    // This will trigger the one-time listener
+    // Set initial nodes
     graph.setNodes(currentSchedule.length > 0 ? currentSchedule : [{ time: '00:00', temp: 18 }]);
     
-    // Now attach the permanent nodesChanged listener for future user changes
+    // Always attach the permanent nodesChanged listener for auto-save
     if (svg) {
+        svg.removeEventListener('nodesChanged', handleGraphChange); // Remove any previous
         svg.addEventListener('nodesChanged', handleGraphChange);
     }
     
@@ -1118,7 +1108,8 @@ async function selectEntity(entityId) {
             graph.setUndoButton(undoBtn);
         }
         
-        // Attach graph event listeners
+        // Always attach the permanent nodesChanged listener for auto-save
+        svgElement.removeEventListener('nodesChanged', handleGraphChange); // Remove any previous
         svgElement.addEventListener('nodesChanged', handleGraphChange);
         svgElement.addEventListener('nodeSettings', handleNodeSettings);
     }
