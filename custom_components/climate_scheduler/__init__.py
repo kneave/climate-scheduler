@@ -384,16 +384,24 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     
     # Serve frontend files using Home Assistant's built-in static path API
     # This follows official guidance for custom integrations
-    hass.http.register_static_path(
-        "/api/climate_scheduler", str(frontend_path), cache_headers=False
-    )
-    _LOGGER.info("Static path registered for Climate Scheduler frontend")
+    # Wrap in try/except in case already registered (e.g., after reload)
+    try:
+        from homeassistant.components.http import StaticPathConfig
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/api/climate_scheduler", str(frontend_path), False)]
+        )
+        _LOGGER.info("Static path registered for Climate Scheduler frontend")
+    except Exception as e:
+        _LOGGER.debug(f"Static path may already be registered: {e}")
     
     # Ensure Lovelace loads the custom card resource automatically
+    # Check if already added to avoid duplicates
     try:
         from homeassistant.components import frontend
-        frontend.add_extra_js_url(hass, "/api/climate_scheduler/card.js")
-        _LOGGER.info("Registered extra JS resource for climate-scheduler-card")
+        card_url = "/api/climate_scheduler/card.js"
+        if card_url not in frontend.DATA_EXTRA_MODULE_URL.get(hass, set()):
+            frontend.add_extra_js_url(hass, card_url)
+            _LOGGER.info("Registered extra JS resource for climate-scheduler-card")
     except Exception as e:
         _LOGGER.warning(f"Failed to register extra JS resource: {e}")
     
@@ -403,6 +411,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     
     # Get cache-busting parameter using timestamp only
     version_param = f"{int(time.time())}"
+    
+    # Remove existing panel first to allow re-registration on reload
+    try:
+        frontend.async_remove_panel(hass, "climate_scheduler")
+        _LOGGER.debug("Removed existing climate_scheduler panel for re-registration")
+    except Exception:
+        pass  # Panel may not exist yet
     
     # Register panel as custom panel with module URL
     frontend.async_register_built_in_panel(

@@ -2,29 +2,54 @@ class ClimateSchedulerCard extends HTMLElement {
   static getConfigElement() { return null; }
   static getStubConfig() { return {}; }
 
+  constructor() {
+    super();
+    this._config = {};
+    this._hass = null;
+    this._rendered = false;
+  }
+
   setConfig(config) {
+    // Accept any config, even empty - this must not throw
     this._config = config || {};
-    this.render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    // Render when hass is available and we're connected
+    if (this.isConnected && !this._rendered) {
+      this._doRender();
+    }
   }
 
-  async render() {
-    if (!this._container) {
+  connectedCallback() {
+    // Render when connected to DOM and hass is available
+    if (this._hass && !this._rendered) {
+      this._doRender();
+    }
+  }
+
+  _doRender() {
+    this._rendered = true;
+    
+    if (!this.shadowRoot) {
       const shadow = this.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = `
         :host { display: block; }
-        .wrapper { width: 100%; height: 100%; }
+        .wrapper { width: 100%; min-height: 400px; }
       `;
+      shadow.appendChild(style);
+      
       this._container = document.createElement('div');
       this._container.className = 'wrapper';
-      shadow.appendChild(style);
       shadow.appendChild(this._container);
     }
 
+    this._loadPanel();
+  }
+
+  async _loadPanel() {
     // Load the existing panel module and render the same UI inline
     try {
       // Avoid re-importing if the element is already registered
@@ -32,14 +57,14 @@ class ClimateSchedulerCard extends HTMLElement {
         await import('/api/climate_scheduler/panel.js');
       }
     } catch (e) {
-      this._container.innerHTML = `<div>Failed to load panel module: ${e}</div>`;
+      this._container.innerHTML = `<div style="padding: 16px; color: red;">Failed to load panel module: ${e}</div>`;
       return;
     }
 
     // Create the panel element if available
     const tag = 'climate-scheduler-panel';
     if (!customElements.get(tag)) {
-      this._container.innerHTML = `<div>Panel component not registered. Please reload.</div>`;
+      this._container.innerHTML = `<div style="padding: 16px; color: orange;">Panel component not registered. Please reload the integration.</div>`;
       return;
     }
 
