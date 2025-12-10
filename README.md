@@ -29,7 +29,7 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 
 ### Adding to a Dashboard
 
-Add the Climate Scheduler as a card to any dashboard:
+**Recommended Method (UI):**
 
 1. Go to any dashboard
 2. Click "Edit Dashboard" (three dots → Edit Dashboard)
@@ -39,6 +39,33 @@ Add the Climate Scheduler as a card to any dashboard:
 6. Optionally set the view to "Panel" mode for a full-page experience
 
 **Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
+
+**Alternative (YAML):**
+
+Add the card manually with YAML (Manual card):
+
+```yaml
+type: custom:climate-scheduler-card
+```
+
+For panel mode in a view:
+```yaml
+views:
+  - title: Scheduler
+    panel: true
+    cards:
+      - type: custom:climate-scheduler-card
+```
+
+**Troubleshooting:**
+- The card resource is automatically registered when installed via HACS
+- If you see "Custom element doesn't exist", reload the integration and hard-refresh your browser (Shift+Reload)
+- For YAML mode dashboards, you may need to manually add the resource:
+  ```yaml
+  resources:
+    - url: /api/climate_scheduler/card.js
+      type: module
+  ```
 
 ### Using the Scheduler
 
@@ -53,75 +80,6 @@ Add the Climate Scheduler as a card to any dashboard:
 9. Use the **three-dot menu** to refresh entities, enable/disable schedules, or sync groups
 10. Toggle **Enabled** to activate/deactivate a schedule without losing configuration
 11. Use **Clear Schedule** to remove a schedule entirely (confirmation required)
-
-### Add as a Lovelace Card (no Webpage card)
-
-You can add Climate Scheduler directly as a custom card:
-
-1) Add a Lovelace resource (Settings → Dashboards → Resources → Add resource):
-
-- URL: `/api/climate_scheduler/card.js?v=20251206-1`
-- Type: `Module`
-
-2) Reload the Climate Scheduler integration, then hard-refresh your browser (Shift+Reload).
-
-3) In your dashboard, add a card with YAML (Manual card):
-
-Basic:
-```
-type: custom:climate-scheduler-card
-```
-
-With title and explicit URL:
-```
-type: custom:climate-scheduler-card
-title: Climate Scheduler
-url: /climate_scheduler?embed=1
-```
-
-Full-page view (panel mode):
-```
-views:
-	- title: Scheduler
-		panel: true
-		cards:
-			- type: custom:climate-scheduler-card
-				url: /climate_scheduler?embed=1
-```
-
-Troubleshooting:
-- If you see “Custom element doesn’t exist”, verify the resource shows as `Module` and uses the cache-busted URL above.
-- Open `/api/climate_scheduler/card.js?v=20251206-1` in your browser to confirm it loads.
-- As a fallback, try setting the resource Type to `JavaScript`, then reload the integration and hard-refresh.
-
-Notes:
-- The custom card renders the full Climate Scheduler UI inline (no nested HA sidebar), suitable for tabs.
-- For a truly full-height experience within a dashboard, use a view with `panel: true` containing only this card.
-- To open the dedicated panel route without the dashboard sidebar, add a button card that navigates to `/climate_scheduler`.
-
-Navigate button example (opens full panel without dashboard sidebar):
-```
-type: button
-name: Climate Scheduler
-icon: mdi:calendar-clock
-tap_action:
-	action: navigate
-	navigation_path: /climate_scheduler
-```
-
-### Resources via HACS
-
-- When installed via HACS (as an integration), Home Assistant loads the card script automatically through the integration using `add_extra_js_url`. In most setups you do not need to manually add a Lovelace resource.
-- If your dashboard is in YAML mode or you prefer explicit control, add the resource manually:
-	- UI dashboards: `Settings → Dashboards → Resources → Add resource` with `URL: /api/climate_scheduler/card.js?v=20251206-1`, `Type: Module`.
-	- YAML dashboards: add at the top level:
-		```
-		resources:
-			- url: /api/climate_scheduler/card.js?v=20251206-1
-				type: module
-		```
--
-After updating resources, reload the Climate Scheduler integration and hard-refresh your browser to ensure the card is available.
 
 ## Screenshots
 
@@ -241,4 +199,5 @@ The following resources were consulted during development:
 ### Disclaimer
 
 While AI models provided significant assistance in code generation and problem-solving, this project is provided "as-is" without warranty of any kind. The code has been developed and tested on a best-effort basis. Users should review the code and test thoroughly in their own environments before relying on it for critical heating/cooling control. Use at your own risk.
+
 
