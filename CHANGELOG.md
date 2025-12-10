@@ -7,11 +7,12 @@
 
 
 
-## [1.5.3] - 2025-12-09
-### Added
-- Added a manual save button
+
+## [1.5.4] - 2025-12-10
+### Changed
+- Removed the default sidebar entry
 
 ### Fixed
-- Auto-save wasn't firing if a node was dragged when another was already selected
+- The header wasn't shown in the default dashboard so removed in favour of a custom card in a dashboard
 
-## [1.5.2] - 2025-12-09
+## [1.5.3] - 2025-12-09
