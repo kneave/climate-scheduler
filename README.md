@@ -27,19 +27,32 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 
 ## Usage
 
-1. After installation, go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it (no YAML needed)
-2. Click on "Climate Scheduler" in the sidebar
-3. Check the climate entities you want to schedule (they move to "Active")
-4. Click on an entity or group to open the inline schedule editor
-5. **Tap or double-tap** lines on the graph to add nodes at desired times
-6. **Drag nodes** horizontally/vertically for time and temperature adjustments
-7. **Drag the horizontal segment** between two nodes to slide that entire heating/cooling period while keeping the duration fixed
-8. Use the **Copy** button to copy the currently visible day's pattern, then **Paste** it onto another day or entity
-9. **Tap a node** to open its settings panel for HVAC/fan/swing/preset options
-10. Changes auto-save and immediately trigger the coordinator so active periods update right away
-11. Use the **three-dot menu** to refresh entities, enable/disable schedules, or sync groups
-12. Toggle **Enabled** to activate/deactivate a schedule without losing configuration
-13. Use **Clear Schedule** to remove a schedule entirely (confirmation required)
+### Adding to a Dashboard
+
+Add the Climate Scheduler as a card to any dashboard:
+
+1. Go to any dashboard
+2. Click "Edit Dashboard" (three dots → Edit Dashboard)
+3. Click "Add Card"
+4. Search for "Climate Scheduler" or use "Custom: Climate Scheduler Card"
+5. Click to add it
+6. Optionally set the view to "Panel" mode for a full-page experience
+
+**Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
+
+### Using the Scheduler
+
+1. Check the climate entities you want to schedule (they move to "Active")
+2. Click on an entity or group to open the inline schedule editor
+3. **Tap or double-tap** lines on the graph to add nodes at desired times
+4. **Drag nodes** horizontally/vertically for time and temperature adjustments
+5. **Drag the horizontal segment** between two nodes to slide that entire heating/cooling period while keeping the duration fixed
+6. Use the **Copy** button to copy the currently visible day's pattern, then **Paste** it onto another day or entity
+7. **Tap a node** to open its settings panel for HVAC/fan/swing/preset options
+8. Changes auto-save and immediately trigger the coordinator so active periods update right away
+9. Use the **three-dot menu** to refresh entities, enable/disable schedules, or sync groups
+10. Toggle **Enabled** to activate/deactivate a schedule without losing configuration
+11. Use **Clear Schedule** to remove a schedule entirely (confirmation required)
 
 ### Add as a Lovelace Card (no Webpage card)
 

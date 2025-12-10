@@ -40,24 +40,31 @@ class ClimateSchedulerPanel extends HTMLElement {
         this.hass = null;
         this.narrow = false;
         this.panel = null;
-        
-        // Create shadow DOM for style isolation
-        this.attachShadow({ mode: 'open' });
+    }
+
+    // Declare properties that Home Assistant looks for
+    static get properties() {
+        return {
+            hass: { type: Object },
+            narrow: { type: Boolean },
+            route: { type: Object },
+            panel: { type: Object }
+        };
     }
 
     async connectedCallback() {
         this.render();
-        
+
         // Store reference to this panel element globally so app.js can query within it
-        window.climateSchedulerPanelRoot = this.shadowRoot;
-        
+        window.climateSchedulerPanelRoot = this;
+
         // Wait for scripts to load before initializing
         try {
             await loadScripts();
-            
+
             // Small delay to ensure DOM is fully rendered
             await new Promise(resolve => setTimeout(resolve, 100));
-            
+
             // Initialize the app when panel is loaded and scripts are ready
             if (window.initClimateSchedulerApp) {
                 window.initClimateSchedulerApp(this.hass);
@@ -80,7 +87,7 @@ class ClimateSchedulerPanel extends HTMLElement {
     }
 
     render() {
-        if (!this.shadowRoot.innerHTML) {
+        if (!this.innerHTML) {
             // Get version from panel.js script tag
             const scripts = document.querySelectorAll('script[src*="panel.js"]');
             let version = Date.now();
@@ -91,13 +98,13 @@ class ClimateSchedulerPanel extends HTMLElement {
                     break;
                 }
             }
-            
-            // Load CSS directly into shadow DOM
+
+            // Load CSS into light DOM
             const styleLink = document.createElement('link');
             styleLink.rel = 'stylesheet';
             styleLink.href = `/api/climate_scheduler/styles.css?v=${version}`;
-            this.shadowRoot.appendChild(styleLink);
-            
+            this.appendChild(styleLink);
+
             // Create container div for content
             const container = document.createElement('div');
             container.innerHTML = `
@@ -301,7 +308,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                 </div>
             `;
             
-            this.shadowRoot.appendChild(container);
+            this.appendChild(container);
         }
     }
 }

@@ -420,17 +420,20 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         pass  # Panel may not exist yet
     
     # Register panel as custom panel with module URL
+    # Note: Custom panels in Home Assistant don't show the header by default
+    # This is standard behavior for custom panels
+    # sidebar_title is set to None to not clutter the sidebar since the dashboard provides the same functionality with header
     frontend.async_register_built_in_panel(
         hass,
         component_name="custom",
-        sidebar_title="Climate Scheduler",
+        sidebar_title=None,  # Don't show in sidebar - use the dashboard instead
         sidebar_icon="mdi:calendar-clock",
         frontend_url_path="climate_scheduler",
         config={
             "_panel_custom": {
                 "name": "climate-scheduler-panel",
                 "module_url": f"/api/climate_scheduler/panel.js?v={version_param}",
-                "embed_iframe": False
+                "embed_iframe": False,
             }
         },
         require_admin=False
