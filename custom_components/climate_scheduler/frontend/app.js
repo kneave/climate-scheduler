@@ -14,6 +14,31 @@ let currentEntityId = null;
 let climateEntities = [];
 let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
+let storedTemperatureUnit = null; // Unit that schedules were saved in
+
+// Temperature conversion functions
+function celsiusToFahrenheit(celsius) {
+    return (celsius * 9/5) + 32;
+}
+
+function fahrenheitToCelsius(fahrenheit) {
+    return (fahrenheit - 32) * 5/9;
+}
+
+function convertTemperature(temp, fromUnit, toUnit) {
+    if (fromUnit === toUnit) return temp;
+    if (fromUnit === '°C' && toUnit === '°F') return celsiusToFahrenheit(temp);
+    if (fromUnit === '°F' && toUnit === '°C') return fahrenheitToCelsius(temp);
+    return temp;
+}
+
+function convertScheduleNodes(nodes, fromUnit, toUnit) {
+    if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
+    return nodes.map(node => ({
+        ...node,
+        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * 2) / 2 // Round to 0.5
+    }));
+}
 let allGroups = {}; // Store all groups data
 let currentGroup = null; // Currently selected group
 let tooltipMode = 'history'; // 'history' or 'cursor'
@@ -37,6 +62,53 @@ function debugLog(message, type = 'info') {
             debugContent.scrollTop = debugContent.scrollHeight;
         }
     }
+}
+
+function showToast(message, type = 'info', duration = 4000) {
+    const root = getDocumentRoot();
+    let container = root.querySelector('.toast-container');
+    
+    // Create container if it doesn't exist
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        root.appendChild(container);
+    }
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    // Icon based on type
+    const icons = {
+        success: '✓',
+        error: '✕',
+        warning: '⚠',
+        info: 'ℹ'
+    };
+    
+    toast.innerHTML = `
+        <span class="toast-icon">${icons[type] || icons.info}</span>
+        <span class="toast-message">${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto-remove after duration
+    setTimeout(() => {
+        toast.classList.add('hiding');
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+            // Remove container if empty
+            if (container.children.length === 0) {
+                if (container.parentNode) {
+                    container.parentNode.removeChild(container);
+                }
+            }
+        }, 300); // Match animation duration
+    }, duration);
 }
 
 // Initialize application
@@ -2823,6 +2895,172 @@ function setupEventListeners() {
             }
         });
     }
+
+    // Convert temperature button
+    const convertTempBtn = getDocumentRoot().querySelector('#convert-temperature-btn');
+    if (convertTempBtn) {
+        convertTempBtn.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#convert-temperature-modal');
+            if (modal) {
+                // Determine the likely current unit from stored settings
+                const likelyCurrentUnit = storedTemperatureUnit || temperatureUnit || '°C';
+                
+                // Pre-select FROM unit (current)
+                const fromCelsiusRadio = getDocumentRoot().querySelector('#convert-from-celsius');
+                const fromFahrenheitRadio = getDocumentRoot().querySelector('#convert-from-fahrenheit');
+                
+                if (likelyCurrentUnit === '°C' && fromCelsiusRadio) {
+                    fromCelsiusRadio.checked = true;
+                } else if (likelyCurrentUnit === '°F' && fromFahrenheitRadio) {
+                    fromFahrenheitRadio.checked = true;
+                } else if (fromCelsiusRadio) {
+                    fromCelsiusRadio.checked = true;
+                }
+                
+                // Pre-select TO unit (opposite of current)
+                const toCelsiusRadio = getDocumentRoot().querySelector('#convert-to-celsius');
+                const toFahrenheitRadio = getDocumentRoot().querySelector('#convert-to-fahrenheit');
+                
+                if (likelyCurrentUnit === '°C' && toFahrenheitRadio) {
+                    toFahrenheitRadio.checked = true;
+                } else if (likelyCurrentUnit === '°F' && toCelsiusRadio) {
+                    toCelsiusRadio.checked = true;
+                } else if (toCelsiusRadio) {
+                    toCelsiusRadio.checked = true;
+                }
+                
+                modal.style.display = 'flex';
+            }
+        });
+    }
+
+    // Convert temperature modal - cancel
+    const convertTempCancel = getDocumentRoot().querySelector('#convert-temperature-cancel');
+    if (convertTempCancel) {
+        convertTempCancel.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#convert-temperature-modal');
+            if (modal) modal.style.display = 'none';
+        });
+    }
+
+    // Convert temperature modal - confirm
+    const convertTempConfirm = getDocumentRoot().querySelector('#convert-temperature-confirm');
+    if (convertTempConfirm) {
+        convertTempConfirm.addEventListener('click', async () => {
+            const modal = getDocumentRoot().querySelector('#convert-temperature-modal');
+            
+            // Get FROM unit
+            const fromCelsiusRadio = getDocumentRoot().querySelector('#convert-from-celsius');
+            const fromFahrenheitRadio = getDocumentRoot().querySelector('#convert-from-fahrenheit');
+            
+            let fromUnit = null;
+            if (fromCelsiusRadio && fromCelsiusRadio.checked) {
+                fromUnit = '°C';
+            } else if (fromFahrenheitRadio && fromFahrenheitRadio.checked) {
+                fromUnit = '°F';
+            }
+            
+            // Get TO unit
+            const toCelsiusRadio = getDocumentRoot().querySelector('#convert-to-celsius');
+            const toFahrenheitRadio = getDocumentRoot().querySelector('#convert-to-fahrenheit');
+            
+            let targetUnit = null;
+            if (toCelsiusRadio && toCelsiusRadio.checked) {
+                targetUnit = '°C';
+            } else if (toFahrenheitRadio && toFahrenheitRadio.checked) {
+                targetUnit = '°F';
+            }
+            
+            if (!fromUnit) {
+                showToast('Please select the current temperature unit (FROM)', 'warning');
+                return;
+            }
+            
+            if (!targetUnit) {
+                showToast('Please select the target temperature unit (TO)', 'warning');
+                return;
+            }
+            
+            if (fromUnit === targetUnit) {
+                showToast(`Cannot convert from ${fromUnit} to ${targetUnit} - they are the same unit`, 'warning');
+                return;
+            }
+            
+            try {
+                // Show loading indicator
+                if (convertTempConfirm) {
+                    convertTempConfirm.disabled = true;
+                    convertTempConfirm.textContent = 'Converting...';
+                }
+                
+                // Get current settings
+                const settings = await haAPI.getSettings();
+                
+                console.log(`Converting from ${fromUnit} to ${targetUnit}`);
+                console.log('Settings before conversion:', JSON.stringify(settings, null, 2));
+                
+                // Convert all schedules using user-selected units
+                await convertAllSchedules(fromUnit, targetUnit);
+                
+                // Convert min/max settings
+                if (settings.min_temp !== undefined) {
+                    const oldMin = settings.min_temp;
+                    settings.min_temp = convertTemperature(settings.min_temp, fromUnit, targetUnit);
+                    console.log(`Converted min_temp: ${oldMin}${fromUnit} → ${settings.min_temp}${targetUnit}`);
+                }
+                if (settings.max_temp !== undefined) {
+                    const oldMax = settings.max_temp;
+                    settings.max_temp = convertTemperature(settings.max_temp, fromUnit, targetUnit);
+                    console.log(`Converted max_temp: ${oldMax}${fromUnit} → ${settings.max_temp}${targetUnit}`);
+                }
+                
+                // Convert default schedule
+                if (settings.defaultSchedule) {
+                    console.log('Default schedule before conversion:', settings.defaultSchedule);
+                    settings.defaultSchedule = convertScheduleNodes(settings.defaultSchedule, fromUnit, targetUnit);
+                    console.log('Default schedule after conversion:', settings.defaultSchedule);
+                }
+                
+                // Update temperature unit
+                settings.temperature_unit = targetUnit;
+                temperatureUnit = targetUnit;
+                storedTemperatureUnit = targetUnit;
+                
+                // Save settings
+                await haAPI.saveSettings(settings);
+                
+                // Close modal before reload
+                if (modal) modal.style.display = 'none';
+                
+                // Show success toast briefly before reload
+                showToast(`Successfully converted all schedules to ${targetUnit}. Reloading...`, 'success', 2000);
+                
+                // Reload the page after a brief delay to show the toast
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } catch (error) {
+                console.error('Failed to convert schedules:', error);
+                showToast('Failed to convert schedules: ' + error.message, 'error');
+            } finally {
+                // Restore button state
+                if (convertTempConfirm) {
+                    convertTempConfirm.disabled = false;
+                    convertTempConfirm.textContent = 'Convert Schedules';
+                }
+            }
+        });
+    }
+
+    // Close convert temperature modal when clicking outside
+    const convertTempModal = getDocumentRoot().querySelector('#convert-temperature-modal');
+    if (convertTempModal) {
+        convertTempModal.addEventListener('click', (e) => {
+            if (e.target.id === 'convert-temperature-modal') {
+                convertTempModal.style.display = 'none';
+            }
+        });
+    }
     
     // Initialize settings panel
     setupSettingsPanel();
@@ -3056,12 +3294,104 @@ let defaultScheduleGraph = null;
 let minTempSetting = null;
 let maxTempSetting = null;
 
+// Convert all schedules from one unit to another
+async function convertAllSchedules(fromUnit, toUnit) {
+    if (fromUnit === toUnit) return;
+    
+    try {
+        // Convert entity schedules
+        for (const entityId of entitySchedules.keys()) {
+            const result = await haAPI.getSchedule(entityId);
+            const schedule = result?.response || result;
+            
+            if (schedule && schedule.schedules) {
+                const convertedSchedules = {};
+                for (const [day, nodes] of Object.entries(schedule.schedules)) {
+                    convertedSchedules[day] = convertScheduleNodes(nodes, fromUnit, toUnit);
+                }
+                
+                // Save converted schedules
+                for (const [day, nodes] of Object.entries(convertedSchedules)) {
+                    await haAPI.setSchedule(entityId, nodes, day, schedule.schedule_mode || 'all_days');
+                }
+            }
+        }
+        
+        // Convert group schedules
+        const result = await haAPI.getGroups();
+        let groups = result?.response || result || {};
+        if (groups.groups && typeof groups.groups === 'object') {
+            groups = groups.groups;
+        }
+        
+        for (const [groupName, groupData] of Object.entries(groups)) {
+            if (groupData.schedules) {
+                const convertedSchedules = {};
+                for (const [day, nodes] of Object.entries(groupData.schedules)) {
+                    convertedSchedules[day] = convertScheduleNodes(nodes, fromUnit, toUnit);
+                }
+                
+                // Save converted group schedules
+                for (const [day, nodes] of Object.entries(convertedSchedules)) {
+                    await haAPI.setGroupSchedule(groupName, nodes, day, groupData.schedule_mode || 'all_days');
+                }
+            }
+        }
+        
+        console.log('All schedules converted successfully');
+    } catch (error) {
+        console.error('Failed to convert schedules:', error);
+    }
+}
+
 // Load settings from server
 async function loadSettings() {
     try {
         const settings = await haAPI.getSettings();
+        
+        // Check if temperature unit changed and convert schedules if needed
+        const savedUnit = settings?.temperature_unit;
+        
+        // Always set storedTemperatureUnit to track what's in storage
+        storedTemperatureUnit = savedUnit || temperatureUnit;
+        
+        if (savedUnit && savedUnit !== temperatureUnit) {
+            console.log(`Temperature unit changed from ${savedUnit} to ${temperatureUnit}, converting schedules...`);
+            await convertAllSchedules(savedUnit, temperatureUnit);
+            // Update stored unit
+            settings.temperature_unit = temperatureUnit;
+            storedTemperatureUnit = temperatureUnit;
+            await haAPI.saveSettings(settings);
+        } else if (!savedUnit) {
+            // First time - check if default schedule needs conversion from Celsius to Fahrenheit
+            if (temperatureUnit === '°F' && settings.defaultSchedule) {
+                // Check if default schedule looks like it's in Celsius (temps < 40)
+                const maxTemp = Math.max(...settings.defaultSchedule.map(n => n.temp));
+                if (maxTemp < 40) {
+                    console.log('First time load on Fahrenheit system - converting default schedule from Celsius');
+                    settings.defaultSchedule = convertScheduleNodes(settings.defaultSchedule, '°C', '°F');
+                    // Also convert min/max if they look like Celsius
+                    if (settings.min_temp && settings.min_temp < 40) {
+                        settings.min_temp = convertTemperature(settings.min_temp, '°C', '°F');
+                    }
+                    if (settings.max_temp && settings.max_temp < 40) {
+                        settings.max_temp = convertTemperature(settings.max_temp, '°C', '°F');
+                    }
+                }
+            }
+            // Save current unit for future detection
+            settings.temperature_unit = temperatureUnit;
+            storedTemperatureUnit = temperatureUnit;
+            await haAPI.saveSettings(settings);
+        }
+        
         if (settings && settings.defaultSchedule) {
-            defaultScheduleSettings = settings.defaultSchedule;
+            // Convert default schedule if needed
+            if (storedTemperatureUnit && storedTemperatureUnit !== temperatureUnit) {
+                defaultScheduleSettings = convertScheduleNodes(settings.defaultSchedule, storedTemperatureUnit, temperatureUnit);
+            } else {
+                defaultScheduleSettings = settings.defaultSchedule;
+            }
         }
         if (settings && settings.tooltipMode) {
             tooltipMode = settings.tooltipMode;
@@ -3070,23 +3400,31 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
-        // Load min/max temps if present
+        // Load min/max temps if present (convert if unit changed)
         if (settings && typeof settings.min_temp !== 'undefined') {
-            minTempSetting = parseFloat(settings.min_temp);
+            let minTemp = parseFloat(settings.min_temp);
+            if (storedTemperatureUnit && storedTemperatureUnit !== temperatureUnit) {
+                minTemp = convertTemperature(minTemp, storedTemperatureUnit, temperatureUnit);
+            }
+            minTempSetting = minTemp;
             const minInput = getDocumentRoot().querySelector('#min-temp');
             if (minInput) {
-                minInput.value = settings.min_temp;
-                console.debug('Loaded min_temp:', settings.min_temp, 'Input found:', !!minInput);
+                minInput.value = minTemp;
+                console.debug('Loaded min_temp:', minTemp, 'Input found:', !!minInput);
             } else {
                 console.warn('min-temp input not found in DOM during loadSettings');
             }
         }
         if (settings && typeof settings.max_temp !== 'undefined') {
-            maxTempSetting = parseFloat(settings.max_temp);
+            let maxTemp = parseFloat(settings.max_temp);
+            if (storedTemperatureUnit && storedTemperatureUnit !== temperatureUnit) {
+                maxTemp = convertTemperature(maxTemp, storedTemperatureUnit, temperatureUnit);
+            }
+            maxTempSetting = maxTemp;
             const maxInput = getDocumentRoot().querySelector('#max-temp');
             if (maxInput) {
-                maxInput.value = settings.max_temp;
-                console.debug('Loaded max_temp:', settings.max_temp, 'Input found:', !!maxInput);
+                maxInput.value = maxTemp;
+                console.debug('Loaded max_temp:', maxTemp, 'Input found:', !!maxInput);
             } else {
                 console.warn('max-temp input not found in DOM during loadSettings');
             }

@@ -216,6 +216,51 @@ class ClimateSchedulerPanel extends HTMLElement {
                         </div>
                     </div>
 
+                    <div id="convert-temperature-modal" class="modal" style="display: none;">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3>Convert All Schedules</h3>
+                            </div>
+                            <div class="modal-body">
+                                <p style="margin-bottom: 16px;">This will convert all saved schedules (entities and groups) as well as the default schedule and min/max settings.</p>
+                                
+                                <div style="margin-bottom: 16px;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Current unit (convert FROM):</label>
+                                    <div style="display: flex; gap: 16px;">
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="convert-from-unit" value="°C" id="convert-from-celsius" style="cursor: pointer;">
+                                            <span>Celsius (°C)</span>
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="convert-from-unit" value="°F" id="convert-from-fahrenheit" style="cursor: pointer;">
+                                            <span>Fahrenheit (°F)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 16px;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Target unit (convert TO):</label>
+                                    <div style="display: flex; gap: 16px;">
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="convert-to-unit" value="°C" id="convert-to-celsius" style="cursor: pointer;">
+                                            <span>Celsius (°C)</span>
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                            <input type="radio" name="convert-to-unit" value="°F" id="convert-to-fahrenheit" style="cursor: pointer;">
+                                            <span>Fahrenheit (°F)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <p style="color: var(--warning, #ff9800); font-size: 0.9rem;"><strong>Warning:</strong> This action cannot be undone. Make sure you select the correct source and target units.</p>
+                            </div>
+                            <div class="modal-actions">
+                                <button id="convert-temperature-cancel" class="btn-secondary">Cancel</button>
+                                <button id="convert-temperature-confirm" class="btn-primary">Convert Schedules</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Settings Panel -->
                     <div id="settings-panel" class="settings-panel collapsed">
                         <div class="settings-header" id="settings-toggle">
@@ -298,7 +343,8 @@ class ClimateSchedulerPanel extends HTMLElement {
                                 <!-- right column removed: min/max now inline in Graph Options -->
                             </div>
 
-                            <div class="settings-actions" style="margin-top: 12px;">
+                            <div class="settings-actions" style="margin-top: 12px; display: flex; gap: 12px;">
+                                <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                             </div>
                         </div>
