@@ -1244,14 +1244,18 @@ function attachEditorEventListeners(editorElement) {
     // Clear schedule button
     const clearBtn = editorElement.querySelector('#clear-schedule-btn');
     if (clearBtn) {
-        clearBtn.onclick = () => {
-            if (!currentEntityId) return;
-            
-            const entity = climateEntities.find(e => e.entity_id === currentEntityId);
-            const entityName = entity ? entity.attributes.friendly_name : currentEntityId;
-            
-            if (confirm(`Clear schedule for ${entityName}?`)) {
-                clearScheduleForEntity(currentEntityId);
+        clearBtn.onclick = async () => {
+            if (currentEntityId) {
+                const entity = climateEntities.find(e => e.entity_id === currentEntityId);
+                const entityName = entity ? entity.attributes.friendly_name : currentEntityId;
+                
+                if (confirm(`Clear schedule for ${entityName}?`)) {
+                    await clearScheduleForEntity(currentEntityId);
+                }
+            } else if (currentGroup) {
+                if (confirm(`Clear schedule for group "${currentGroup}"?`)) {
+                    await clearScheduleForGroup(currentGroup);
+                }
             }
         };
     }
@@ -1639,7 +1643,61 @@ async function clearScheduleForEntity(entityId) {
         await saveSchedule();
     } catch (error) {
         console.error('Failed to clear schedule:', error);
-        alert('Failed to clear schedule. Please try again.');
+        showToast('Failed to clear schedule. Please try again.', 'error');
+    }
+}
+
+// Clear schedule for a group
+async function clearScheduleForGroup(groupName) {
+    try {
+        const groupData = allGroups[groupName];
+        if (!groupData) return;
+        
+        // Reset to user-configured default schedule
+        const defaultSchedule = defaultScheduleSettings.map(node => ({...node}));
+        
+        // Update group schedules based on schedule mode
+        const scheduleMode = groupData.schedule_mode || 'all_days';
+        
+        // Save default schedule for each day based on schedule mode
+        if (scheduleMode === 'all_days') {
+            await haAPI.setGroupSchedule(groupName, defaultSchedule, 'all_days', scheduleMode);
+            groupData.schedules = { all_days: defaultSchedule };
+        } else if (scheduleMode === '5/2') {
+            await haAPI.setGroupSchedule(groupName, defaultSchedule.map(node => ({...node})), 'weekday', scheduleMode);
+            await haAPI.setGroupSchedule(groupName, defaultSchedule.map(node => ({...node})), 'weekend', scheduleMode);
+            groupData.schedules = {
+                weekday: defaultSchedule.map(node => ({...node})),
+                weekend: defaultSchedule.map(node => ({...node}))
+            };
+        } else if (scheduleMode === 'individual') {
+            const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+            for (const day of days) {
+                await haAPI.setGroupSchedule(groupName, defaultSchedule.map(node => ({...node})), day, scheduleMode);
+            }
+            groupData.schedules = {
+                mon: defaultSchedule.map(node => ({...node})),
+                tue: defaultSchedule.map(node => ({...node})),
+                wed: defaultSchedule.map(node => ({...node})),
+                thu: defaultSchedule.map(node => ({...node})),
+                fri: defaultSchedule.map(node => ({...node})),
+                sat: defaultSchedule.map(node => ({...node})),
+                sun: defaultSchedule.map(node => ({...node}))
+            };
+        }
+        
+        // Update graph with default schedule for current day
+        if (graph) {
+            graph.setNodes(defaultSchedule);
+        }
+        
+        // Update current schedule reference
+        currentSchedule = defaultSchedule;
+        
+        showToast(`Cleared schedule for group "${groupName}"`, 'success');
+    } catch (error) {
+        console.error('Failed to clear group schedule:', error);
+        showToast('Failed to clear group schedule. Please try again.', 'error');
     }
 }
 
