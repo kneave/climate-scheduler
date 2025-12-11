@@ -8,11 +8,13 @@
 
 
 
-## [1.5.4] - 2025-12-10
-### Changed
-- Removed the default sidebar entry
+
+## [1.5.5] - 2025-12-11
+### Added
+- added user configurable min/max temperature values
 
 ### Fixed
-- The header wasn't shown in the default dashboard so removed in favour of a custom card in a dashboard
+- Removed duplicated code
+- Added clamping in case temperature outside of range rather than doing nothing
 
-## [1.5.3] - 2025-12-09
+## [1.5.4] - 2025-12-10
