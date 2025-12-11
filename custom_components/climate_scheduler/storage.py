@@ -12,6 +12,42 @@ from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_T
 _LOGGER = logging.getLogger(__name__)
 
 
+def validate_node(node: Dict[str, Any]) -> bool:
+    """Validate a schedule node structure."""
+    if not isinstance(node, dict):
+        return False
+    
+    # Check required fields
+    if "time" not in node or "temp" not in node:
+        _LOGGER.error(f"Node missing required fields: {node}")
+        return False
+    
+    # Validate time format (HH:MM)
+    time_str = node["time"]
+    if not isinstance(time_str, str) or len(time_str) != 5 or time_str[2] != ":":
+        _LOGGER.error(f"Invalid time format: {time_str}")
+        return False
+    
+    try:
+        hours, minutes = time_str.split(":")
+        h, m = int(hours), int(minutes)
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            _LOGGER.error(f"Time out of range: {time_str}")
+            return False
+    except (ValueError, AttributeError):
+        _LOGGER.error(f"Cannot parse time: {time_str}")
+        return False
+    
+    # Validate temperature is numeric
+    try:
+        float(node["temp"])
+    except (ValueError, TypeError):
+        _LOGGER.error(f"Invalid temperature: {node.get('temp')}")
+        return False
+    
+    return True
+
+
 class ScheduleStorage:
     """Handle storage of heating schedules."""
 
@@ -438,16 +474,3 @@ class ScheduleStorage:
         self._data["groups"][group_name]["enabled"] = False
         await self.async_save()
         _LOGGER.info(f"Disabled group '{group_name}'")
-
-    async def async_get_settings(self) -> Dict[str, Any]:
-        """Get user settings."""
-        return self._data.get("settings", {})
-    
-    async def async_save_settings(self, settings: Dict[str, Any]) -> None:
-        """Save user settings."""
-        if "settings" not in self._data:
-            self._data["settings"] = {}
-        
-        self._data["settings"] = settings
-        await self.async_save()
-        _LOGGER.info(f"Saved settings: {settings}")

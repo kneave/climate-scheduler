@@ -166,3 +166,46 @@ set_group_schedule:
       example: "individual"
       selector:
         text:
+
+sync_all:
+  name: Sync all thermostats
+  description: Force synchronization of all enabled thermostats with their schedules
+
+enable_group:
+  name: Enable group schedule
+  description: Enable automatic scheduling for all thermostats in a group
+  fields:
+    group_name:
+      description: Name of the group to enable
+      required: true
+      example: "Bedrooms"
+      selector:
+        text:
+
+disable_group:
+  name: Disable group schedule
+  description: Disable automatic scheduling for all thermostats in a group
+  fields:
+    group_name:
+      description: Name of the group to disable
+      required: true
+      example: "Bedrooms"
+      selector:
+        text:
+
+get_settings:
+  name: Get settings
+  description: Retrieve global integration settings (min/max temp, default schedule, etc.)
+
+save_settings:
+  name: Save settings
+  description: Save global integration settings
+  fields:
+    settings:
+      description: Settings object with min_temp, max_temp, defaultSchedule, tooltipMode, etc.
+      required: true
+      example: '{"min_temp": 10, "max_temp": 30}'
+
+reload_integration:
+  name: Reload integration (Dev)
+  description: Reload the Climate Scheduler integration (development only)

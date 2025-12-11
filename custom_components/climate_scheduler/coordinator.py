@@ -87,9 +87,19 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 target_temp = active_node["temp"]
                 _LOGGER.info(f"{entity_id} active node: {active_node}")
                 
-                # Create a state signature for the node (temp + modes)
+                # Clamp target temp to global min/max BEFORE creating signature
+                # This prevents infinite update loops where unclamped signature differs from clamped output
+                clamped_temp = target_temp
+                if target_temp < min_temp:
+                    clamped_temp = min_temp
+                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                elif target_temp > max_temp:
+                    clamped_temp = max_temp
+                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                
+                # Create a state signature for the node using CLAMPED temp + modes
                 node_signature = {
-                    "temp": target_temp,
+                    "temp": clamped_temp,
                     "hvac_mode": active_node.get("hvac_mode"),
                     "fan_mode": active_node.get("fan_mode"),
                     "swing_mode": active_node.get("swing_mode"),
@@ -159,19 +169,10 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                                 blocking=True,
                             )
                 else:
-                    # Update to new node temperature
+                    # Update to new node temperature (already clamped in signature)
                     _LOGGER.info(
-                        f"Updating {entity_id} to new node: temp={target_temp}°C"
+                        f"Updating {entity_id} to new node: temp={clamped_temp}°C"
                     )
-
-                    # Clamp target temp to global min/max
-                    clamped_temp = target_temp
-                    if target_temp < min_temp:
-                        clamped_temp = min_temp
-                        _LOGGER.warning(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
-                    elif target_temp > max_temp:
-                        clamped_temp = max_temp
-                        _LOGGER.warning(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
 
                     # Build service data
                     service_data = {
