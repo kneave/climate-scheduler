@@ -9,12 +9,12 @@
 
 
 
-## [1.5.5] - 2025-12-11
+
+## [1.5.6] - 2025-12-11
 ### Added
-- added user configurable min/max temperature values
+- Manual conversion between temperature units
 
 ### Fixed
-- Removed duplicated code
-- Added clamping in case temperature outside of range rather than doing nothing
+- Hopefully sorted the "not persisting schedules" bug
 
-## [1.5.4] - 2025-12-10
+## [1.5.5] - 2025-12-11
