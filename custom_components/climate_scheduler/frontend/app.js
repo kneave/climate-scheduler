@@ -438,6 +438,10 @@ async function editGroupSchedule(groupName, day = null) {
     if (svgElement) {
         graph = new TemperatureGraph(svgElement, temperatureUnit);
         graph.setTooltipMode(tooltipMode);
+        // Apply configured min/max if available
+        if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
+            graph.setMinMax(minTempSetting, maxTempSetting);
+        }
         
         // Connect undo button
         const undoBtn = editor.querySelector('#undo-btn');
@@ -1101,6 +1105,10 @@ async function selectEntity(entityId) {
     if (svgElement) {
         graph = new TemperatureGraph(svgElement, temperatureUnit);
         graph.setTooltipMode(tooltipMode);
+        // Apply configured min/max if available
+        if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
+            graph.setMinMax(minTempSetting, maxTempSetting);
+        }
         
         // Connect undo button
         const undoBtn = editor.querySelector('#undo-btn');
@@ -3042,6 +3050,9 @@ let defaultScheduleSettings = [
 ];
 
 let defaultScheduleGraph = null;
+// Global min/max settings (populated from loadSettings)
+let minTempSetting = null;
+let maxTempSetting = null;
 
 // Load settings from server
 async function loadSettings() {
@@ -3057,6 +3068,47 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
+        // Load min/max temps if present
+        if (settings && typeof settings.min_temp !== 'undefined') {
+            minTempSetting = parseFloat(settings.min_temp);
+            const minInput = getDocumentRoot().querySelector('#min-temp');
+            if (minInput) {
+                minInput.value = settings.min_temp;
+                console.debug('Loaded min_temp:', settings.min_temp, 'Input found:', !!minInput);
+            } else {
+                console.warn('min-temp input not found in DOM during loadSettings');
+            }
+        }
+        if (settings && typeof settings.max_temp !== 'undefined') {
+            maxTempSetting = parseFloat(settings.max_temp);
+            const maxInput = getDocumentRoot().querySelector('#max-temp');
+            if (maxInput) {
+                maxInput.value = settings.max_temp;
+                console.debug('Loaded max_temp:', settings.max_temp, 'Input found:', !!maxInput);
+            } else {
+                console.warn('max-temp input not found in DOM during loadSettings');
+            }
+        }
+        // Update unit labels (if present)
+        try {
+            const minUnitEl = getDocumentRoot().querySelector('#min-unit');
+            const maxUnitEl = getDocumentRoot().querySelector('#max-unit');
+            if (minUnitEl) minUnitEl.textContent = temperatureUnit;
+            if (maxUnitEl) maxUnitEl.textContent = temperatureUnit;
+        } catch (err) {
+            // ignore
+        }
+        // If graphs already exist, update their ranges
+        try {
+            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            }
+            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
+                graph.setMinMax(minTempSetting, maxTempSetting);
+            }
+        } catch (err) {
+            console.debug('Failed to apply min/max to graphs:', err);
+        }
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
@@ -3069,7 +3121,29 @@ async function saveSettings() {
             defaultSchedule: defaultScheduleSettings,
             tooltipMode: tooltipMode
         };
+        // Read min/max inputs
+        const minInput = getDocumentRoot().querySelector('#min-temp');
+        const maxInput = getDocumentRoot().querySelector('#max-temp');
+        if (minInput && minInput.value !== '') settings.min_temp = parseFloat(minInput.value);
+        if (maxInput && maxInput.value !== '') settings.max_temp = parseFloat(maxInput.value);
         await haAPI.saveSettings(settings);
+        // Update runtime globals and graphs
+        if (typeof settings.min_temp !== 'undefined') {
+            minTempSetting = parseFloat(settings.min_temp);
+        }
+        if (typeof settings.max_temp !== 'undefined') {
+            maxTempSetting = parseFloat(settings.max_temp);
+        }
+        try {
+            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            }
+            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
+                graph.setMinMax(minTempSetting, maxTempSetting);
+            }
+        } catch (err) {
+            console.debug('Failed to apply min/max to graphs after save:', err);
+        }
         // Settings saved
         return true;
     } catch (error) {
@@ -3094,6 +3168,11 @@ async function setupSettingsPanel() {
     if (svgElement) {
         defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit);
         defaultScheduleGraph.setTooltipMode(tooltipMode);
+
+        // Apply configured min/max if available
+        if (minTempSetting !== null && maxTempSetting !== null && typeof defaultScheduleGraph.setMinMax === 'function') {
+            defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+        }
         defaultScheduleGraph.setNodes(defaultScheduleSettings);
         
         // Attach event listener for changes
@@ -3199,6 +3278,35 @@ async function setupSettingsPanel() {
                 debugContent.innerHTML = '';
                 debugLog('Debug console cleared');
             }
+        });
+    }
+    
+    // Min/Max temperature inputs - auto-save on change
+    const minTempInput = getDocumentRoot().querySelector('#min-temp');
+    const maxTempInput = getDocumentRoot().querySelector('#max-temp');
+    if (minTempInput) {
+        minTempInput.addEventListener('change', async (e) => {
+            // Simple client-side validation: ensure numeric
+            if (e.target.value !== '') {
+                const v = parseFloat(e.target.value);
+                if (Number.isNaN(v)) {
+                    alert('Minimum temperature must be a number');
+                    return;
+                }
+            }
+            await saveSettings();
+        });
+    }
+    if (maxTempInput) {
+        maxTempInput.addEventListener('change', async (e) => {
+            if (e.target.value !== '') {
+                const v = parseFloat(e.target.value);
+                if (Number.isNaN(v)) {
+                    alert('Maximum temperature must be a number');
+                    return;
+                }
+            }
+            await saveSettings();
         });
     }
     
@@ -3500,14 +3608,33 @@ window.updateHassConnection = function(hass) {
     }
 };
 
-// Auto-initialize for backward compatibility (iframe mode)
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    // Only auto-init if not in custom panel mode (no customElements)
-    if (!customElements.get('climate-scheduler-panel')) {
-        initApp();
+// Auto-initialize for backward compatibility (iframe/standalone mode)
+// Guard initialization so we only run in documents that contain the expected
+// UI container (prevents errors when `index.html` is removed and app.js is
+// loaded in a different context).
+const _shouldAutoInit = () => {
+    // If the panel custom element is present, let panel.js call init explicitly
+    try {
+        if (customElements && customElements.get && customElements.get('climate-scheduler-panel')) {
+            return false;
+        }
+    } catch (e) {
+        // ignore
     }
+
+    // Check for an existing container or entity list; only auto-init if present
+    if (document.querySelector('#entity-list') || document.querySelector('.container')) {
+        return true;
+    }
+    return false;
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        if (_shouldAutoInit()) initApp();
+    });
+} else {
+    if (_shouldAutoInit()) initApp();
 }
 
 

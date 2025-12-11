@@ -7,7 +7,7 @@ from datetime import datetime, time
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE
+from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_TEMP, MAX_TEMP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,14 +25,24 @@ class ScheduleStorage:
         """Load data from storage."""
         data = await self._store.async_load()
         if data is None:
-            self._data = {"entities": {}, "groups": {}}
+            self._data = {"entities": {}, "groups": {}, "settings": {}}
         else:
             self._data = data
             # Ensure groups key exists for backwards compatibility
             if "groups" not in self._data:
                 self._data["groups"] = {}
+            # Ensure settings exist
+            if "settings" not in self._data:
+                self._data["settings"] = {}
             # Migrate old single-schedule format to new day-based format
             await self._migrate_to_day_schedules()
+        # Ensure min/max temp defaults are present in settings
+        settings = self._data.get("settings", {})
+        if "min_temp" not in settings:
+            settings["min_temp"] = MIN_TEMP
+        if "max_temp" not in settings:
+            settings["max_temp"] = MAX_TEMP
+        self._data["settings"] = settings
         _LOGGER.debug(f"Loaded schedule data: {self._data}")
     
     async def _migrate_to_day_schedules(self) -> None:
@@ -73,6 +83,20 @@ class ScheduleStorage:
         """Save data to storage."""
         await self._store.async_save(self._data)
         _LOGGER.debug(f"Saved schedule data: {self._data}")
+
+    async def async_get_settings(self) -> Dict[str, Any]:
+        """Return current global settings."""
+        return self._data.get("settings", {})
+
+    async def async_save_settings(self, settings: Dict[str, Any]) -> None:
+        """Save global settings to storage by merging and persisting."""
+        if "settings" not in self._data:
+            self._data["settings"] = {}
+        # Merge provided settings
+        for k, v in settings.items():
+            self._data["settings"][k] = v
+        await self.async_save()
+        _LOGGER.info(f"Saved settings: {self._data.get('settings')}")
 
     async def async_get_all_entities(self) -> List[str]:
         """Get list of all entity IDs with schedules."""

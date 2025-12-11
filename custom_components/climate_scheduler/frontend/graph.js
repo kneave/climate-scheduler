@@ -161,6 +161,25 @@ class TemperatureGraph {
             }
         });
     }
+
+    // Allow external code to update the displayed min/max temperature range
+    setMinMax(min, max) {
+        // Validate numbers
+        if (typeof min === 'number' && typeof max === 'number' && !Number.isNaN(min) && !Number.isNaN(max)) {
+            // Ensure min is less than max; if not, swap
+            if (min >= max) {
+                const tmp = min;
+                min = max;
+                max = tmp;
+            }
+
+            this.minTemp = min;
+            this.maxTemp = max;
+
+            // Re-render to pick up new scale
+            this.render();
+        }
+    }
     
     saveState() {
         // Save current state to undo stack (deep copy)

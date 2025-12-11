@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
 
-from .const import DOMAIN, TEMP_THRESHOLD
+from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +47,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             current_time = datetime.now().time()
             current_day = datetime.now().strftime('%a').lower()  # Get day: mon, tue, wed, etc.
             _LOGGER.info(f"Current time: {current_time}, day: {current_day}")
+            # Load global settings (min/max temps)
+            try:
+                settings = await self.storage.async_get_settings()
+            except Exception:
+                settings = {}
+            min_temp = settings.get("min_temp", MIN_TEMP)
+            max_temp = settings.get("max_temp", MAX_TEMP)
+
             entities = await self.storage.async_get_all_entities()
             _LOGGER.info(f"Found {len(entities)} entities with schedules: {entities}")
             
@@ -155,20 +163,40 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     _LOGGER.info(
                         f"Updating {entity_id} to new node: temp={target_temp}°C"
                     )
-                    
+
+                    # Clamp target temp to global min/max
+                    clamped_temp = target_temp
+                    if target_temp < min_temp:
+                        clamped_temp = min_temp
+                        _LOGGER.warning(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                    elif target_temp > max_temp:
+                        clamped_temp = max_temp
+                        _LOGGER.warning(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+
                     # Build service data
                     service_data = {
                         "entity_id": entity_id,
-                        ATTR_TEMPERATURE: target_temp,
+                        ATTR_TEMPERATURE: clamped_temp,
                     }
-                    
-                    # Call climate service to set temperature
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_temperature",
-                        service_data,
-                        blocking=True,
-                    )
+
+                    # Call climate service to set temperature (handle per-entity errors)
+                    try:
+                        await self.hass.services.async_call(
+                            "climate",
+                            "set_temperature",
+                            service_data,
+                            blocking=True,
+                        )
+                    except Exception as exc:
+                        _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
+                        results[entity_id] = {
+                            "updated": False,
+                            "target_temp": target_temp,
+                            "applied_temp": None,
+                            "error": str(exc),
+                        }
+                        # Skip further actions for this entity
+                        continue
                     
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:

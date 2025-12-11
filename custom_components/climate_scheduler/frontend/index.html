@@ -129,65 +129,81 @@
                 <span class="collapse-indicator">▼</span>
             </div>
             <div class="settings-content">
-                <div class="settings-section">
-                    <h4>Default Schedule</h4>
-                    <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>
-                    
-                    <div class="graph-container">
-                        <svg id="default-schedule-graph" class="temperature-graph"></svg>
-                    </div>
-                    
-                    <!-- Default Schedule Node Settings Panel -->
-                    <div id="default-node-settings-panel" class="node-settings-panel" style="display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <h4>Node Settings</h4>
-                            <button id="default-delete-node-btn" class="btn-danger-outline" style="padding: 4px 12px; font-size: 0.9rem;">Delete Node</button>
-                        </div>
-                        <div class="node-info">
-                            <span>Time: <strong id="default-node-time">--:--</strong></span>
-                            <span>Temperature: <strong id="default-node-temp">--°C</strong></span>
+                <div class="settings-flex" style="display:flex; gap:24px; align-items:flex-start;">
+                    <div class="settings-main" style="flex:1; min-width:0;">
+                        <div class="settings-section">
+                            <h4>Default Schedule</h4>
+                            <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>
+                            
+                            <div class="graph-container">
+                                <svg id="default-schedule-graph" class="temperature-graph"></svg>
+                            </div>
+                            
+                            <!-- Default Schedule Node Settings Panel -->
+                            <div id="default-node-settings-panel" class="node-settings-panel" style="display: none;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <h4>Node Settings</h4>
+                                    <button id="default-delete-node-btn" class="btn-danger-outline" style="padding: 4px 12px; font-size: 0.9rem;">Delete Node</button>
+                                </div>
+                                <div class="node-info">
+                                    <span>Time: <strong id="default-node-time">--:--</strong></span>
+                                    <span>Temperature: <strong id="default-node-temp">--°C</strong></span>
+                                </div>
+                                
+                                <div class="setting-item" id="default-hvac-mode-item">
+                                    <label for="default-node-hvac-mode">HVAC Mode:</label>
+                                    <select id="default-node-hvac-mode"><option value="">-- No Change --</option></select>
+                                </div>
+                                
+                                <div class="setting-item" id="default-fan-mode-item">
+                                    <label for="default-node-fan-mode">Fan Mode:</label>
+                                    <select id="default-node-fan-mode"><option value="">-- No Change --</option></select>
+                                </div>
+                                
+                                <div class="setting-item" id="default-swing-mode-item">
+                                    <label for="default-node-swing-mode">Swing Mode:</label>
+                                    <select id="default-node-swing-mode"><option value="">-- No Change --</option></select>
+                                </div>
+                                
+                                <div class="setting-item" id="default-preset-mode-item">
+                                    <label for="default-node-preset-mode">Preset Mode:</label>
+                                    <select id="default-node-preset-mode"><option value="">-- No Change --</option></select>
+                                </div>
+                            </div>
                         </div>
                         
-                        <div class="setting-item" id="default-hvac-mode-item">
-                            <label for="default-node-hvac-mode">HVAC Mode:</label>
-                            <select id="default-node-hvac-mode"><option value="">-- No Change --</option></select>
+                        <div class="settings-section">
+                            <h4>Graph Options</h4>
+                            <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
+                                <div class="setting-item" style="flex:1; min-width:220px;">
+                                    <label for="tooltip-mode">Tooltip Display:</label>
+                                    <select id="tooltip-mode">
+                                        <option value="history">Show Historical Temperature</option>
+                                        <option value="cursor">Show Cursor Position</option>
+                                    </select>
+                                    <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
+                                </div>
+                                <div style="display:flex; gap:12px; align-items:center;">
+                                    <div style="display:flex; flex-direction:column; gap:6px;">
+                                        <label for="min-temp" style="font-weight:600;">Min Temp (<span id="min-unit">°C</span>)</label>
+                                        <input id="min-temp" type="number" step="0.5" placeholder="e.g. 5.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:6px;">
+                                        <label for="max-temp" style="font-weight:600;">Max Temp (<span id="max-unit">°C</span>)</label>
+                                        <input id="max-temp" type="number" step="0.5" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="setting-item" style="margin-top: 12px;">
+                                <label>
+                                    <input type="checkbox" id="debug-panel-toggle" style="margin-right: 8px;"> Show Debug Panel
+                                </label>
+                            </div>
                         </div>
-                        
-                        <div class="setting-item" id="default-fan-mode-item">
-                            <label for="default-node-fan-mode">Fan Mode:</label>
-                            <select id="default-node-fan-mode"><option value="">-- No Change --</option></select>
-                        </div>
-                        
-                        <div class="setting-item" id="default-swing-mode-item">
-                            <label for="default-node-swing-mode">Swing Mode:</label>
-                            <select id="default-node-swing-mode"><option value="">-- No Change --</option></select>
-                        </div>
-                        
-                        <div class="setting-item" id="default-preset-mode-item">
-                            <label for="default-node-preset-mode">Preset Mode:</label>
-                            <select id="default-node-preset-mode"><option value="">-- No Change --</option></select>
-                        </div>
-                    </div>
                 </div>
-                
-                <div class="settings-section">
-                    <h4>Graph Options</h4>
-                    <div class="setting-item">
-                        <label for="tooltip-mode">Tooltip Display:</label>
-                        <select id="tooltip-mode">
-                            <option value="history">Show Historical Temperature</option>
-                            <option value="cursor">Show Cursor Position</option>
-                        </select>
-                        <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
-                    </div>
-                    <div class="setting-item" style="margin-top: 15px;">
-                        <label>
-                            <input type="checkbox" id="debug-panel-toggle" style="margin-right: 8px;"> Show Debug Panel
-                        </label>
-                    </div>
                 </div>
-                
-                <div class="settings-actions">
+
+                <div class="settings-actions" style="margin-top:12px;">
                     <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                 </div>
             </div>

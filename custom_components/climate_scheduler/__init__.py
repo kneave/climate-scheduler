@@ -426,14 +426,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     frontend.async_register_built_in_panel(
         hass,
         component_name="custom",
-        sidebar_title=None,  # Don't show in sidebar - use the dashboard instead
+        sidebar_title="Climate Scheduler",  # Don't show in sidebar - use the dashboard instead
         sidebar_icon="mdi:calendar-clock",
         frontend_url_path="climate_scheduler",
         config={
             "_panel_custom": {
                 "name": "climate-scheduler-panel",
-                "module_url": f"/api/climate_scheduler/panel.js?v={version_param}",
-                "embed_iframe": False,
+                "module_url": "/api/climate_scheduler/panel.js"
             }
         },
         require_admin=False
