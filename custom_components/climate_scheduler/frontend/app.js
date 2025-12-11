@@ -1622,6 +1622,10 @@ async function loadEntitySchedule(entityId, day = null) {
                 // Backward compatibility - old format
                 nodes = schedule.nodes;
         //
+            } else if (schedule.schedules && schedule.schedules['all_days']) {
+                // If this day doesn't exist, use all_days as template
+                nodes = schedule.schedules['all_days'];
+        //
             } else {
         //
             }
@@ -1808,22 +1812,13 @@ async function switchScheduleMode(newMode) {
 async function switchDay(day) {
     if (!currentEntityId && !currentGroup) return;
     
-    // Switching day
-    
-    // Save current schedule before switching
-    console.log('Saving current schedule before switch...');
-    await saveSchedule();
-    console.log('Save complete, now switching to:', day);
-    
+    // Switching day - no need to save since auto-save already persisted changes
     currentDay = day;
     
     // Day updated
     
     // Update UI first
     updateScheduleModeUI();
-    
-    // Small delay to ensure backend has processed the save
-    await new Promise(resolve => setTimeout(resolve, 100));
     
     // Reload schedule for selected day - update in place without recreating editor
     if (currentGroup) {
@@ -2537,12 +2532,19 @@ async function toggleEntityInclusion(entityId, include) {
             // Add to local state immediately with a unique copy for each entity
             entitySchedules.set(entityId, JSON.parse(JSON.stringify(scheduleToUse)));
             
-            // If no existing schedule, persist the default to HA
+            // If no existing schedule, persist the default to HA with current day
             if (!existingSchedule) {
-                haAPI.setSchedule(entityId, scheduleToUse).catch(err => {
+                const now = new Date();
+                const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                haAPI.setSchedule(entityId, scheduleToUse, 'all_days', 'all_days').catch(err => {
                     console.error('Failed to persist schedule to HA:', err);
                 });
             }
+            
+            // Always enable the schedule (whether it existed or not)
+            haAPI.enableSchedule(entityId).catch(err => {
+                console.error('Failed to enable schedule in HA:', err);
+            });
             
             // Re-render to move to active list
             await renderEntityList();
