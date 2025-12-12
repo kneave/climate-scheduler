@@ -326,6 +326,38 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
 
     hass.data[DOMAIN]["services_registered"] = True
 
+    # Notify users about separate card installation
+    await _notify_card_separation(hass)
+
+
+async def _notify_card_separation(hass: HomeAssistant) -> None:
+    """Notify users that the frontend card is now separate."""
+    # Check if notification has already been shown
+    if hass.data[DOMAIN].get("card_notification_shown"):
+        return
+    
+    # Create persistent notification
+    await hass.services.async_call(
+        "persistent_notification",
+        "create",
+        {
+            "title": "Climate Scheduler: Frontend Card Separated",
+            "message": (
+                "The Climate Scheduler frontend has been moved to a separate card for better updates.\n\n"
+                "**Action Required:**\n"
+                "1. Install the Climate Scheduler Card from HACS (Frontend section)\n"
+                "2. Or manually install from: https://github.com/kneave/climate-scheduler-card\n\n"
+                "The integration continues to provide backend services. "
+                "This is a one-time change for improved maintenance.\n\n"
+                "Dismiss this notification once you've installed the card."
+            ),
+            "notification_id": f"{DOMAIN}_card_separation",
+        },
+    )
+    
+    hass.data[DOMAIN]["card_notification_shown"] = True
+    _LOGGER.info("Card separation notification displayed to user")
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up via YAML by importing into a config entry, else no-op."""
