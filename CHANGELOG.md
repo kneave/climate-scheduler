@@ -10,11 +10,9 @@
 
 
 
-## [1.5.6] - 2025-12-11
-### Added
-- Manual conversion between temperature units
 
+## [1.5.7] - 2025-12-12
 ### Fixed
-- Hopefully sorted the "not persisting schedules" bug
+- Scheduler should now correctly handle (and ignore) disabled schedules
 
-## [1.5.5] - 2025-12-11
+## [1.5.6] - 2025-12-11
