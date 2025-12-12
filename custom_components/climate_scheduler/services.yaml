@@ -206,6 +206,24 @@ save_settings:
       required: true
       example: '{"min_temp": 10, "max_temp": 30}'
 
+set_ignored:
+  name: Set entity ignored status
+  description: Mark an entity as ignored (not monitored) or un-ignore it
+  fields:
+    entity_id:
+      description: Climate entity to set ignored status for
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+    ignored:
+      description: Whether to ignore this entity (true) or monitor it (false)
+      required: true
+      example: true
+      selector:
+        boolean:
+
 reload_integration:
   name: Reload integration (Dev)
   description: Reload the Climate Scheduler integration (development only)

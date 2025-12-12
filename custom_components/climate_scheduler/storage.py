@@ -142,7 +142,10 @@ class ScheduleStorage:
         """Get schedule for an entity. If day is specified, returns nodes for that day."""
         entity_data = self._data.get("entities", {}).get(entity_id)
         if not entity_data:
+            _LOGGER.debug(f"async_get_schedule: entity {entity_id} not found in storage")
             return None
+        
+        _LOGGER.debug(f"async_get_schedule: entity {entity_id} found - ignored={entity_data.get('ignored', False)}, enabled={entity_data.get('enabled', True)}")
         
         # If no day specified, return the whole schedule structure
         if day is None:
@@ -252,7 +255,41 @@ class ScheduleStorage:
         if entity_id in self._data.get("entities", {}):
             del self._data["entities"][entity_id]
             await self.async_save()
-            _LOGGER.info(f"Removed entity {entity_id}")
+            _LOGGER.info(f"Removed entity {entity_id} from storage")
+        else:
+            _LOGGER.warning(f"Attempted to remove entity {entity_id} but it doesn't exist in storage")
+    
+    async def async_set_ignored(self, entity_id: str, ignored: bool) -> None:
+        """Set whether an entity should be ignored (not monitored)."""
+        _LOGGER.info(f"async_set_ignored called: entity_id={entity_id}, ignored={ignored}")
+        if entity_id in self._data.get("entities", {}):
+            self._data["entities"][entity_id]["ignored"] = ignored
+            await self.async_save()
+            _LOGGER.info(f"Set {entity_id} ignored={ignored} - entity exists, flag updated and saved")
+            _LOGGER.debug(f"Entity data after update: {self._data['entities'][entity_id]}")
+        else:
+            # Entity doesn't exist yet, create it with default schedule and set ignored
+            if ignored:
+                if "entities" not in self._data:
+                    self._data["entities"] = {}
+                self._data["entities"][entity_id] = {
+                    "enabled": False,
+                    "ignored": True,
+                    "schedule_mode": "all_days",
+                    "schedules": {"all_days": []}
+                }
+                await self.async_save()
+                _LOGGER.info(f"Created entity {entity_id} with ignored=True")
+                _LOGGER.debug(f"New entity data: {self._data['entities'][entity_id]}")
+            else:
+                _LOGGER.warning(f"Attempted to set ignored=False for non-existent entity {entity_id}")
+    
+    async def async_is_ignored(self, entity_id: str) -> bool:
+        """Check if an entity is marked as ignored."""
+        entity_data = self._data.get("entities", {}).get(entity_id)
+        if entity_data is None:
+            return False
+        return entity_data.get("ignored", False)
 
     async def async_set_enabled(self, entity_id: str, enabled: bool) -> None:
         """Enable or disable scheduling for an entity."""

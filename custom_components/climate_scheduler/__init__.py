@@ -83,6 +83,11 @@ DISABLE_GROUP_SCHEMA = vol.Schema({
     vol.Required("group_name"): cv.string
 })
 
+SET_IGNORED_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id,
+    vol.Required("ignored"): cv.boolean
+})
+
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
     """Common setup for storage, coordinator, services and panel."""
@@ -150,16 +155,26 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         entity_id = call.data["entity_id"]
         day = call.data.get("day")  # Optional: which day to get
         schedule = await storage.async_get_schedule(entity_id, day)
-        _LOGGER.info(f"Schedule for {entity_id} (day: {day}): {schedule}")
         # Return as service response data including enabled state
         if schedule:
+            # Get nodes for compatibility: if 'nodes' key exists use it, otherwise get from schedules
+            nodes = schedule.get("nodes", [])
+            if not nodes and "schedules" in schedule:
+                # New day-based format - get nodes from all_days as default
+                schedules_dict = schedule.get("schedules", {})
+                nodes = schedules_dict.get("all_days", [])
+            
+            _LOGGER.debug(f"get_schedule for {entity_id} (day: {day}): returning {len(nodes)} nodes, enabled={schedule.get('enabled', True)}, ignored={schedule.get('ignored', False)}")
             return {
-                "nodes": schedule.get("nodes", []),
+                "nodes": nodes,
                 "enabled": schedule.get("enabled", True),
+                "ignored": schedule.get("ignored", False),
                 "schedule_mode": schedule.get("schedule_mode", "all_days"),
                 "schedules": schedule.get("schedules", {})
             }
-        return {"nodes": [], "enabled": False, "schedule_mode": "all_days", "schedules": {}}
+        
+        _LOGGER.debug(f"get_schedule for {entity_id} (day: {day}): entity not in storage, returning empty")
+        return {"nodes": [], "enabled": False, "ignored": False, "schedule_mode": "all_days", "schedules": {}}
     
     async def handle_clear_schedule(call: ServiceCall) -> None:
         """Handle clear_schedule service call."""
@@ -297,6 +312,13 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         except (json.JSONDecodeError, ValueError) as e:
             _LOGGER.error(f"Failed to save settings: {e}")
             raise
+    
+    async def handle_set_ignored(call: ServiceCall) -> None:
+        """Handle set_ignored service call."""
+        entity_id = call.data["entity_id"]
+        ignored = call.data["ignored"]
+        await storage.async_set_ignored(entity_id, ignored)
+        _LOGGER.info(f"Set {entity_id} ignored={ignored}")
     
     async def handle_reload_integration(call: ServiceCall) -> None:
         """Handle reload_integration service call - reloads this integration."""
