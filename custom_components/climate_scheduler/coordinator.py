@@ -55,21 +55,69 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             min_temp = settings.get("min_temp", MIN_TEMP)
             max_temp = settings.get("max_temp", MAX_TEMP)
 
+            # Get all groups and build a map of entities to their enabled group schedules
+            groups = await self.storage.async_get_groups()
+            entity_group_schedules = {}  # Maps entity_id -> (group_name, schedule_data)
+            groups_migrated = False
+            
+            for group_name, group_data in groups.items():
+                # Migrate existing groups - add enabled=True if missing
+                if "enabled" not in group_data:
+                    group_data["enabled"] = True
+                    groups_migrated = True
+                    _LOGGER.info(f"Migrated group '{group_name}' - added enabled=True")
+                
+                if not group_data.get("enabled", True):
+                    _LOGGER.debug(f"Skipping disabled group '{group_name}'")
+                    continue
+                
+                # Get group schedule for current day
+                group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
+                if group_schedule and "nodes" in group_schedule:
+                    # Map all entities in this group to this schedule
+                    for entity_id in group_data.get("entities", []):
+                        entity_group_schedules[entity_id] = (group_name, group_schedule)
+                        _LOGGER.info(f"{entity_id} will use enabled group '{group_name}' schedule")
+            
+            # Save storage if any groups were migrated
+            if groups_migrated:
+                await self.storage.async_save()
+                _LOGGER.info("Saved migrated group data")
+            
             entities = await self.storage.async_get_all_entities()
             _LOGGER.info(f"Found {len(entities)} entities with schedules: {entities}")
+            
+            # Migrate entities - add enabled=True if missing
+            entities_migrated = False
+            for entity_id in entities:
+                entity_data = self.storage._data.get("entities", {}).get(entity_id)
+                if entity_data and "enabled" not in entity_data:
+                    entity_data["enabled"] = True
+                    entities_migrated = True
+                    _LOGGER.info(f"Migrated entity '{entity_id}' - added enabled=True")
+            
+            if entities_migrated:
+                await self.storage.async_save()
+                _LOGGER.info("Saved migrated entity data")
             
             results = {}
             
             for entity_id in entities:
                 _LOGGER.info(f"Processing entity: {entity_id}")
-                # Check if entity is enabled
-                if not await self.storage.async_is_enabled(entity_id):
-                    _LOGGER.debug(f"Skipping disabled entity {entity_id}")
-                    continue
                 
-                _LOGGER.info(f"{entity_id} is enabled")
-                # Get schedule for current day
-                schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+                # Check if entity is in an enabled group - if so, use group schedule instead
+                if entity_id in entity_group_schedules:
+                    group_name, schedule_data = entity_group_schedules[entity_id]
+                    _LOGGER.info(f"{entity_id} using group '{group_name}' schedule")
+                else:
+                    # Check if individual entity schedule is enabled
+                    if not await self.storage.async_is_enabled(entity_id):
+                        _LOGGER.debug(f"Skipping disabled entity {entity_id}")
+                        continue
+                    
+                    # Get individual schedule for current day
+                    schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+                
                 _LOGGER.info(f"{entity_id} schedule data for {current_day}: {schedule_data}")
                 if not schedule_data or "nodes" not in schedule_data:
                     _LOGGER.debug(f"No schedule nodes for {entity_id}")

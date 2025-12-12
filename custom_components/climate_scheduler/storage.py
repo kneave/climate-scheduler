@@ -266,7 +266,8 @@ class ScheduleStorage:
         entity_data = self._data.get("entities", {}).get(entity_id)
         if entity_data is None:
             return False
-        return entity_data.get("enabled", False)
+        # Default to True for backward compatibility with entities that don't have the enabled key
+        return entity_data.get("enabled", True)
 
     def interpolate_temperature(self, nodes: List[Dict[str, Any]], current_time: time) -> float:
         """Calculate temperature at a given time using step function (hold until next node)."""
@@ -342,6 +343,7 @@ class ScheduleStorage:
         
         self._data["groups"][group_name] = {
             "entities": [],
+            "enabled": True,
             "schedule_mode": "all_days",
             "schedules": {
                 "all_days": [{"time": "00:00", "temp": 18}]
@@ -456,6 +458,33 @@ class ScheduleStorage:
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes (day: {day}, mode: {schedule_mode})")
+    
+    async def async_get_group_schedule(self, group_name: str, day: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get schedule for a group (same logic as entity schedule retrieval)."""
+        if group_name not in self._data.get("groups", {}):
+            return None
+        
+        group_data = self._data["groups"][group_name]
+        schedule_mode = group_data.get("schedule_mode", "all_days")
+        schedules = group_data.get("schedules", {})
+        
+        # Same day resolution logic as entity schedules
+        if schedule_mode == "all_days":
+            nodes = schedules.get("all_days", [])
+        elif schedule_mode == "5/2":
+            if day in ["mon", "tue", "wed", "thu", "fri"]:
+                nodes = schedules.get("weekday", [])
+            else:  # sat, sun
+                nodes = schedules.get("weekend", [])
+        else:  # individual
+            nodes = schedules.get(day, [])
+        
+        return {
+            "nodes": nodes,
+            "enabled": group_data.get("enabled", True),
+            "schedule_mode": schedule_mode,
+            "schedules": schedules
+        }
     
     async def async_enable_group(self, group_name: str) -> None:
         """Enable a group schedule."""

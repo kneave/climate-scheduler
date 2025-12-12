@@ -336,6 +336,18 @@ async def _notify_card_separation(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get("card_notification_shown"):
         return
     
+    # Check if card is installed (HACS or manual)
+    from pathlib import Path
+    config_path = Path(hass.config.path())
+    hacs_path = config_path / "www" / "community" / "climate-scheduler-card" / "climate-scheduler-card.js"
+    manual_path = config_path / "www" / "community" / "climate-scheduler-card" / "climate-scheduler-card.js"
+    
+    # Check if card exists
+    if hacs_path.exists() or manual_path.exists():
+        _LOGGER.info("Climate Scheduler Card already installed, skipping notification")
+        hass.data[DOMAIN]["card_notification_shown"] = True
+        return
+    
     # Create persistent notification
     await hass.services.async_call(
         "persistent_notification",
