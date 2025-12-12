@@ -3,7 +3,6 @@ import logging
 import json
 import time
 from datetime import timedelta
-from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
@@ -327,9 +326,6 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
 
     hass.data[DOMAIN]["services_registered"] = True
 
-    # Register frontend panel
-    await async_register_panel(hass)
-
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up via YAML by importing into a config entry, else no-op."""
@@ -365,78 +361,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.services.async_remove(DOMAIN, svc)
             except Exception:  # noqa: BLE001
                 pass
-        # Attempt to remove panel
-        try:
-            from homeassistant.components import frontend
-            frontend.async_remove_panel(hass, "climate_scheduler")
-        except Exception:  # noqa: BLE001
-            pass
         hass.data.pop(DOMAIN, None)
     return True
-
-
-async def async_register_panel(hass: HomeAssistant) -> None:
-    """Register the frontend panel."""
-    frontend_path = Path(__file__).parent / "frontend"
-    
-    _LOGGER.info(f"Frontend path: {frontend_path}")
-    _LOGGER.info(f"Frontend path exists: {frontend_path.exists()}")
-    
-    # Serve frontend files using Home Assistant's built-in static path API
-    # This follows official guidance for custom integrations
-    # Wrap in try/except in case already registered (e.g., after reload)
-    try:
-        from homeassistant.components.http import StaticPathConfig
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig("/api/climate_scheduler", str(frontend_path), False)]
-        )
-        _LOGGER.info("Static path registered for Climate Scheduler frontend")
-    except Exception as e:
-        _LOGGER.debug(f"Static path may already be registered: {e}")
-    
-    # Ensure Lovelace loads the custom card resource automatically
-    # Check if already added to avoid duplicates
-    try:
-        from homeassistant.components import frontend
-        card_url = "/api/climate_scheduler/card.js"
-        if card_url not in frontend.DATA_EXTRA_MODULE_URL.get(hass, set()):
-            frontend.add_extra_js_url(hass, card_url)
-            _LOGGER.info("Registered extra JS resource for climate-scheduler-card")
-    except Exception as e:
-        _LOGGER.warning(f"Failed to register extra JS resource: {e}")
-    
-    # Register the custom panel
-    from homeassistant.components import frontend
-    import time
-    
-    # Get cache-busting parameter using timestamp only
-    version_param = f"{int(time.time())}"
-    
-    # Remove existing panel first to allow re-registration on reload
-    try:
-        frontend.async_remove_panel(hass, "climate_scheduler")
-        _LOGGER.debug("Removed existing climate_scheduler panel for re-registration")
-    except Exception:
-        pass  # Panel may not exist yet
-    
-    # Register panel as custom panel with module URL
-    # Note: Custom panels in Home Assistant don't show the header by default
-    # This is standard behavior for custom panels
-    # sidebar_title is set to None to not clutter the sidebar since the dashboard provides the same functionality with header
-    frontend.async_register_built_in_panel(
-        hass,
-        component_name="custom",
-        sidebar_title="Climate Scheduler",  # Don't show in sidebar - use the dashboard instead
-        sidebar_icon="mdi:calendar-clock",
-        frontend_url_path="climate_scheduler",
-        config={
-            "_panel_custom": {
-                "name": "climate-scheduler-panel",
-                "module_url": "/api/climate_scheduler/panel.js"
-            }
-        },
-        require_admin=False
-    )
-    
-    _LOGGER.info(f"Custom panel registered successfully with version {version_param}")
 

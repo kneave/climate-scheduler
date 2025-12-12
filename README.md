@@ -25,18 +25,27 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 - Editing the graph on the mobile app doesn't seem to work, as a workaround you can tap on a node and edit using the UI below the graph.
 - Sometimes auto-save doesn't function consistently, you may need to refresh the page to see the new values in the graph or to try updating the schedule again.
 
+## Frontend Card
+
+**Note:** The frontend UI is now available as a separate card repository for easier updates and HACS plugin support.
+
+**Install the card:** [Climate Scheduler Card](https://github.com/kneave/climate-scheduler-card)
+
+The card requires this integration to be installed for backend services.
+
 ## Usage
 
 ### Adding to a Dashboard
 
 **Recommended Method (UI):**
 
-1. Go to any dashboard
-2. Click "Edit Dashboard" (three dots → Edit Dashboard)
-3. Click "Add Card"
-4. Search for "Climate Scheduler" or use "Custom: Climate Scheduler Card"
-5. Click to add it
-6. Optionally set the view to "Panel" mode for a full-page experience
+1. Install the [Climate Scheduler Card](https://github.com/kneave/climate-scheduler-card) from HACS (Frontend)
+2. Go to any dashboard
+3. Click "Edit Dashboard" (three dots → Edit Dashboard)
+4. Click "Add Card"
+5. Search for "Climate Scheduler" or use "Custom: Climate Scheduler Card"
+6. Click to add it
+7. Optionally set the view to "Panel" mode for a full-page experience
 
 **Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
 
@@ -56,16 +65,6 @@ views:
     cards:
       - type: custom:climate-scheduler-card
 ```
-
-**Troubleshooting:**
-- The card resource is automatically registered when installed via HACS
-- If you see "Custom element doesn't exist", reload the integration and hard-refresh your browser (Shift+Reload)
-- For YAML mode dashboards, you may need to manually add the resource:
-  ```yaml
-  resources:
-    - url: /api/climate_scheduler/card.js
-      type: module
-  ```
 
 ### Using the Scheduler
 

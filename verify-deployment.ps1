@@ -21,12 +21,8 @@ $requiredFiles = @(
     "manifest.json",
     "coordinator.py",
     "storage.py",
-    "frontend\panel.js",
-    "frontend\index.html",
-    "frontend\app.js",
-    "frontend\ha-api.js",
-    "frontend\graph.js",
-    "frontend\styles.css"
+    "const.py",
+    "services.yaml"
 )
 
 Write-Host "Checking required files:" -ForegroundColor Cyan
