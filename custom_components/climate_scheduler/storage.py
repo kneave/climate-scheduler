@@ -61,13 +61,18 @@ class ScheduleStorage:
         """Load data from storage."""
         data = await self._store.async_load()
         if data is None:
-            self._data = {"entities": {}, "groups": {}, "settings": {}}
+            self._data = {"entities": {}, "groups": {}, "settings": {}, "advance_history": {}}
         else:
             self._data = data
             # Ensure groups key exists for backwards compatibility
             if "groups" not in self._data:
                 self._data["groups"] = {}
             # Ensure settings exist
+            if "settings" not in self._data:
+                self._data["settings"] = {}
+            # Ensure advance_history exists
+            if "advance_history" not in self._data:
+                self._data["advance_history"] = {}
             if "settings" not in self._data:
                 self._data["settings"] = {}
             # Migrate old single-schedule format to new day-based format
@@ -133,6 +138,16 @@ class ScheduleStorage:
             self._data["settings"][k] = v
         await self.async_save()
         _LOGGER.info(f"Saved settings: {self._data.get('settings')}")
+
+    async def async_get_advance_history(self) -> Dict[str, Any]:
+        """Return advance history for all entities."""
+        return self._data.get("advance_history", {})
+
+    async def async_save_advance_history(self, history: Dict[str, Any]) -> None:
+        """Save advance history to storage."""
+        self._data["advance_history"] = history
+        await self.async_save()
+        _LOGGER.debug(f"Saved advance history: {history}")
 
     async def async_get_all_entities(self) -> List[str]:
         """Get list of all entity IDs with schedules."""

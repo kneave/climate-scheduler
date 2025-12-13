@@ -263,6 +263,18 @@ cancel_advance:
         entity:
           domain: climate
 
+clear_advance_history:
+  name: Clear advance history
+  description: Clear all advance history markers for a climate entity
+  fields:
+    entity_id:
+      description: Climate entity to clear history for
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
 get_override_status:
   name: Get override status
   description: Check if a climate entity has an active advance override

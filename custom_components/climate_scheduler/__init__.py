@@ -388,6 +388,12 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "history": history
         }
     
+    async def handle_clear_advance_history(call: ServiceCall) -> None:
+        """Handle clear_advance_history service call - clear advance history for an entity."""
+        entity_id = call.data["entity_id"]
+        _LOGGER.info(f"Clearing advance history for {entity_id}")
+        await coordinator.clear_advance_history(entity_id)
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -409,6 +415,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=ENTITY_SCHEMA)
 
     hass.data[DOMAIN]["services_registered"] = True
 

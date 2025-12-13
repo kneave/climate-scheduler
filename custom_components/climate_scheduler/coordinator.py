@@ -34,6 +34,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self.override_until = {}  # Track entities with advance override (entity_id -> time)
         self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
 
+    async def async_config_entry_first_refresh(self) -> None:
+        """Handle the first refresh."""
+        # Load advance history from storage
+        self.advance_history = await self.storage.async_get_advance_history()
+        _LOGGER.debug(f"Loaded advance history from storage: {self.advance_history}")
+        # Call parent's first refresh
+        await super().async_config_entry_first_refresh()
+
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
         _LOGGER.info("Force updating all thermostats to scheduled temperatures")
@@ -117,6 +125,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             "target_node": next_node,
             "cancelled_at": None
         })
+        
+        # Save history to storage
+        await self.storage.async_save_advance_history(self.advance_history)
         
         _LOGGER.info(f"Set override for {entity_id} until {override_until}")
         
@@ -236,28 +247,50 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
     
     async def cancel_advance(self, entity_id: str) -> Dict[str, Any]:
         """Cancel an active advance override for an entity."""
-        if entity_id not in self.override_until:
-            return {
-                "success": False,
-                "error": "No active advance override"
-            }
+        _LOGGER.info(f"cancel_advance called for {entity_id}")
+        _LOGGER.info(f"  advance_history keys: {list(self.advance_history.keys())}")
+        _LOGGER.info(f"  entity in history: {entity_id in self.advance_history}")
         
-        # Mark the most recent advance as cancelled
+        # Mark the most recent advance as cancelled in history (even if override expired)
         if entity_id in self.advance_history and self.advance_history[entity_id]:
+            _LOGGER.info(f"  history entries for {entity_id}: {len(self.advance_history[entity_id])}")
             latest = self.advance_history[entity_id][-1]
+            _LOGGER.info(f"  latest entry cancelled_at before: {latest.get('cancelled_at')}")
             if latest["cancelled_at"] is None:
                 latest["cancelled_at"] = datetime.now().isoformat()
+                # Save updated history to storage
+                await self.storage.async_save_advance_history(self.advance_history)
+                _LOGGER.info(f"Marked advance as cancelled in history for {entity_id}")
+            else:
+                _LOGGER.info(f"  latest entry already cancelled")
+        else:
+            _LOGGER.warning(f"No advance history found for {entity_id} to cancel")
         
-        # Remove override
-        del self.override_until[entity_id]
+        # Remove override if it exists
+        if entity_id in self.override_until:
+            del self.override_until[entity_id]
+            _LOGGER.info(f"Removed active override for {entity_id}")
+        
         # Clear last node state to force immediate update to current schedule
         if entity_id in self.last_node_states:
             del self.last_node_states[entity_id]
         
-        _LOGGER.info(f"Cancelled advance override for {entity_id}")
+        _LOGGER.info(f"Cancelled advance for {entity_id}")
         
         # Trigger immediate update
         await self.async_request_refresh()
+        
+        return {
+            "success": True
+        }
+    
+    async def clear_advance_history(self, entity_id: str) -> Dict[str, Any]:
+        """Clear advance history for an entity."""
+        if entity_id in self.advance_history:
+            del self.advance_history[entity_id]
+            # Save updated history to storage
+            await self.storage.async_save_advance_history(self.advance_history)
+            _LOGGER.info(f"Cleared advance history for {entity_id}")
         
         return {
             "success": True
@@ -330,31 +363,6 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             "success_count": success_count,
             "error_count": error_count,
             "results": results
-        }
-    
-    async def cancel_advance(self, entity_id: str) -> Dict[str, Any]:
-        """Cancel advance override and return entity to normal scheduling."""
-        _LOGGER.info(f"Canceling advance override for {entity_id}")
-        
-        if entity_id not in self.override_until:
-            return {
-                "success": False,
-                "error": "No active override for this entity"
-            }
-        
-        # Remove override
-        del self.override_until[entity_id]
-        
-        # Clear last node state to force immediate update to current schedule
-        if entity_id in self.last_node_states:
-            del self.last_node_states[entity_id]
-        
-        # Trigger immediate refresh to apply current scheduled settings
-        await self.async_request_refresh()
-        
-        return {
-            "success": True,
-            "message": "Advance override canceled, returned to normal schedule"
         }
     
     def get_override_status(self, entity_id: str) -> Dict[str, Any]:
@@ -444,8 +452,20 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         }
                         continue
                     else:
-                        # Override expired, remove it
+                        # Override expired, mark as completed in history
                         _LOGGER.info(f"Override expired for {entity_id}, resuming normal scheduling")
+                        history_updated = False
+                        if entity_id in self.advance_history and self.advance_history[entity_id]:
+                            # Find the most recent uncompleted advance
+                            for event in reversed(self.advance_history[entity_id]):
+                                if event["cancelled_at"] is None:
+                                    event["cancelled_at"] = datetime.now().isoformat()
+                                    _LOGGER.info(f"Marked advance as completed for {entity_id}")
+                                    history_updated = True
+                                    break
+                        if history_updated:
+                            # Save updated history to storage
+                            await self.storage.async_save_advance_history(self.advance_history)
                         del self.override_until[entity_id]
                 
                 # Check if entity is in an enabled group - if so, use group schedule instead
