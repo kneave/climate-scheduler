@@ -88,6 +88,22 @@ SET_IGNORED_SCHEMA = vol.Schema({
     vol.Required("ignored"): cv.boolean
 })
 
+ADVANCE_SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id
+})
+
+ADVANCE_GROUP_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
+CANCEL_ADVANCE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id
+})
+
+CANCEL_ADVANCE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id
+})
+
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
     """Common setup for storage, coordinator, services and panel."""
@@ -328,6 +344,50 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             await hass.config_entries.async_reload(entry.entry_id)
             _LOGGER.info(f"Reloaded config entry: {entry.entry_id}")
     
+    async def handle_advance_schedule(call: ServiceCall) -> None:
+        """Handle advance_schedule service call - advance to next scheduled node."""
+        entity_id = call.data["entity_id"]
+        _LOGGER.info(f"Advancing schedule for {entity_id}")
+        result = await coordinator.advance_to_next_node(entity_id)
+        if result["success"]:
+            _LOGGER.info(f"Successfully advanced {entity_id} to next node")
+        else:
+            _LOGGER.error(f"Failed to advance {entity_id}: {result.get('error')}")
+            raise ValueError(result.get("error", "Unknown error"))
+    
+    async def handle_advance_group(call: ServiceCall) -> None:
+        """Handle advance_group service call - advance all entities in group to next scheduled node."""
+        group_name = call.data["group_name"]
+        _LOGGER.info(f"Advancing group '{group_name}' to next scheduled node")
+        result = await coordinator.advance_group_to_next_node(group_name)
+        if result["success"]:
+            _LOGGER.info(f"Successfully advanced {result['success_count']}/{result['total_entities']} entities in group '{group_name}'")
+        else:
+            _LOGGER.error(f"Failed to advance group '{group_name}': {result.get('error')}")
+            raise ValueError(result.get("error", "Unknown error"))
+    
+    async def handle_cancel_advance(call: ServiceCall) -> None:
+        """Handle cancel_advance service call - cancel active advance override."""
+        entity_id = call.data["entity_id"]
+        _LOGGER.info(f"Cancelling advance for {entity_id}")
+        result = await coordinator.cancel_advance(entity_id)
+        if not result["success"]:
+            _LOGGER.error(f"Failed to cancel advance for {entity_id}: {result.get('error')}")
+            raise ValueError(result.get("error", "Unknown error"))
+    
+    async def handle_get_advance_status(call: ServiceCall) -> dict:
+        """Handle get_advance_status service call - get advance override status and history."""
+        entity_id = call.data["entity_id"]
+        is_active = entity_id in coordinator.override_until
+        override_until = coordinator.override_until.get(entity_id)
+        history = coordinator.get_advance_history(entity_id, hours=24)
+        
+        return {
+            "is_active": is_active,
+            "override_until": override_until.isoformat() if override_until else None,
+            "history": history
+        }
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -345,6 +405,10 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
     hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
+    hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule, schema=ADVANCE_SCHEDULE_SCHEMA)
+    hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -421,7 +485,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "set_schedule","get_schedule","clear_schedule","enable_schedule","disable_schedule",
             "sync_all","create_group","delete_group","add_to_group","remove_from_group",
             "get_groups","set_group_schedule","enable_group","disable_group","get_settings",
-            "save_settings","reload_integration"
+            "save_settings","reload_integration","advance_schedule","advance_group",
+            "cancel_advance","get_advance_status"
         ]:
             try:
                 hass.services.async_remove(DOMAIN, svc)

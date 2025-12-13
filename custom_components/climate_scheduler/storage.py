@@ -359,6 +359,26 @@ class ScheduleStorage:
             active_node = sorted_nodes[-1]
         
         return active_node
+    
+    def get_next_node(self, nodes: List[Dict[str, Any]], current_time: time) -> Optional[Dict[str, Any]]:
+        """Get the next scheduled node after the current time."""
+        if not nodes:
+            return None
+        
+        # Sort nodes by time
+        sorted_nodes = sorted(nodes, key=lambda n: self._time_to_minutes(n["time"]))
+        
+        # Convert current time to minutes since midnight
+        current_minutes = current_time.hour * 60 + current_time.minute
+        
+        # Find the next node (first node after current time)
+        for node in sorted_nodes:
+            node_minutes = self._time_to_minutes(node["time"])
+            if node_minutes > current_minutes:
+                return node
+        
+        # If no node found after current time, wrap around to first node (next day)
+        return sorted_nodes[0]
 
     @staticmethod
     def _time_to_minutes(time_str: str) -> int:

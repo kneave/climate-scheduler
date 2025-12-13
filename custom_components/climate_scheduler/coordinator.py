@@ -1,7 +1,7 @@
 """Coordinator for Climate Scheduler."""
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -31,6 +31,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         )
         self.storage = storage
         self.last_node_states = {}  # Track last node state (temp + modes) for each entity
+        self.override_until = {}  # Track entities with advance override (entity_id -> time)
+        self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
 
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
@@ -39,6 +41,332 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self.last_node_states.clear()
         # Trigger immediate refresh
         await self.async_request_refresh()
+    
+    async def advance_to_next_node(self, entity_id: str) -> Dict[str, Any]:
+        """Manually advance a specific entity to its next scheduled node."""
+        _LOGGER.info(f"Advancing {entity_id} to next scheduled node")
+        
+        current_time = datetime.now().time()
+        current_day = datetime.now().strftime('%a').lower()
+        
+        # Load global settings (min/max temps)
+        try:
+            settings = await self.storage.async_get_settings()
+        except Exception:
+            settings = {}
+        min_temp = settings.get("min_temp", MIN_TEMP)
+        max_temp = settings.get("max_temp", MAX_TEMP)
+        
+        # Check if entity is in a group
+        groups = await self.storage.async_get_groups()
+        schedule_data = None
+        
+        for group_name, group_data in groups.items():
+            if not group_data.get("enabled", True):
+                continue
+            if entity_id in group_data.get("entities", []):
+                schedule_data = await self.storage.async_get_group_schedule(group_name, current_day)
+                _LOGGER.info(f"{entity_id} is in enabled group '{group_name}'")
+                break
+        
+        # If not in group, get individual schedule
+        if not schedule_data:
+            if not await self.storage.async_is_enabled(entity_id):
+                return {
+                    "success": False,
+                    "error": "Entity schedule is disabled"
+                }
+            schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+        
+        if not schedule_data or "nodes" not in schedule_data:
+            return {
+                "success": False,
+                "error": "No schedule found for entity"
+            }
+        
+        nodes = schedule_data["nodes"]
+        if not nodes:
+            return {
+                "success": False,
+                "error": "Schedule has no nodes"
+            }
+        
+        # Get the next node
+        next_node = self.storage.get_next_node(nodes, current_time)
+        if not next_node:
+            return {
+                "success": False,
+                "error": "Could not determine next node"
+            }
+        
+        # Set override to prevent auto-revert until next node's scheduled time
+        next_node_time_str = next_node["time"]
+        next_node_hours, next_node_minutes = map(int, next_node_time_str.split(":"))
+        override_until = datetime.now().replace(hour=next_node_hours, minute=next_node_minutes, second=0, microsecond=0)
+        # If next node time is earlier in the day than current time, it's tomorrow
+        if override_until <= datetime.now():
+            override_until += timedelta(days=1)
+        self.override_until[entity_id] = override_until
+        
+        # Record advance activation in history
+        if entity_id not in self.advance_history:
+            self.advance_history[entity_id] = []
+        self.advance_history[entity_id].append({
+            "activated_at": datetime.now().isoformat(),
+            "target_time": next_node_time_str,
+            "target_node": next_node,
+            "cancelled_at": None
+        })
+        
+        _LOGGER.info(f"Set override for {entity_id} until {override_until}")
+        
+        _LOGGER.info(f"{entity_id} next node: {next_node}")
+        
+        # Clamp target temp
+        target_temp = next_node["temp"]
+        clamped_temp = max(min_temp, min(max_temp, target_temp))
+        
+        # Create node signature
+        node_signature = {
+            "temp": clamped_temp,
+            "hvac_mode": next_node.get("hvac_mode"),
+            "fan_mode": next_node.get("fan_mode"),
+            "swing_mode": next_node.get("swing_mode"),
+            "preset_mode": next_node.get("preset_mode"),
+        }
+        
+        # Update last node state to mark this as applied
+        self.last_node_states[entity_id] = node_signature
+        
+        # Get entity state
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return {
+                "success": False,
+                "error": "Entity not found"
+            }
+        
+        # Get entity capabilities
+        hvac_modes = state.attributes.get("hvac_modes", [])
+        fan_modes = state.attributes.get("fan_modes", [])
+        swing_modes = state.attributes.get("swing_modes", [])
+        preset_modes = state.attributes.get("preset_modes", [])
+        
+        # Apply the next node settings
+        target_hvac_mode = next_node.get("hvac_mode")
+        
+        if target_hvac_mode == "off":
+            _LOGGER.info(f"Advancing {entity_id} - turning off")
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "turn_off",
+                    {"entity_id": entity_id},
+                    blocking=True,
+                )
+            except Exception as e:
+                _LOGGER.debug(f"turn_off failed for {entity_id}, trying set_hvac_mode: {e}")
+                if "off" in hvac_modes:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": "off"},
+                        blocking=True,
+                    )
+        else:
+            # Set temperature
+            _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": entity_id,
+                        ATTR_TEMPERATURE: clamped_temp,
+                    },
+                    blocking=True,
+                )
+            except Exception as exc:
+                return {
+                    "success": False,
+                    "error": f"Failed to set temperature: {str(exc)}"
+                }
+            
+            # Apply HVAC mode
+            if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": entity_id, "hvac_mode": next_node["hvac_mode"]},
+                    blocking=True,
+                )
+            
+            # Apply fan mode
+            if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_fan_mode",
+                    {"entity_id": entity_id, "fan_mode": next_node["fan_mode"]},
+                    blocking=True,
+                )
+            
+            # Apply swing mode
+            if "swing_mode" in next_node and swing_modes and next_node["swing_mode"] in swing_modes:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_swing_mode",
+                    {"entity_id": entity_id, "swing_mode": next_node["swing_mode"]},
+                    blocking=True,
+                )
+            
+            # Apply preset mode
+            if "preset_mode" in next_node and preset_modes and next_node["preset_mode"] in preset_modes:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_preset_mode",
+                    {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
+                    blocking=True,
+                )
+        
+        return {
+            "success": True,
+            "next_node": next_node,
+            "applied_temp": clamped_temp
+        }
+    
+    async def cancel_advance(self, entity_id: str) -> Dict[str, Any]:
+        """Cancel an active advance override for an entity."""
+        if entity_id not in self.override_until:
+            return {
+                "success": False,
+                "error": "No active advance override"
+            }
+        
+        # Mark the most recent advance as cancelled
+        if entity_id in self.advance_history and self.advance_history[entity_id]:
+            latest = self.advance_history[entity_id][-1]
+            if latest["cancelled_at"] is None:
+                latest["cancelled_at"] = datetime.now().isoformat()
+        
+        # Remove override
+        del self.override_until[entity_id]
+        # Clear last node state to force immediate update to current schedule
+        if entity_id in self.last_node_states:
+            del self.last_node_states[entity_id]
+        
+        _LOGGER.info(f"Cancelled advance override for {entity_id}")
+        
+        # Trigger immediate update
+        await self.async_request_refresh()
+        
+        return {
+            "success": True
+        }
+    
+    def get_advance_history(self, entity_id: str, hours: int = 24) -> List[Dict[str, Any]]:
+        """Get advance history for an entity within the last N hours."""
+        if entity_id not in self.advance_history:
+            return []
+        
+        cutoff = datetime.now() - timedelta(hours=hours)
+        history = []
+        
+        for event in self.advance_history[entity_id]:
+            activated = datetime.fromisoformat(event["activated_at"])
+            if activated >= cutoff:
+                history.append(event)
+        
+        return history
+    
+    async def advance_group_to_next_node(self, group_name: str) -> Dict[str, Any]:
+        """Advance all entities in a group to their next scheduled node."""
+        _LOGGER.info(f"Advancing group '{group_name}' to next scheduled node")
+        
+        # Get the group
+        groups = await self.storage.async_get_groups()
+        if group_name not in groups:
+            return {
+                "success": False,
+                "error": f"Group '{group_name}' not found"
+            }
+        
+        group_data = groups[group_name]
+        if not group_data.get("enabled", True):
+            return {
+                "success": False,
+                "error": "Group is disabled"
+            }
+        
+        entity_ids = group_data.get("entities", [])
+        if not entity_ids:
+            return {
+                "success": False,
+                "error": "Group has no entities"
+            }
+        
+        # Advance each entity in the group
+        results = {}
+        success_count = 0
+        error_count = 0
+        
+        for entity_id in entity_ids:
+            try:
+                result = await self.advance_to_next_node(entity_id)
+                results[entity_id] = result
+                if result.get("success"):
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                results[entity_id] = {
+                    "success": False,
+                    "error": str(e)
+                }
+                error_count += 1
+        
+        return {
+            "success": success_count > 0,
+            "total_entities": len(entity_ids),
+            "success_count": success_count,
+            "error_count": error_count,
+            "results": results
+        }
+    
+    async def cancel_advance(self, entity_id: str) -> Dict[str, Any]:
+        """Cancel advance override and return entity to normal scheduling."""
+        _LOGGER.info(f"Canceling advance override for {entity_id}")
+        
+        if entity_id not in self.override_until:
+            return {
+                "success": False,
+                "error": "No active override for this entity"
+            }
+        
+        # Remove override
+        del self.override_until[entity_id]
+        
+        # Clear last node state to force immediate update to current schedule
+        if entity_id in self.last_node_states:
+            del self.last_node_states[entity_id]
+        
+        # Trigger immediate refresh to apply current scheduled settings
+        await self.async_request_refresh()
+        
+        return {
+            "success": True,
+            "message": "Advance override canceled, returned to normal schedule"
+        }
+    
+    def get_override_status(self, entity_id: str) -> Dict[str, Any]:
+        """Get override status for an entity."""
+        if entity_id in self.override_until:
+            override_time = self.override_until[entity_id]
+            if datetime.now() < override_time:
+                return {
+                    "has_override": True,
+                    "override_until": override_time.isoformat()
+                }
+        return {"has_override": False}
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Update heating schedules."""
@@ -104,6 +432,21 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             
             for entity_id in entities:
                 _LOGGER.info(f"Processing entity: {entity_id}")
+                
+                # Check if entity has an active advance override
+                if entity_id in self.override_until:
+                    override_time = self.override_until[entity_id]
+                    if datetime.now() < override_time:
+                        _LOGGER.debug(f"Skipping {entity_id} - advance override active until {override_time}")
+                        results[entity_id] = {
+                            "updated": False,
+                            "reason": "advance_override_active"
+                        }
+                        continue
+                    else:
+                        # Override expired, remove it
+                        _LOGGER.info(f"Override expired for {entity_id}, resuming normal scheduling")
+                        del self.override_until[entity_id]
                 
                 # Check if entity is in an enabled group - if so, use group schedule instead
                 if entity_id in entity_group_schedules:

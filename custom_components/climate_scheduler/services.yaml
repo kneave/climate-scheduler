@@ -227,3 +227,50 @@ set_ignored:
 reload_integration:
   name: Reload integration (Dev)
   description: Reload the Climate Scheduler integration (development only)
+
+advance_schedule:
+  name: Advance to next scheduled node
+  description: Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet
+  fields:
+    entity_id:
+      description: Climate entity to advance to next scheduled node
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+advance_group:
+  name: Advance group to next scheduled node
+  description: Manually advance all climate entities in a group to their next scheduled temperature and settings, even if the scheduled time hasn't arrived yet
+  fields:
+    group_name:
+      description: Name of the group to advance
+      required: true
+      example: "Bedrooms"
+      selector:
+        text:
+
+cancel_advance:
+  name: Cancel advance override
+  description: Cancel an active advance override and return the climate entity to its current scheduled settings
+  fields:
+    entity_id:
+      description: Climate entity to cancel advance for
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+get_override_status:
+  name: Get override status
+  description: Check if a climate entity has an active advance override
+  fields:
+    entity_id:
+      description: Climate entity to check
+      required: true
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
