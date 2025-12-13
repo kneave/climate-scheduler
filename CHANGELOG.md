@@ -11,8 +11,12 @@
 
 
 
-## [1.5.7] - 2025-12-12
-### Fixed
-- Scheduler should now correctly handle (and ignore) disabled schedules
 
-## [1.5.6] - 2025-12-11
+## [1.6.0] - 2025-12-13
+### Added
+- Advance schedule function, temporarily skip to the next node in the schedule
+
+### Changed
+- Lots of UI changes
+
+## [1.5.7] - 2025-12-12
