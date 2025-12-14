@@ -12,11 +12,13 @@
 
 
 
-## [1.6.0] - 2025-12-13
+
+## [1.7.0] - 2025-12-14
 ### Added
-- Advance schedule function, temporarily skip to the next node in the schedule
+- Added schedule profiles - see the card for more info
 
 ### Changed
-- Lots of UI changes
+- Improved version handling
+- Added documentation for the Actions available for automations
 
-## [1.5.7] - 2025-12-12
+## [1.6.0] - 2025-12-13
