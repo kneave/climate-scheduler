@@ -77,6 +77,8 @@ class ScheduleStorage:
                 self._data["settings"] = {}
             # Migrate old single-schedule format to new day-based format
             await self._migrate_to_day_schedules()
+            # Migrate to profile-based structure
+            await self._migrate_to_profiles()
         # Ensure min/max temp defaults are present in settings
         settings = self._data.get("settings", {})
         if "min_temp" not in settings:
@@ -116,6 +118,47 @@ class ScheduleStorage:
                     del group_data["nodes"]
                 migrated = True
                 _LOGGER.info(f"Migrated group '{group_name}' to day-based schedule format")
+        
+        if migrated:
+            await self.async_save()
+    
+    async def _migrate_to_profiles(self) -> None:
+        """Migrate existing schedules to profile-based format."""
+        migrated = False
+        
+        # Migrate entities
+        for entity_id, entity_data in self._data.get("entities", {}).items():
+            if "profiles" not in entity_data or "active_profile" not in entity_data:
+                # Create Default profile from current schedule
+                schedule_mode = entity_data.get("schedule_mode", "all_days")
+                schedules = copy.deepcopy(entity_data.get("schedules", {"all_days": []}))
+                
+                entity_data["profiles"] = {
+                    "Default": {
+                        "schedule_mode": schedule_mode,
+                        "schedules": schedules
+                    }
+                }
+                entity_data["active_profile"] = "Default"
+                migrated = True
+                _LOGGER.info(f"Migrated entity {entity_id} to profile-based format")
+        
+        # Migrate groups
+        for group_name, group_data in self._data.get("groups", {}).items():
+            if "profiles" not in group_data or "active_profile" not in group_data:
+                # Create Default profile from current schedule
+                schedule_mode = group_data.get("schedule_mode", "all_days")
+                schedules = copy.deepcopy(group_data.get("schedules", {"all_days": []}))
+                
+                group_data["profiles"] = {
+                    "Default": {
+                        "schedule_mode": schedule_mode,
+                        "schedules": schedules
+                    }
+                }
+                group_data["active_profile"] = "Default"
+                migrated = True
+                _LOGGER.info(f"Migrated group '{group_name}' to profile-based format")
         
         if migrated:
             await self.async_save()
@@ -205,7 +248,14 @@ class ScheduleStorage:
             self._data["entities"][entity_id] = {
                 "enabled": True,
                 "schedule_mode": schedule_mode or "all_days",
-                "schedules": {}
+                "schedules": {},
+                "profiles": {
+                    "Default": {
+                        "schedule_mode": schedule_mode or "all_days",
+                        "schedules": {}
+                    }
+                },
+                "active_profile": "Default"
             }
         
         entity_data = self._data["entities"][entity_id]
@@ -247,6 +297,23 @@ class ScheduleStorage:
                 # Individual mode or all_days mode
                 entity_data["schedules"][day] = nodes
         
+        # Save to active profile
+        active_profile = entity_data.get("active_profile", "Default")
+        if "profiles" not in entity_data:
+            entity_data["profiles"] = {}
+        if active_profile not in entity_data["profiles"]:
+            entity_data["profiles"][active_profile] = {
+                "schedule_mode": current_mode,
+                "schedules": {}
+            }
+        
+        # Update the active profile with current schedule and mode
+        entity_data["profiles"][active_profile]["schedule_mode"] = current_mode
+        entity_data["profiles"][active_profile]["schedules"] = copy.deepcopy(entity_data["schedules"])
+        
+        _LOGGER.info(f"Saved schedule to profile '{active_profile}' for entity {entity_id} - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
+        _LOGGER.debug(f"Profile schedules after save: {entity_data['profiles'][active_profile]['schedules'].keys()}")
+        
         await self.async_save()
 
     async def async_add_entity(self, entity_id: str) -> None:
@@ -260,7 +327,16 @@ class ScheduleStorage:
                 "schedule_mode": "all_days",
                 "schedules": {
                     "all_days": DEFAULT_SCHEDULE.copy()
-                }
+                },
+                "profiles": {
+                    "Default": {
+                        "schedule_mode": "all_days",
+                        "schedules": {
+                            "all_days": DEFAULT_SCHEDULE.copy()
+                        }
+                    }
+                },
+                "active_profile": "Default"
             }
             await self.async_save()
             _LOGGER.info(f"Added entity {entity_id} with default schedule")
@@ -419,7 +495,16 @@ class ScheduleStorage:
             "schedule_mode": "all_days",
             "schedules": {
                 "all_days": [{"time": "00:00", "temp": 18}]
-            }
+            },
+            "profiles": {
+                "Default": {
+                    "schedule_mode": "all_days",
+                    "schedules": {
+                        "all_days": [{"time": "00:00", "temp": 18}]
+                    }
+                }
+            },
+            "active_profile": "Default"
         }
         await self.async_save()
         _LOGGER.info(f"Created group '{group_name}'")
@@ -518,6 +603,23 @@ class ScheduleStorage:
                 # Individual mode or all_days mode
                 group_data["schedules"][day] = nodes
         
+        # Save to active profile
+        active_profile = group_data.get("active_profile", "Default")
+        if "profiles" not in group_data:
+            group_data["profiles"] = {}
+        if active_profile not in group_data["profiles"]:
+            group_data["profiles"][active_profile] = {
+                "schedule_mode": current_mode,
+                "schedules": {}
+            }
+        
+        # Update the active profile with current schedule and mode
+        group_data["profiles"][active_profile]["schedule_mode"] = current_mode
+        group_data["profiles"][active_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
+        
+        _LOGGER.info(f"Saved group schedule to profile '{active_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
+        _LOGGER.debug(f"Profile schedules after save: {group_data['profiles'][active_profile]['schedules'].keys()}")
+        
         # Apply to all entities in the group - update their schedule mode and schedules
         for entity_id in group_data["entities"]:
             if entity_id in self._data.get("entities", {}):
@@ -574,4 +676,136 @@ class ScheduleStorage:
         
         self._data["groups"][group_name]["enabled"] = False
         await self.async_save()
-        _LOGGER.info(f"Disabled group '{group_name}'")
+        _LOGGER.info(f"Disabled group '{group_name}'")    
+    # Profile Management Methods
+    
+    async def async_create_profile(self, target_id: str, profile_name: str, is_group: bool = False) -> None:
+        """Create a new schedule profile for an entity or group."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
+        
+        target_data = self._data[target_key][target_id]
+        
+        # Initialize profiles if not present
+        if "profiles" not in target_data:
+            target_data["profiles"] = {}
+        
+        if profile_name in target_data["profiles"]:
+            raise ValueError(f"Profile '{profile_name}' already exists")
+        
+        # Create new profile with current active schedule as template
+        current_mode = target_data.get("schedule_mode", "all_days")
+        current_schedules = copy.deepcopy(target_data.get("schedules", {"all_days": []}))
+        
+        target_data["profiles"][profile_name] = {
+            "schedule_mode": current_mode,
+            "schedules": current_schedules
+        }
+        
+        await self.async_save()
+        _LOGGER.info(f"Created profile '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+    
+    async def async_delete_profile(self, target_id: str, profile_name: str, is_group: bool = False) -> None:
+        """Delete a schedule profile."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
+        
+        target_data = self._data[target_key][target_id]
+        
+        if profile_name not in target_data.get("profiles", {}):
+            raise ValueError(f"Profile '{profile_name}' does not exist")
+        
+        # Don't allow deleting the active profile or the last profile
+        if profile_name == target_data.get("active_profile"):
+            raise ValueError(f"Cannot delete the active profile. Switch to another profile first.")
+        
+        if len(target_data.get("profiles", {})) <= 1:
+            raise ValueError(f"Cannot delete the last profile")
+        
+        del target_data["profiles"][profile_name]
+        
+        await self.async_save()
+        _LOGGER.info(f"Deleted profile '{profile_name}' from {'group' if is_group else 'entity'} '{target_id}'")
+    
+    async def async_rename_profile(self, target_id: str, old_name: str, new_name: str, is_group: bool = False) -> None:
+        """Rename a schedule profile."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
+        
+        target_data = self._data[target_key][target_id]
+        
+        if old_name not in target_data.get("profiles", {}):
+            raise ValueError(f"Profile '{old_name}' does not exist")
+        
+        if new_name in target_data.get("profiles", {}):
+            raise ValueError(f"Profile '{new_name}' already exists")
+        
+        # Rename the profile
+        target_data["profiles"][new_name] = target_data["profiles"].pop(old_name)
+        
+        # Update active profile name if needed
+        if target_data.get("active_profile") == old_name:
+            target_data["active_profile"] = new_name
+        
+        await self.async_save()
+        _LOGGER.info(f"Renamed profile from '{old_name}' to '{new_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+    
+    async def async_set_active_profile(self, target_id: str, profile_name: str, is_group: bool = False) -> None:
+        """Set the active profile for an entity or group."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
+        
+        target_data = self._data[target_key][target_id]
+        
+        if profile_name not in target_data.get("profiles", {}):
+            raise ValueError(f"Profile '{profile_name}' does not exist")
+        
+        # Set the active profile
+        target_data["active_profile"] = profile_name
+        
+        # Load the profile's schedule into the main schedule fields
+        profile_data = target_data["profiles"][profile_name]
+        target_data["schedule_mode"] = profile_data.get("schedule_mode", "all_days")
+        target_data["schedules"] = copy.deepcopy(profile_data.get("schedules", {}))
+        
+        _LOGGER.info(f"Switched to profile '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        _LOGGER.debug(f"Loaded schedule mode: {target_data['schedule_mode']}, schedule keys: {target_data['schedules'].keys()}")
+        
+        # If this is a group, update all entities in the group
+        if is_group:
+            for entity_id in target_data.get("entities", []):
+                if entity_id in self._data.get("entities", {}):
+                    entity_data = self._data["entities"][entity_id]
+                    entity_data["schedule_mode"] = target_data["schedule_mode"]
+                    entity_data["schedules"] = copy.deepcopy(target_data["schedules"])
+        
+        await self.async_save()
+        _LOGGER.info(f"Set active profile to '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+    
+    async def async_get_profiles(self, target_id: str, is_group: bool = False) -> Dict[str, Any]:
+        """Get all profiles for an entity or group."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            return {}
+        
+        target_data = self._data[target_key][target_id]
+        return target_data.get("profiles", {})
+    
+    async def async_get_active_profile_name(self, target_id: str, is_group: bool = False) -> Optional[str]:
+        """Get the name of the active profile for an entity or group."""
+        target_key = "groups" if is_group else "entities"
+        
+        if target_id not in self._data.get(target_key, {}):
+            return None
+        
+        target_data = self._data[target_key][target_id]
+        return target_data.get("active_profile")

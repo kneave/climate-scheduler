@@ -100,8 +100,34 @@ CANCEL_ADVANCE_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_id
 })
 
-CANCEL_ADVANCE_SCHEMA = vol.Schema({
-    vol.Required("entity_id"): cv.entity_id
+CREATE_PROFILE_SCHEMA = vol.Schema({
+    vol.Required("target_id"): cv.string,
+    vol.Required("profile_name"): cv.string,
+    vol.Optional("is_group", default=False): cv.boolean
+})
+
+DELETE_PROFILE_SCHEMA = vol.Schema({
+    vol.Required("target_id"): cv.string,
+    vol.Required("profile_name"): cv.string,
+    vol.Optional("is_group", default=False): cv.boolean
+})
+
+RENAME_PROFILE_SCHEMA = vol.Schema({
+    vol.Required("target_id"): cv.string,
+    vol.Required("old_name"): cv.string,
+    vol.Required("new_name"): cv.string,
+    vol.Optional("is_group", default=False): cv.boolean
+})
+
+SET_ACTIVE_PROFILE_SCHEMA = vol.Schema({
+    vol.Required("target_id"): cv.string,
+    vol.Required("profile_name"): cv.string,
+    vol.Optional("is_group", default=False): cv.boolean
+})
+
+GET_PROFILES_SCHEMA = vol.Schema({
+    vol.Required("target_id"): cv.string,
+    vol.Optional("is_group", default=False): cv.boolean
 })
 
 
@@ -394,6 +420,81 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         _LOGGER.info(f"Clearing advance history for {entity_id}")
         await coordinator.clear_advance_history(entity_id)
     
+    async def handle_create_profile(call: ServiceCall) -> None:
+        """Handle create_profile service call - create a new schedule profile."""
+        target_id = call.data["target_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        try:
+            await storage.async_create_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Created profile '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to create profile: {e}")
+            raise
+    
+    async def handle_delete_profile(call: ServiceCall) -> None:
+        """Handle delete_profile service call - delete a schedule profile."""
+        target_id = call.data["target_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        try:
+            await storage.async_delete_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Deleted profile '{profile_name}' from {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to delete profile: {e}")
+            raise
+    
+    async def handle_rename_profile(call: ServiceCall) -> None:
+        """Handle rename_profile service call - rename a schedule profile."""
+        target_id = call.data["target_id"]
+        old_name = call.data["old_name"]
+        new_name = call.data["new_name"]
+        is_group = call.data.get("is_group", False)
+        try:
+            await storage.async_rename_profile(target_id, old_name, new_name, is_group)
+            _LOGGER.info(f"Renamed profile from '{old_name}' to '{new_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to rename profile: {e}")
+            raise
+    
+    async def handle_set_active_profile(call: ServiceCall) -> None:
+        """Handle set_active_profile service call - set the active schedule profile."""
+        target_id = call.data["target_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        try:
+            await storage.async_set_active_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Set active profile to '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+            
+            # Clear last node state to force immediate update
+            if not is_group:
+                if target_id in coordinator.last_node_states:
+                    del coordinator.last_node_states[target_id]
+            else:
+                # Clear for all entities in the group
+                group_data = await storage.async_get_groups()
+                if target_id in group_data and "entities" in group_data[target_id]:
+                    for entity_id in group_data[target_id]["entities"]:
+                        if entity_id in coordinator.last_node_states:
+                            del coordinator.last_node_states[entity_id]
+            
+            # Trigger immediate coordinator update
+            await coordinator.async_request_refresh()
+        except ValueError as e:
+            _LOGGER.error(f"Failed to set active profile: {e}")
+            raise
+    
+    async def handle_get_profiles(call: ServiceCall) -> dict:
+        """Handle get_profiles service call - get all profiles for an entity or group."""
+        target_id = call.data["target_id"]
+        is_group = call.data.get("is_group", False)
+        profiles = await storage.async_get_profiles(target_id, is_group)
+        active_profile = await storage.async_get_active_profile_name(target_id, is_group)
+        return {
+            "profiles": profiles,
+            "active_profile": active_profile
+        }
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -416,6 +517,11 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, schema=CREATE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile, schema=DELETE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, schema=RENAME_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, schema=SET_ACTIVE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -493,7 +599,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "sync_all","create_group","delete_group","add_to_group","remove_from_group",
             "get_groups","set_group_schedule","enable_group","disable_group","get_settings",
             "save_settings","reload_integration","advance_schedule","advance_group",
-            "cancel_advance","get_advance_status"
+            "cancel_advance","get_advance_status","clear_advance_history","create_profile",
+            "delete_profile","rename_profile","set_active_profile","get_profiles"
         ]:
             try:
                 hass.services.async_remove(DOMAIN, svc)
