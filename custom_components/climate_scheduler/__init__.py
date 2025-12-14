@@ -342,6 +342,15 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     async def handle_get_settings(call: ServiceCall) -> dict:
         """Handle get_settings service call."""
         settings = await storage.async_get_settings()
+        # Add version from manifest
+        try:
+            manifest_path = Path(__file__).parent / "manifest.json"
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+                settings["version"] = manifest.get("version", "unknown")
+        except Exception as e:
+            _LOGGER.warning(f"Failed to read version from manifest: {e}")
+            settings["version"] = "unknown"
         return settings
     
     async def handle_save_settings(call: ServiceCall) -> None:
