@@ -20,6 +20,12 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 - 🌡️ **Unit Awareness** - Automatically uses your Home Assistant temperature unit (°C or °F)
 - 🎯 **Fine-Grained Control** - Toggle schedules on/off without losing configuration and clear them when you want a fresh start
 - 🧩 **UI-Based Setup (Config Flow)** - Add via Settings → Devices & Services → Add Integration; YAML is optional and auto-imported if present
+- 📝 **Multiple Schedule Profiles** - Create multiple schedule profiles (e.g., Winter, Summer, Vacation) and switch between them using automations
+
+## Documentation
+
+- **[Actions Reference](ACTIONS.md)** - Complete list of all services/actions for use in automations and scripts
+- **[Development Guide](DEVELOPMENT.md)** - Information for developers and contributors
 
 ## Known Issues
 - Editing the graph on the mobile app doesn't seem to work, as a workaround you can tap on a node and edit using the UI below the graph.
