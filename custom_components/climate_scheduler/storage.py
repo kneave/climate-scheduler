@@ -182,7 +182,7 @@ class ScheduleStorage:
         for k, v in settings.items():
             self._data["settings"][k] = v
         await self.async_save()
-        _LOGGER.info(f"Saved settings: {self._data.get('settings')}")
+        _LOGGER.debug(f"Saved settings: {self._data.get('settings')}")
 
     async def async_get_advance_history(self) -> Dict[str, Any]:
         """Return advance history for all entities."""
@@ -438,12 +438,12 @@ class ScheduleStorage:
         
         # If auto-creation is disabled and user confirmed, delete ALL
         if not auto_creation_enabled and confirm_delete_all:
-            _LOGGER.info(f"Auto-creation disabled and confirmed - deleting all {len(climate_scheduler_sensors)} derivative sensors")
+            _LOGGER.debug(f"Auto-creation disabled and confirmed - deleting all {len(climate_scheduler_sensors)} derivative sensors")
             for entry in climate_scheduler_sensors:
                 try:
                     entity_registry.async_remove(entry.entity_id)
                     deleted_sensors.append(entry.entity_id)
-                    _LOGGER.info(f"Deleted derivative sensor {entry.entity_id}")
+                    _LOGGER.debug(f"Deleted derivative sensor {entry.entity_id}")
                 except Exception as e:
                     errors.append(f"{entry.entity_id}: {str(e)}")
                     _LOGGER.warning(f"Failed to delete {entry.entity_id}: {e}")
@@ -477,7 +477,7 @@ class ScheduleStorage:
                 try:
                     entity_registry.async_remove(entry.entity_id)
                     deleted_sensors.append(entry.entity_id)
-                    _LOGGER.info(f"Deleted orphaned derivative sensor {entry.entity_id} (entity {climate_entity_id} no longer exists)")
+                    _LOGGER.debug(f"Deleted orphaned derivative sensor {entry.entity_id} (entity {climate_entity_id} no longer exists)")
                 except Exception as e:
                     errors.append(f"{entry.entity_id}: {str(e)}")
                     _LOGGER.warning(f"Failed to delete {entry.entity_id}: {e}")

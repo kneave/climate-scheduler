@@ -36,7 +36,6 @@ async def async_setup_entry(
     # Get settings to check if derivative sensors are enabled
     settings = storage._data.get("settings", {})
     if not settings.get("create_derivative_sensors", True):
-        _LOGGER.info("Derivative sensor creation is disabled")
         return
     
     # Get registries
@@ -49,18 +48,20 @@ async def async_setup_entry(
     
     for entity_id, entity_data in entities.items():
         if entity_data.get("enabled", True):
-            # Create main temperature rate sensor
-            sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature"))
-            _LOGGER.info(f"Creating derivative sensor for {entity_id}")
-            
             # Find the device for this climate entity
             entity_entry = entity_registry.async_get(entity_id)
             _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
             
+            device_id = None
             if entity_entry and entity_entry.device_id:
                 device_id = entity_entry.device_id
                 _LOGGER.debug(f"Found device {device_id} for {entity_id}")
-                
+            
+            # Create main temperature rate sensor
+            _LOGGER.debug(f"Creating derivative sensor for {entity_id}")
+            sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature", device_id))
+            
+            if device_id:
                 # Find all sensor entities on the same device
                 device_sensors = [
                     entry for entry in entity_registry.entities.values()
@@ -69,16 +70,17 @@ async def async_setup_entry(
                     and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
                 ]
                 
-                _LOGGER.info(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
+                _LOGGER.debug(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
                 
                 # Create derivative sensors for floor temperature sensors
                 for floor_sensor in device_sensors:
-                    _LOGGER.info(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
+                    _LOGGER.debug(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
                     sensors.append(ClimateSchedulerRateSensor(
                         hass, 
                         entity_id,  # Associated climate entity
                         floor_sensor.entity_id,  # Floor sensor to track
-                        "state"  # Use state instead of attribute
+                        "state",  # Use state instead of attribute
+                        device_id  # Link to same device
                     ))
             else:
                 _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
@@ -95,13 +97,15 @@ class ClimateSchedulerRateSensor(SensorEntity):
         hass: HomeAssistant, 
         climate_entity_id: str, 
         source_entity_id: str,
-        temperature_attribute: str = "current_temperature"
+        temperature_attribute: str = "current_temperature",
+        device_id: str = None
     ) -> None:
         """Initialize the sensor."""
         self.hass = hass
         self._climate_entity_id = climate_entity_id
         self._source_entity_id = source_entity_id
         self._temperature_attribute = temperature_attribute
+        self._device_id = device_id  # Store device_id for device_info
         
         # Extract name from entity_id (e.g., climate.bedroom -> bedroom)
         entity_name = climate_entity_id.split(".")[-1]
@@ -112,6 +116,8 @@ class ClimateSchedulerRateSensor(SensorEntity):
         suffix = "Floor Rate" if is_floor else "Rate"
         unique_suffix = "floor_rate" if is_floor else "rate"
         
+        _LOGGER.debug(f"Creating sensor climate_scheduler_{entity_name}_{unique_suffix} with device_id: {device_id}")
+        
         self._attr_name = f"Climate Scheduler {friendly_name} {suffix}"
         self._attr_unique_id = f"climate_scheduler_{entity_name}_{unique_suffix}"
         self._attr_device_class = None  # No standard device class for rate
@@ -121,8 +127,23 @@ class ClimateSchedulerRateSensor(SensorEntity):
         
         # Storage for temperature samples (timestamp, temperature)
         self._samples = []
-        self._attr_native_value = None
+        self._attr_native_value = 0.0  # Start at 0 instead of None
         
+        # Set device_info during initialization to ensure proper device linking
+        if device_id:
+            device_registry = dr.async_get(hass)
+            device = device_registry.async_get(device_id)
+            
+            if device:
+                self._attr_device_info = {
+                    "identifiers": device.identifiers,
+                }
+                _LOGGER.debug(f"Linked sensor {self._attr_unique_id} to device {device_id} with identifiers {device.identifiers}")
+            else:
+                _LOGGER.error(f"Could not find device {device_id} in registry for sensor {self._attr_unique_id}")
+        else:
+            _LOGGER.warning(f"No device_id provided for sensor {self._attr_unique_id}")
+    
     async def async_added_to_hass(self) -> None:
         """Register state listener when entity is added."""
         # Listen to state changes of the source entity
@@ -188,7 +209,7 @@ class ClimateSchedulerRateSensor(SensorEntity):
     def _calculate_rate(self) -> None:
         """Calculate the rate of temperature change."""
         if len(self._samples) < 2:
-            self._attr_native_value = 0.0
+            self._attr_native_value = 0.0  # Not enough data, rate is 0
             return
         
         # Get oldest and newest samples
