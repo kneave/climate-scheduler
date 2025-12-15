@@ -10,6 +10,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.util import json as json_util
 from aiohttp import web
 import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
@@ -190,12 +191,9 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         await storage.async_set_schedule(entity_id, nodes, day, schedule_mode)
         _LOGGER.info(f"Schedule set for {entity_id} (day: {day}, mode: {schedule_mode})")
         
-        # Clear last node state to force immediate update
-        if entity_id in coordinator.last_node_states:
-            del coordinator.last_node_states[entity_id]
-        
-        # Trigger immediate coordinator update
-        await coordinator.async_request_refresh()
+        # Don't clear last_node_states or trigger refresh - let the coordinator 
+        # apply changes only at the next scheduled node transition.
+        # This prevents unnecessary commands to climate entities when editing schedules.
     
     async def handle_get_schedule(call: ServiceCall) -> dict:
         """Handle get_schedule service call."""
@@ -350,16 +348,17 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         # Add version from manifest
         try:
             manifest_path = Path(__file__).parent / "manifest.json"
-            with open(manifest_path) as f:
-                manifest = json.load(f)
-                version = manifest.get("version", "unknown")
-                
-                # Check if this is a dev deployment
-                dev_version_path = Path(__file__).parent / ".dev_version"
-                if dev_version_path.exists():
-                    version = f"{version} (dev)"
-                
-                settings["version"] = version
+            manifest = await hass.async_add_executor_job(
+                json_util.load_json, str(manifest_path)
+            )
+            version = manifest.get("version", "unknown")
+            
+            # Check if this is a dev deployment
+            dev_version_path = Path(__file__).parent / ".dev_version"
+            if await hass.async_add_executor_job(dev_version_path.exists):
+                version = f"{version} (dev)"
+            
+            settings["version"] = version
         except Exception as e:
             _LOGGER.warning(f"Failed to read version from manifest: {e}")
             settings["version"] = "unknown"
