@@ -13,12 +13,9 @@
 
 
 
-## [1.7.0] - 2025-12-14
-### Added
-- Added schedule profiles - see the card for more info
 
-### Changed
-- Improved version handling
-- Added documentation for the Actions available for automations
+## [1.7.1] - 2025-12-15
+### Fixed
+- Hopefully providing the correct version to the frontend now
 
-## [1.6.0] - 2025-12-13
+## [1.7.0] - 2025-12-14
