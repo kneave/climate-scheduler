@@ -47,13 +47,17 @@ if (Test-Path $TARGET) {
 # Deploy new version
 Write-Host "Deploying new version..." -ForegroundColor Cyan
 
-# Remove .dev file from source if it exists (shouldn't be there, but just in case)
-if (Test-Path "$SOURCE\.dev") {
-    Remove-Item "$SOURCE\.dev" -Force
-}
+# Create .dev_version file with timestamp to mark as dev deployment
+$unixTimestamp = [int][double]::Parse((Get-Date -UFormat %s))
+$devVersionPath = Join-Path $SOURCE ".dev_version"
+Set-Content -Path $devVersionPath -Value $unixTimestamp -NoNewline
+Write-Host "Created .dev_version file with timestamp: $unixTimestamp" -ForegroundColor Green
 
 # Copy all files
 Copy-Item -Path $SOURCE -Destination (Split-Path $TARGET -Parent) -Recurse -Force
+
+# Clean up local .dev_version file (keep it only on server)
+Remove-Item $devVersionPath -Force
 
 Write-Host "Files copied successfully" -ForegroundColor Green
 Write-Host ""

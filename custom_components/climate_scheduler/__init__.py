@@ -3,6 +3,7 @@ import logging
 import json
 import time
 from datetime import timedelta
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
@@ -347,7 +348,14 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             manifest_path = Path(__file__).parent / "manifest.json"
             with open(manifest_path) as f:
                 manifest = json.load(f)
-                settings["version"] = manifest.get("version", "unknown")
+                version = manifest.get("version", "unknown")
+                
+                # Check if this is a dev deployment
+                dev_version_path = Path(__file__).parent / ".dev_version"
+                if dev_version_path.exists():
+                    version = f"{version} (dev)"
+                
+                settings["version"] = version
         except Exception as e:
             _LOGGER.warning(f"Failed to read version from manifest: {e}")
             settings["version"] = "unknown"
