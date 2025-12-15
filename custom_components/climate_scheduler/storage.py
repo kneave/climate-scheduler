@@ -85,6 +85,8 @@ class ScheduleStorage:
             settings["min_temp"] = MIN_TEMP
         if "max_temp" not in settings:
             settings["max_temp"] = MAX_TEMP
+        if "create_derivative_sensors" not in settings:
+            settings["create_derivative_sensors"] = True  # Default to enabled
         self._data["settings"] = settings
         _LOGGER.debug(f"Loaded schedule data: {self._data}")
     
@@ -388,6 +390,104 @@ class ScheduleStorage:
             self._data["entities"][entity_id]["enabled"] = enabled
             await self.async_save()
             _LOGGER.info(f"Set {entity_id} enabled={enabled}")
+            
+            # Reload sensor platform to create/remove derivative sensors
+            if enabled:
+                await self._reload_sensor_platform()
+    
+    async def _reload_sensor_platform(self) -> None:
+        """Reload the sensor platform to update derivative sensors."""
+        try:
+            # Get the config entry
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            if entries:
+                entry = entries[0]
+                # Reload the sensor platform
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                _LOGGER.debug("Reloaded sensor platform for derivative sensor update")
+        except Exception as e:
+            _LOGGER.debug(f"Could not reload sensor platform: {e}")
+    
+    async def async_cleanup_derivative_sensors(self, confirm_delete_all: bool = False) -> Dict[str, Any]:
+        """Cleanup derivative sensors.
+        
+        - Delete sensors for entities that no longer exist
+        - If auto-creation is disabled and confirm_delete_all=True, delete ALL derivative sensors
+        
+        Returns a dict with cleanup results.
+        """
+        settings = self._data.get("settings", {})
+        auto_creation_enabled = settings.get("create_derivative_sensors", True)
+        entities = self._data.get("entities", {})
+        
+        deleted_sensors = []
+        errors = []
+        
+        # Get entity registry to find our sensors
+        from homeassistant.helpers import entity_registry as er
+        entity_registry = er.async_get(self.hass)
+        
+        # Find all climate_scheduler rate sensors
+        climate_scheduler_sensors = [
+            entry
+            for entry in entity_registry.entities.values()
+            if entry.platform == DOMAIN 
+            and entry.domain == "sensor"
+            and entry.unique_id and entry.unique_id.endswith("_rate")
+        ]
+        
+        # If auto-creation is disabled and user confirmed, delete ALL
+        if not auto_creation_enabled and confirm_delete_all:
+            _LOGGER.info(f"Auto-creation disabled and confirmed - deleting all {len(climate_scheduler_sensors)} derivative sensors")
+            for entry in climate_scheduler_sensors:
+                try:
+                    entity_registry.async_remove(entry.entity_id)
+                    deleted_sensors.append(entry.entity_id)
+                    _LOGGER.info(f"Deleted derivative sensor {entry.entity_id}")
+                except Exception as e:
+                    errors.append(f"{entry.entity_id}: {str(e)}")
+                    _LOGGER.warning(f"Failed to delete {entry.entity_id}: {e}")
+            
+            return {
+                "deleted_count": len(deleted_sensors),
+                "deleted_sensors": deleted_sensors,
+                "errors": errors,
+                "message": f"Deleted all {len(deleted_sensors)} climate scheduler derivative sensors"
+            }
+        
+        # If auto-creation is disabled but not confirmed, return warning
+        if not auto_creation_enabled and not confirm_delete_all:
+            return {
+                "deleted_count": 0,
+                "deleted_sensors": [],
+                "errors": [],
+                "message": f"Auto-creation is disabled. Found {len(climate_scheduler_sensors)} derivative sensors. Set confirm_delete_all=true to delete all.",
+                "requires_confirmation": True
+            }
+        
+        # Otherwise, only delete sensors for entities that no longer exist
+        for entry in climate_scheduler_sensors:
+            # Extract climate entity from unique_id: climate_scheduler_bedroom_rate -> climate.bedroom
+            unique_id = entry.unique_id
+            entity_name = unique_id.replace("climate_scheduler_", "").replace("_rate", "")
+            climate_entity_id = f"climate.{entity_name}"
+            
+            if climate_entity_id not in entities:
+                # Entity no longer exists in storage, delete the sensor
+                try:
+                    entity_registry.async_remove(entry.entity_id)
+                    deleted_sensors.append(entry.entity_id)
+                    _LOGGER.info(f"Deleted orphaned derivative sensor {entry.entity_id} (entity {climate_entity_id} no longer exists)")
+                except Exception as e:
+                    errors.append(f"{entry.entity_id}: {str(e)}")
+                    _LOGGER.warning(f"Failed to delete {entry.entity_id}: {e}")
+        
+        return {
+            "deleted_count": len(deleted_sensors),
+            "deleted_sensors": deleted_sensors,
+            "errors": errors,
+            "message": f"Deleted {len(deleted_sensors)} orphaned derivative sensors"
+        }
 
     async def async_is_enabled(self, entity_id: str) -> bool:
         """Check if scheduling is enabled for an entity."""

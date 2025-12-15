@@ -1,0 +1,221 @@
+"""Sensor platform for Climate Scheduler."""
+import logging
+from datetime import timedelta
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
+
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+# How many historical samples to keep for derivative calculation
+SAMPLE_SIZE = 10
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Climate Scheduler sensors from a config entry."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+    
+    storage = hass.data[DOMAIN]["storage"]
+    
+    # Get settings to check if derivative sensors are enabled
+    settings = storage._data.get("settings", {})
+    if not settings.get("create_derivative_sensors", True):
+        _LOGGER.info("Derivative sensor creation is disabled")
+        return
+    
+    # Get registries
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+    
+    # Create derivative sensors for all enabled entities
+    entities = storage._data.get("entities", {})
+    sensors = []
+    
+    for entity_id, entity_data in entities.items():
+        if entity_data.get("enabled", True):
+            # Create main temperature rate sensor
+            sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature"))
+            _LOGGER.info(f"Creating derivative sensor for {entity_id}")
+            
+            # Find the device for this climate entity
+            entity_entry = entity_registry.async_get(entity_id)
+            _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
+            
+            if entity_entry and entity_entry.device_id:
+                device_id = entity_entry.device_id
+                _LOGGER.debug(f"Found device {device_id} for {entity_id}")
+                
+                # Find all sensor entities on the same device
+                device_sensors = [
+                    entry for entry in entity_registry.entities.values()
+                    if entry.device_id == device_id 
+                    and entry.domain == "sensor"
+                    and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
+                ]
+                
+                _LOGGER.info(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
+                
+                # Create derivative sensors for floor temperature sensors
+                for floor_sensor in device_sensors:
+                    _LOGGER.info(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
+                    sensors.append(ClimateSchedulerRateSensor(
+                        hass, 
+                        entity_id,  # Associated climate entity
+                        floor_sensor.entity_id,  # Floor sensor to track
+                        "state"  # Use state instead of attribute
+                    ))
+            else:
+                _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
+    
+    if sensors:
+        async_add_entities(sensors, True)
+
+
+class ClimateSchedulerRateSensor(SensorEntity):
+    """Sensor that tracks the rate of temperature change for a climate entity."""
+
+    def __init__(
+        self, 
+        hass: HomeAssistant, 
+        climate_entity_id: str, 
+        source_entity_id: str,
+        temperature_attribute: str = "current_temperature"
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._climate_entity_id = climate_entity_id
+        self._source_entity_id = source_entity_id
+        self._temperature_attribute = temperature_attribute
+        
+        # Extract name from entity_id (e.g., climate.bedroom -> bedroom)
+        entity_name = climate_entity_id.split(".")[-1]
+        friendly_name = entity_name.replace("_", " ").title()
+        
+        # Determine if this is a floor sensor (tracking a separate sensor entity)
+        is_floor = source_entity_id != climate_entity_id
+        suffix = "Floor Rate" if is_floor else "Rate"
+        unique_suffix = "floor_rate" if is_floor else "rate"
+        
+        self._attr_name = f"Climate Scheduler {friendly_name} {suffix}"
+        self._attr_unique_id = f"climate_scheduler_{entity_name}_{unique_suffix}"
+        self._attr_device_class = None  # No standard device class for rate
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = "°C/h"
+        self._attr_icon = "mdi:thermometer-lines" if not is_floor else "mdi:floor-plan"
+        
+        # Storage for temperature samples (timestamp, temperature)
+        self._samples = []
+        self._attr_native_value = None
+        
+    async def async_added_to_hass(self) -> None:
+        """Register state listener when entity is added."""
+        # Listen to state changes of the source entity
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self._source_entity_id],
+                self._async_source_state_changed,
+            )
+        )
+        
+        # Get initial state
+        state = self.hass.states.get(self._source_entity_id)
+        if state:
+            # For separate sensor entities, use the state value
+            if self._temperature_attribute == "state":
+                try:
+                    temp = float(state.state)
+                    now = dt_util.utcnow()
+                    self._samples.append((now, temp))
+                except (ValueError, TypeError):
+                    pass
+            # For climate entity attributes, use the attribute
+            elif state.attributes.get(self._temperature_attribute) is not None:
+                temp = float(state.attributes[self._temperature_attribute])
+                now = dt_util.utcnow()
+                self._samples.append((now, temp))
+
+    @callback
+    def _async_source_state_changed(self, event) -> None:
+        """Handle source entity state changes."""
+        new_state = event.data.get("new_state")
+        if not new_state:
+            return
+        
+        try:
+            # For separate sensor entities, use the state value
+            if self._temperature_attribute == "state":
+                temp = float(new_state.state)
+            # For climate entity attributes, use the attribute
+            else:
+                current_temp = new_state.attributes.get(self._temperature_attribute)
+                if current_temp is None:
+                    return
+                temp = float(current_temp)
+            now = dt_util.utcnow()
+            
+            # Add new sample
+            self._samples.append((now, temp))
+            
+            # Keep only last SAMPLE_SIZE samples
+            if len(self._samples) > SAMPLE_SIZE:
+                self._samples = self._samples[-SAMPLE_SIZE:]
+            
+            # Calculate derivative if we have enough samples
+            if len(self._samples) >= 2:
+                self._calculate_rate()
+            
+            self.async_write_ha_state()
+        except (ValueError, TypeError) as e:
+            _LOGGER.debug(f"Error processing temperature for {self._climate_entity_id}: {e}")
+
+    def _calculate_rate(self) -> None:
+        """Calculate the rate of temperature change."""
+        if len(self._samples) < 2:
+            self._attr_native_value = 0.0
+            return
+        
+        # Get oldest and newest samples
+        oldest_time, oldest_temp = self._samples[0]
+        newest_time, newest_temp = self._samples[-1]
+        
+        # Calculate time difference in hours
+        time_diff = (newest_time - oldest_time).total_seconds() / 3600
+        
+        if time_diff == 0:
+            self._attr_native_value = 0.0
+            return
+        
+        # Calculate temperature change rate (°C per hour)
+        temp_diff = newest_temp - oldest_temp
+        rate = temp_diff / time_diff
+        
+        # Round to 2 decimal places
+        self._attr_native_value = round(rate, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        return {
+            "climate_entity": self._climate_entity_id,
+            "source_entity": self._source_entity_id,
+            "temperature_attribute": self._temperature_attribute,
+            "sample_count": len(self._samples),
+            "time_window_minutes": 5,
+        }

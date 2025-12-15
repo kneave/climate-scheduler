@@ -131,6 +131,10 @@ GET_PROFILES_SCHEMA = vol.Schema({
     vol.Optional("is_group", default=False): cv.boolean
 })
 
+CLEANUP_DERIVATIVE_SENSORS_SCHEMA = vol.Schema({
+    vol.Optional("confirm_delete_all", default=False): cv.boolean
+})
+
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
     """Common setup for storage, coordinator, services and panel."""
@@ -512,6 +516,12 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "active_profile": active_profile
         }
     
+    async def handle_cleanup_derivative_sensors(call: ServiceCall) -> dict:
+        """Handle cleanup_derivative_sensors service call."""
+        confirm_delete_all = call.data.get("confirm_delete_all", False)
+        result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
+        return result
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -539,6 +549,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, schema=RENAME_PROFILE_SCHEMA)
     hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, schema=SET_ACTIVE_PROFILE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, schema=CLEANUP_DERIVATIVE_SENSORS_SCHEMA, supports_response=SupportsResponse.ONLY)
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -602,11 +613,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Climate Scheduler from a config entry."""
     await _async_setup_common(hass)
+    
+    # Forward entry setup to sensor platform for derivative sensors
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    # Unload sensor platform
+    await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    
     # Remove panel and services only if this is the last entry
     entries = hass.config_entries.async_entries(DOMAIN)
     if len(entries) <= 1:
