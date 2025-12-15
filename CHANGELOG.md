@@ -15,9 +15,10 @@
 
 
 
-## [1.8.0] - 2025-12-15
-### Added
-- New Temperature Sensors - Rate of change is monitored for future use for enabled entities.
-- Floor sensors are included if available
 
-## [1.7.1] - 2025-12-15
+## [1.8.1] - 2025-12-15
+### Fixed
+- Reduced the immediacy of sendign update commands when clicking on the graph (issue 25)
+- Hopefully loading the correct version 
+
+## [1.8.0] - 2025-12-15
