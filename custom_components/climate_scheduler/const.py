@@ -7,11 +7,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY = "climate_scheduler_data"
 
 # Default schedule nodes (time in HH:MM format, temp in Celsius)
-DEFAULT_SCHEDULE = [
-    {"time": "00:00", "temp": 18.0},
-    {"time": "07:00", "temp": 21.0},
-    {"time": "23:00", "temp": 18.0}
-]
+DEFAULT_SCHEDULE = []
 
 # Temperature settings
 MIN_TEMP = 5.0
