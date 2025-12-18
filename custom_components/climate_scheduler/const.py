@@ -9,7 +9,7 @@ STORAGE_KEY = "climate_scheduler_data"
 # Default schedule nodes (time in HH:MM format, temp in Celsius)
 DEFAULT_SCHEDULE = []
 
-# Temperature settings
+# Temperature settings (in Celsius)
 MIN_TEMP = 5.0
 MAX_TEMP = 30.0
 TEMP_THRESHOLD = 0.5  # Only update if difference exceeds this

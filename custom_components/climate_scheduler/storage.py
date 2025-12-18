@@ -6,6 +6,7 @@ from datetime import datetime, time
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from homeassistant.const import UnitOfTemperature
 
 from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_TEMP, MAX_TEMP
 
@@ -82,9 +83,17 @@ class ScheduleStorage:
         # Ensure min/max temp defaults are present in settings
         settings = self._data.get("settings", {})
         if "min_temp" not in settings:
-            settings["min_temp"] = MIN_TEMP
+            # Set default based on temperature unit
+            if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+                settings["min_temp"] = 42.0  # Fahrenheit
+            else:
+                settings["min_temp"] = 5.0  # Celsius
         if "max_temp" not in settings:
-            settings["max_temp"] = MAX_TEMP
+            # Set default based on temperature unit
+            if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+                settings["max_temp"] = 86.0  # Fahrenheit
+            else:
+                settings["max_temp"] = 30.0  # Celsius
         if "create_derivative_sensors" not in settings:
             settings["create_derivative_sensors"] = True  # Default to enabled
         self._data["settings"] = settings
