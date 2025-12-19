@@ -80,6 +80,8 @@ class ScheduleStorage:
             await self._migrate_to_day_schedules()
             # Migrate to profile-based structure
             await self._migrate_to_profiles()
+            # Migrate entities to single-entity groups
+            await self._migrate_entities_to_groups()
         # Ensure min/max temp defaults are present in settings
         settings = self._data.get("settings", {})
         if "min_temp" not in settings:
@@ -173,6 +175,50 @@ class ScheduleStorage:
         
         if migrated:
             await self.async_save()
+    
+    async def _migrate_entities_to_groups(self) -> None:
+        """Migrate individual entities to single-entity groups for unified backend."""
+        migrated = False
+        
+        if "groups" not in self._data:
+            self._data["groups"] = {}
+        
+        # Migrate individual entities to single-entity groups
+        for entity_id, entity_data in list(self._data.get("entities", {}).items()):
+            # Check if entity is already in a multi-entity group
+            entity_in_group = False
+            for group_name, group_data in self._data["groups"].items():
+                if entity_id in group_data.get("entities", []):
+                    entity_in_group = True
+                    break
+            
+            # If not in a group, create a single-entity group
+            if not entity_in_group:
+                # Use entity_id as the group name (with a prefix to distinguish)
+                group_name = f"__entity_{entity_id}"
+                
+                # Only create if it doesn't already exist
+                if group_name not in self._data["groups"]:
+                    self._data["groups"][group_name] = {
+                        "entities": [entity_id],
+                        "enabled": entity_data.get("enabled", True),
+                        "ignored": entity_data.get("ignored", False),  # Preserve ignored status
+                        "schedule_mode": entity_data.get("schedule_mode", "all_days"),
+                        "schedules": copy.deepcopy(entity_data.get("schedules", {"all_days": []})),
+                        "profiles": copy.deepcopy(entity_data.get("profiles", {
+                            "Default": {
+                                "schedule_mode": "all_days",
+                                "schedules": {"all_days": []}
+                            }
+                        })),
+                        "active_profile": entity_data.get("active_profile", "Default"),
+                        "_is_single_entity_group": True  # Internal marker
+                    }
+                    migrated = True
+                    _LOGGER.info(f"Migrated entity {entity_id} to single-entity group '{group_name}'")
+        
+        if migrated:
+            await self.async_save()
 
     async def async_save(self) -> None:
         """Save data to storage."""
@@ -208,13 +254,31 @@ class ScheduleStorage:
         return list(self._data.get("entities", {}).keys())
 
     async def async_get_schedule(self, entity_id: str, day: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Get schedule for an entity. If day is specified, returns nodes for that day."""
+        """Get schedule for an entity (from its single-entity group or multi-entity group). If day is specified, returns nodes for that day."""
+        # First check if entity is in a single-entity group (preferred)
+        single_group_name = f"__entity_{entity_id}"
+        if single_group_name in self._data.get("groups", {}):
+            group_data = self._data["groups"][single_group_name]
+            _LOGGER.debug(f"async_get_schedule: entity {entity_id} found in single-entity group - enabled={group_data.get('enabled', True)}")
+            
+            # If no day specified, return the whole schedule structure
+            if day is None:
+                return group_data
+            
+            # Return nodes for specific day based on schedule mode
+            return {
+                "nodes": self._get_nodes_for_day(group_data, day),
+                "enabled": group_data.get("enabled", True),
+                "schedule_mode": group_data.get("schedule_mode", "all_days")
+            }
+        
+        # Fall back to legacy entity structure
         entity_data = self._data.get("entities", {}).get(entity_id)
         if not entity_data:
             _LOGGER.debug(f"async_get_schedule: entity {entity_id} not found in storage")
             return None
         
-        _LOGGER.debug(f"async_get_schedule: entity {entity_id} found - ignored={entity_data.get('ignored', False)}, enabled={entity_data.get('enabled', True)}")
+        _LOGGER.debug(f"async_get_schedule: entity {entity_id} found in legacy structure - ignored={entity_data.get('ignored', False)}, enabled={entity_data.get('enabled', True)}")
         
         # If no day specified, return the whole schedule structure
         if day is None:
@@ -251,7 +315,47 @@ class ScheduleStorage:
         return []
 
     async def async_set_schedule(self, entity_id: str, nodes: List[Dict[str, Any]], day: Optional[str] = None, schedule_mode: Optional[str] = None) -> None:
-        """Set schedule nodes for an entity. Supports day-specific schedules."""
+        """Set schedule nodes for an entity by creating/updating its single-entity group."""
+        # Check if entity is in a multi-entity group
+        for group_name, group_data in self._data.get("groups", {}).items():
+            if not group_data.get("_is_single_entity_group", False) and entity_id in group_data.get("entities", []):
+                # Entity is in a real group, update the group schedule instead
+                _LOGGER.info(f"Entity {entity_id} is in group '{group_name}', updating group schedule")
+                await self.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+                return
+        
+        # Create or update single-entity group
+        single_group_name = f"__entity_{entity_id}"
+        
+        # Ensure groups dict exists
+        if "groups" not in self._data:
+            self._data["groups"] = {}
+        
+        # Create group if it doesn't exist
+        if single_group_name not in self._data["groups"]:
+            # Check if entity has ignored status in legacy structure
+            existing_ignored = False
+            if entity_id in self._data.get("entities", {}):
+                existing_ignored = self._data["entities"][entity_id].get("ignored", False)
+            
+            self._data["groups"][single_group_name] = {
+                "entities": [entity_id],
+                "enabled": True,
+                "ignored": existing_ignored,  # Preserve ignored status from legacy entity
+                "schedule_mode": schedule_mode or "all_days",
+                "schedules": {},
+                "profiles": {
+                    "Default": {
+                        "schedule_mode": schedule_mode or "all_days",
+                        "schedules": {}
+                    }
+                },
+                "active_profile": "Default",
+                "_is_single_entity_group": True
+            }
+            _LOGGER.info(f"Created single-entity group '{single_group_name}' for {entity_id}")
+        
+        # Ensure entity exists in legacy entities structure for backward compatibility
         if "entities" not in self._data:
             self._data["entities"] = {}
         
@@ -269,63 +373,8 @@ class ScheduleStorage:
                 "active_profile": "Default"
             }
         
-        entity_data = self._data["entities"][entity_id]
-        
-        # Update schedule mode if provided
-        if schedule_mode is not None:
-            entity_data["schedule_mode"] = schedule_mode
-        
-        # Ensure schedules dict exists
-        if "schedules" not in entity_data:
-            entity_data["schedules"] = {}
-        
-        # Set nodes for the appropriate day/mode
-        current_mode = entity_data.get("schedule_mode", "all_days")
-        
-        if day is None:
-            # No day specified - update the primary schedule based on mode
-            if current_mode == "all_days":
-                entity_data["schedules"]["all_days"] = nodes
-            elif current_mode == "5/2":
-                # If no day specified in 5/2 mode, update weekday by default
-                entity_data["schedules"]["weekday"] = nodes
-            else:
-                # Individual mode - update Monday by default
-                entity_data["schedules"]["mon"] = nodes
-        else:
-            # Specific day provided
-            if current_mode == "5/2":
-                # Map individual days to weekday/weekend, or use weekday/weekend directly
-                if day == "weekday":
-                    entity_data["schedules"]["weekday"] = nodes
-                elif day == "weekend":
-                    entity_data["schedules"]["weekend"] = nodes
-                elif day in ["mon", "tue", "wed", "thu", "fri"]:
-                    entity_data["schedules"]["weekday"] = nodes
-                else:  # sat, sun
-                    entity_data["schedules"]["weekend"] = nodes
-            else:
-                # Individual mode or all_days mode
-                entity_data["schedules"][day] = nodes
-        
-        # Save to active profile
-        active_profile = entity_data.get("active_profile", "Default")
-        if "profiles" not in entity_data:
-            entity_data["profiles"] = {}
-        if active_profile not in entity_data["profiles"]:
-            entity_data["profiles"][active_profile] = {
-                "schedule_mode": current_mode,
-                "schedules": {}
-            }
-        
-        # Update the active profile with current schedule and mode
-        entity_data["profiles"][active_profile]["schedule_mode"] = current_mode
-        entity_data["profiles"][active_profile]["schedules"] = copy.deepcopy(entity_data["schedules"])
-        
-        _LOGGER.info(f"Saved schedule to profile '{active_profile}' for entity {entity_id} - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
-        _LOGGER.debug(f"Profile schedules after save: {entity_data['profiles'][active_profile]['schedules'].keys()}")
-        
-        await self.async_save()
+        # Now update the group schedule (which will sync to entity for backward compat)
+        await self.async_set_group_schedule(single_group_name, nodes, day, schedule_mode)
 
     async def async_add_entity(self, entity_id: str) -> None:
         """Add a new entity with default schedule."""
@@ -353,7 +402,14 @@ class ScheduleStorage:
             _LOGGER.info(f"Added entity {entity_id} with default schedule")
 
     async def async_remove_entity(self, entity_id: str) -> None:
-        """Remove an entity and its schedule."""
+        """Remove an entity and its schedule (including single-entity group)."""
+        # Remove the single-entity group
+        single_group_name = f"__entity_{entity_id}"
+        if single_group_name in self._data.get("groups", {}):
+            del self._data["groups"][single_group_name]
+            _LOGGER.info(f"Removed single-entity group '{single_group_name}'")
+        
+        # Also remove from legacy entities structure for backward compatibility
         if entity_id in self._data.get("entities", {}):
             del self._data["entities"][entity_id]
             await self.async_save()
@@ -364,37 +420,103 @@ class ScheduleStorage:
     async def async_set_ignored(self, entity_id: str, ignored: bool) -> None:
         """Set whether an entity should be ignored (not monitored)."""
         _LOGGER.info(f"async_set_ignored called: entity_id={entity_id}, ignored={ignored}")
+        
+        # Find which group this entity belongs to
+        entity_group_name = None
+        for group_name, group_data in self._data.get("groups", {}).items():
+            if entity_id in group_data.get("entities", []):
+                entity_group_name = group_name
+                break
+        
+        group_updated = False
+        
+        # Update the group if the entity is in one
+        if entity_group_name:
+            self._data["groups"][entity_group_name]["ignored"] = ignored
+            # If ignored, also disable the group
+            if ignored:
+                self._data["groups"][entity_group_name]["enabled"] = False
+            _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored} for entity {entity_id}")
+            group_updated = True
+        
+        # Update or create legacy entity structure for backward compatibility
         if entity_id in self._data.get("entities", {}):
             self._data["entities"][entity_id]["ignored"] = ignored
-            await self.async_save()
-            _LOGGER.info(f"Set {entity_id} ignored={ignored} - entity exists, flag updated and saved")
+            # If ignored, also disable the entity
+            if ignored:
+                self._data["entities"][entity_id]["enabled"] = False
+            _LOGGER.info(f"Set {entity_id} ignored={ignored} - entity exists, flag updated")
             _LOGGER.debug(f"Entity data after update: {self._data['entities'][entity_id]}")
         else:
             # Entity doesn't exist yet, create it with default schedule and set ignored
             if ignored:
+                # Create both group and legacy entity structures if not in a group
                 if "entities" not in self._data:
                     self._data["entities"] = {}
+                
+                # Create single-entity group only if entity is not already in a group
+                if not entity_group_name:
+                    if "groups" not in self._data:
+                        self._data["groups"] = {}
+                    
+                    single_group_name = f"__entity_{entity_id}"
+                    self._data["groups"][single_group_name] = {
+                        "entities": [entity_id],
+                        "enabled": False,
+                        "ignored": True,
+                        "schedule_mode": "all_days",
+                        "schedules": {"all_days": []},
+                        "profiles": {
+                            "Default": {
+                                "schedule_mode": "all_days",
+                                "schedules": {"all_days": []}
+                            }
+                        },
+                        "active_profile": "Default",
+                        "_is_single_entity_group": True
+                    }
+                    group_updated = True
+                    _LOGGER.info(f"Created single-entity group '{single_group_name}' for {entity_id}")
+                
+                # Create legacy entity
                 self._data["entities"][entity_id] = {
                     "enabled": False,
                     "ignored": True,
                     "schedule_mode": "all_days",
                     "schedules": {"all_days": []}
                 }
-                await self.async_save()
                 _LOGGER.info(f"Created entity {entity_id} with ignored=True")
                 _LOGGER.debug(f"New entity data: {self._data['entities'][entity_id]}")
             else:
                 _LOGGER.warning(f"Attempted to set ignored=False for non-existent entity {entity_id}")
+        
+        # Always save if we updated anything
+        if group_updated or entity_id in self._data.get("entities", {}):
+            await self.async_save()
+            _LOGGER.info(f"Saved changes for {entity_id}, ignored={ignored}")
     
     async def async_is_ignored(self, entity_id: str) -> bool:
         """Check if an entity is marked as ignored."""
+        # Check single-entity group first
+        single_group_name = f"__entity_{entity_id}"
+        if single_group_name in self._data.get("groups", {}):
+            return self._data["groups"][single_group_name].get("ignored", False)
+        
+        # Fall back to legacy entity structure
         entity_data = self._data.get("entities", {}).get(entity_id)
         if entity_data is None:
             return False
         return entity_data.get("ignored", False)
 
     async def async_set_enabled(self, entity_id: str, enabled: bool) -> None:
-        """Enable or disable scheduling for an entity."""
+        """Enable or disable scheduling for an entity (via its single-entity group)."""
+        single_group_name = f"__entity_{entity_id}"
+        
+        # Update the single-entity group
+        if single_group_name in self._data.get("groups", {}):
+            self._data["groups"][single_group_name]["enabled"] = enabled
+        
+        # Also update legacy entity structure for backward compatibility
         if entity_id in self._data.get("entities", {}):
             self._data["entities"][entity_id]["enabled"] = enabled
             await self.async_save()
@@ -500,6 +622,12 @@ class ScheduleStorage:
 
     async def async_is_enabled(self, entity_id: str) -> bool:
         """Check if scheduling is enabled for an entity."""
+        # Check single-entity group first
+        single_group_name = f"__entity_{entity_id}"
+        if single_group_name in self._data.get("groups", {}):
+            return self._data["groups"][single_group_name].get("enabled", True)
+        
+        # Fall back to legacy entity structure
         entity_data = self._data.get("entities", {}).get(entity_id)
         if entity_data is None:
             return False
@@ -624,6 +752,19 @@ class ScheduleStorage:
             del self._data["groups"][group_name]
             await self.async_save()
             _LOGGER.info(f"Deleted group '{group_name}'")
+    
+    async def async_rename_group(self, old_name: str, new_name: str) -> None:
+        """Rename a group."""
+        if old_name not in self._data.get("groups", {}):
+            raise ValueError(f"Group '{old_name}' does not exist")
+        
+        if new_name in self._data.get("groups", {}):
+            raise ValueError(f"Group '{new_name}' already exists")
+        
+        # Rename the group
+        self._data["groups"][new_name] = self._data["groups"].pop(old_name)
+        await self.async_save()
+        _LOGGER.info(f"Renamed group from '{old_name}' to '{new_name}'")
 
     async def async_add_entity_to_group(self, group_name: str, entity_id: str) -> None:
         """Add an entity to a group."""

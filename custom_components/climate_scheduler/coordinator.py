@@ -65,26 +65,31 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         min_temp = settings.get("min_temp", MIN_TEMP)
         max_temp = settings.get("max_temp", MAX_TEMP)
         
-        # Check if entity is in a group
+        # Find the entity's group (all entities are in groups now)
         groups = await self.storage.async_get_groups()
         schedule_data = None
+        group_name = None
         
-        for group_name, group_data in groups.items():
+        for g_name, group_data in groups.items():
             if not group_data.get("enabled", True):
                 continue
+            # Skip ignored groups
+            if group_data.get("ignored", False):
+                continue
             if entity_id in group_data.get("entities", []):
-                schedule_data = await self.storage.async_get_group_schedule(group_name, current_day)
-                _LOGGER.info(f"{entity_id} is in enabled group '{group_name}'")
+                schedule_data = await self.storage.async_get_group_schedule(g_name, current_day)
+                group_name = g_name
+                is_single = group_data.get("_is_single_entity_group", False)
+                group_type = "single-entity" if is_single else "multi-entity"
+                _LOGGER.info(f"{entity_id} is in enabled {group_type} group '{g_name}'")
                 break
         
-        # If not in group, get individual schedule
+        # If not in any group, entity schedule is effectively disabled or ignored
         if not schedule_data:
-            if not await self.storage.async_is_enabled(entity_id):
-                return {
-                    "success": False,
-                    "error": "Entity schedule is disabled"
-                }
-            schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+            return {
+                "success": False,
+                "error": "Entity schedule is disabled, ignored, or not found"
+            }
         
         if not schedule_data or "nodes" not in schedule_data:
             return {
@@ -391,7 +396,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             min_temp = settings.get("min_temp", MIN_TEMP)
             max_temp = settings.get("max_temp", MAX_TEMP)
 
-            # Get all groups and build a map of entities to their enabled group schedules
+            # Get all groups and build a map of entities to their group schedules
+            # Now ALL entities are in groups (either multi-entity or single-entity groups)
             groups = await self.storage.async_get_groups()
             entity_group_schedules = {}  # Maps entity_id -> (group_name, schedule_data)
             groups_migrated = False
@@ -407,39 +413,33 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(f"Skipping disabled group '{group_name}'")
                     continue
                 
+                # Skip ignored groups (single-entity groups marked as ignored)
+                if group_data.get("ignored", False):
+                    _LOGGER.debug(f"Skipping ignored group '{group_name}'")
+                    continue
+                
                 # Get group schedule for current day
                 group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
                 if group_schedule and "nodes" in group_schedule:
                     # Map all entities in this group to this schedule
                     for entity_id in group_data.get("entities", []):
                         entity_group_schedules[entity_id] = (group_name, group_schedule)
-                        _LOGGER.info(f"{entity_id} will use enabled group '{group_name}' schedule")
+                        is_single = group_data.get("_is_single_entity_group", False)
+                        group_type = "single-entity" if is_single else "multi-entity"
+                        _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
             
             # Save storage if any groups were migrated
             if groups_migrated:
                 await self.storage.async_save()
                 _LOGGER.info("Saved migrated group data")
             
-            entities = await self.storage.async_get_all_entities()
-            _LOGGER.info(f"Found {len(entities)} entities with schedules: {entities}")
-            
-            # Migrate entities - add enabled=True if missing
-            entities_migrated = False
-            for entity_id in entities:
-                entity_data = self.storage._data.get("entities", {}).get(entity_id)
-                if entity_data and "enabled" not in entity_data:
-                    entity_data["enabled"] = True
-                    entities_migrated = True
-                    _LOGGER.info(f"Migrated entity '{entity_id}' - added enabled=True")
-            
-            if entities_migrated:
-                await self.storage.async_save()
-                _LOGGER.info("Saved migrated entity data")
+            _LOGGER.info(f"Found {len(entity_group_schedules)} entities with enabled group schedules")
             
             results = {}
             
-            for entity_id in entities:
-                _LOGGER.info(f"Processing entity: {entity_id}")
+            # Process all entities that have group schedules (both single and multi-entity groups)
+            for entity_id, (group_name, schedule_data) in entity_group_schedules.items():
+                _LOGGER.info(f"Processing entity: {entity_id} from group '{group_name}'")
                 
                 # Check if entity has an active advance override
                 if entity_id in self.override_until:
@@ -468,18 +468,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             await self.storage.async_save_advance_history(self.advance_history)
                         del self.override_until[entity_id]
                 
-                # Check if entity is in an enabled group - if so, use group schedule instead
-                if entity_id in entity_group_schedules:
-                    group_name, schedule_data = entity_group_schedules[entity_id]
-                    _LOGGER.info(f"{entity_id} using group '{group_name}' schedule")
-                else:
-                    # Check if individual entity schedule is enabled
-                    if not await self.storage.async_is_enabled(entity_id):
-                        _LOGGER.debug(f"Skipping disabled entity {entity_id}")
-                        continue
-                    
-                    # Get individual schedule for current day
-                    schedule_data = await self.storage.async_get_schedule(entity_id, current_day)
+                # Entity is in a group (either multi-entity or single-entity group)
+                _LOGGER.info(f"{entity_id} using group '{group_name}' schedule")
                 
                 _LOGGER.info(f"{entity_id} schedule data for {current_day}: {schedule_data}")
                 if not schedule_data or "nodes" not in schedule_data:

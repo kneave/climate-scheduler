@@ -51,6 +51,11 @@ DELETE_GROUP_SCHEMA = vol.Schema({
     vol.Required("group_name"): cv.string
 })
 
+RENAME_GROUP_SCHEMA = vol.Schema({
+    vol.Required("old_name"): cv.string,
+    vol.Required("new_name"): cv.string
+})
+
 ADD_TO_GROUP_SCHEMA = vol.Schema({
     vol.Required("group_name"): cv.string,
     vol.Required("entity_id"): cv.entity_id
@@ -266,6 +271,17 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         group_name = call.data["group_name"]
         await storage.async_delete_group(group_name)
         _LOGGER.info(f"Group '{group_name}' deleted")
+    
+    async def handle_rename_group(call: ServiceCall) -> None:
+        """Handle rename_group service call."""
+        old_name = call.data["old_name"]
+        new_name = call.data["new_name"]
+        try:
+            await storage.async_rename_group(old_name, new_name)
+            _LOGGER.info(f"Renamed group from '{old_name}' to '{new_name}'")
+        except ValueError as e:
+            _LOGGER.error(f"Failed to rename group: {e}")
+            raise
     
     async def handle_add_to_group(call: ServiceCall) -> None:
         """Handle add_to_group service call."""
@@ -526,9 +542,11 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
     hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule, schema=ENTITY_SCHEMA)
     hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "set_ignored", handle_set_ignored, schema=SET_IGNORED_SCHEMA)
     hass.services.async_register(DOMAIN, "sync_all", handle_sync_all)
     hass.services.async_register(DOMAIN, "create_group", handle_create_group, schema=CREATE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "delete_group", handle_delete_group, schema=DELETE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "rename_group", handle_rename_group, schema=RENAME_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group, schema=ADD_TO_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)

@@ -98,6 +98,23 @@ delete_group:
       selector:
         text:
 
+rename_group:
+  name: Rename thermostat group
+  description: Rename a thermostat group
+  fields:
+    old_name:
+      description: Current name of the group
+      required: true
+      example: "Bedrooms"
+      selector:
+        text:
+    new_name:
+      description: New name for the group
+      required: true
+      example: "Upstairs Bedrooms"
+      selector:
+        text:
+
 add_to_group:
   name: Add thermostat to group
   description: Add a climate entity to a group
