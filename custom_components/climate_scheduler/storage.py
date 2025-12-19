@@ -433,19 +433,23 @@ class ScheduleStorage:
         # Update the group if the entity is in one
         if entity_group_name:
             self._data["groups"][entity_group_name]["ignored"] = ignored
-            # If ignored, also disable the group
+            # If ignored, disable the group; if not ignored, enable it
             if ignored:
                 self._data["groups"][entity_group_name]["enabled"] = False
-            _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored} for entity {entity_id}")
+            else:
+                self._data["groups"][entity_group_name]["enabled"] = True
+            _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored}, enabled={not ignored} for entity {entity_id}")
             group_updated = True
         
         # Update or create legacy entity structure for backward compatibility
         if entity_id in self._data.get("entities", {}):
             self._data["entities"][entity_id]["ignored"] = ignored
-            # If ignored, also disable the entity
+            # If ignored, disable the entity; if not ignored, enable it
             if ignored:
                 self._data["entities"][entity_id]["enabled"] = False
-            _LOGGER.info(f"Set {entity_id} ignored={ignored} - entity exists, flag updated")
+            else:
+                self._data["entities"][entity_id]["enabled"] = True
+            _LOGGER.info(f"Set {entity_id} ignored={ignored}, enabled={not ignored} - entity exists, flag updated")
             _LOGGER.debug(f"Entity data after update: {self._data['entities'][entity_id]}")
         else:
             # Entity doesn't exist yet, create it with default schedule and set ignored
