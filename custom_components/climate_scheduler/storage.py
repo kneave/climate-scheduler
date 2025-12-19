@@ -433,19 +433,23 @@ class ScheduleStorage:
         # Update the group if the entity is in one
         if entity_group_name:
             self._data["groups"][entity_group_name]["ignored"] = ignored
-            # If ignored, also disable the group
+            # If ignored, disable the group; if not ignored, enable it
             if ignored:
                 self._data["groups"][entity_group_name]["enabled"] = False
-            _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored} for entity {entity_id}")
+            else:
+                self._data["groups"][entity_group_name]["enabled"] = True
+            _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored}, enabled={not ignored} for entity {entity_id}")
             group_updated = True
         
         # Update or create legacy entity structure for backward compatibility
         if entity_id in self._data.get("entities", {}):
             self._data["entities"][entity_id]["ignored"] = ignored
-            # If ignored, also disable the entity
+            # If ignored, disable the entity; if not ignored, enable it
             if ignored:
                 self._data["entities"][entity_id]["enabled"] = False
-            _LOGGER.info(f"Set {entity_id} ignored={ignored} - entity exists, flag updated")
+            else:
+                self._data["entities"][entity_id]["enabled"] = True
+            _LOGGER.info(f"Set {entity_id} ignored={ignored}, enabled={not ignored} - entity exists, flag updated")
             _LOGGER.debug(f"Entity data after update: {self._data['entities'][entity_id]}")
         else:
             # Entity doesn't exist yet, create it with default schedule and set ignored
@@ -771,6 +775,19 @@ class ScheduleStorage:
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
+        # Check if entity is currently in a different single-entity group
+        old_single_entity_group = None
+        for existing_group_name, existing_group_data in self._data.get("groups", {}).items():
+            if existing_group_name != group_name and entity_id in existing_group_data.get("entities", []):
+                # Found entity in a different group
+                if existing_group_data.get("_is_single_entity_group") and len(existing_group_data.get("entities", [])) == 1:
+                    # It's a single-entity group - mark for deletion
+                    old_single_entity_group = existing_group_name
+                    _LOGGER.info(f"Entity {entity_id} is in single-entity group '{existing_group_name}' which will be deleted")
+                # Remove entity from the old group
+                existing_group_data["entities"].remove(entity_id)
+                break
+        
         if entity_id not in self._data["groups"][group_name]["entities"]:
             self._data["groups"][group_name]["entities"].append(entity_id)
             
@@ -784,17 +801,49 @@ class ScheduleStorage:
                 self._data["entities"][entity_id]["schedules"] = copy.deepcopy(group_schedules)
                 self._data["entities"][entity_id]["schedule_mode"] = group_mode
             
+            # Delete the old single-entity group if it existed
+            if old_single_entity_group:
+                del self._data["groups"][old_single_entity_group]
+                _LOGGER.info(f"Deleted single-entity group '{old_single_entity_group}'")
+            
             await self.async_save()
             _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
 
     async def async_remove_entity_from_group(self, group_name: str, entity_id: str) -> None:
-        """Remove an entity from a group."""
+        """Remove an entity from a group and create a new single-entity group for it."""
         if group_name in self._data.get("groups", {}):
             entities = self._data["groups"][group_name]["entities"]
             if entity_id in entities:
                 entities.remove(entity_id)
+                
+                # Create a new single-entity group for the removed entity
+                single_group_name = f"__entity_{entity_id}"
+                
+                # Get the entity's current schedule from legacy structure if it exists
+                entity_data = self._data.get("entities", {}).get(entity_id, {})
+                
+                # Create the new single-entity group
+                if "groups" not in self._data:
+                    self._data["groups"] = {}
+                
+                self._data["groups"][single_group_name] = {
+                    "entities": [entity_id],
+                    "enabled": entity_data.get("enabled", True),
+                    "ignored": entity_data.get("ignored", False),
+                    "schedule_mode": entity_data.get("schedule_mode", "all_days"),
+                    "schedules": copy.deepcopy(entity_data.get("schedules", {"all_days": []})),
+                    "profiles": copy.deepcopy(entity_data.get("profiles", {
+                        "Default": {
+                            "schedule_mode": "all_days",
+                            "schedules": {"all_days": []}
+                        }
+                    })),
+                    "active_profile": entity_data.get("active_profile", "Default"),
+                    "_is_single_entity_group": True
+                }
+                
                 await self.async_save()
-                _LOGGER.info(f"Removed {entity_id} from group '{group_name}'")
+                _LOGGER.info(f"Removed {entity_id} from group '{group_name}' and created single-entity group '{single_group_name}'")
 
     async def async_get_groups(self) -> Dict[str, Any]:
         """Get all groups."""
