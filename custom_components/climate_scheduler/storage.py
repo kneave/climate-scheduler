@@ -796,10 +796,24 @@ class ScheduleStorage:
             group_schedules = group_data.get("schedules")
             group_mode = group_data.get("schedule_mode", "all_days")
             
-            if group_schedules and entity_id in self._data.get("entities", {}):
-                # Deep copy the schedules and mode to ensure the entity has its own copy
+            # Ensure entities dict exists
+            if "entities" not in self._data:
+                self._data["entities"] = {}
+            
+            # Create entity if it doesn't exist (e.g., for previously ignored entities)
+            if entity_id not in self._data["entities"]:
+                self._data["entities"][entity_id] = {
+                    "enabled": not group_data.get("ignored", False),  # Match group's ignored status
+                    "ignored": group_data.get("ignored", False),
+                    "schedule_mode": group_mode,
+                    "schedules": copy.deepcopy(group_schedules) if group_schedules else {"all_days": []}
+                }
+                _LOGGER.info(f"Created entity {entity_id} when adding to group '{group_name}'")
+            elif group_schedules:
+                # Entity exists, just update its schedule
                 self._data["entities"][entity_id]["schedules"] = copy.deepcopy(group_schedules)
                 self._data["entities"][entity_id]["schedule_mode"] = group_mode
+                _LOGGER.info(f"Updated schedule for existing entity {entity_id} in group '{group_name}'")
             
             # Delete the old single-entity group if it existed
             if old_single_entity_group:
