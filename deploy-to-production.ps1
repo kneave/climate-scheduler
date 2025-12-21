@@ -90,14 +90,8 @@ Copy-Item -Path $SOURCE -Destination (Split-Path $TARGET -Parent) -Recurse -Forc
 # Clean up local .dev_version file (keep it only on server)
 Remove-Item $devVersionPath -Force
 
-# Restore original manifest.json version locally
-if ($currentVersion) {
-    $manifest.version = $currentVersion
-    $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
-    Write-Host "Restored local manifest.json to original version" -ForegroundColor Gray
-}
-
 Write-Host "Files copied successfully" -ForegroundColor Green
+Write-Host "Local manifest.json kept at new version: $newVersion" -ForegroundColor Gray
 Write-Host ""
 
 # Verify deployment

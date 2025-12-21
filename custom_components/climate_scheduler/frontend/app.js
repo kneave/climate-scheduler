@@ -443,6 +443,12 @@ function renderIgnoredEntities() {
     });
 }
 
+// Track last click time per group to prevent duplicate clicks
+const lastClickTime = {};
+const CLICK_DEBOUNCE_MS = 500;
+let isProcessingGroupClick = false;
+let isSaveInProgress = false;
+
 // Create a group container element
 function createGroupContainer(groupName, groupData) {
     const container = document.createElement('div');
@@ -523,25 +529,58 @@ function createGroupContainer(groupName, groupData) {
     header.appendChild(actions);
     
     // Toggle collapse/expand and edit schedule on header click
-    header.onclick = (e) => {
+    header.onclick = async (e) => {
         // Don't trigger if clicking on action buttons
         if (e.target.closest('.group-actions')) return;
         
-        // Check if we're currently editing this group
-        const isCurrentlyExpanded = currentGroup === groupName && container.classList.contains('expanded');
+        // Prevent event bubbling
+        e.stopPropagation();
+        e.preventDefault();
         
-        if (isCurrentlyExpanded) {
-            // Collapse the editor
-            collapseAllEditors();
-            currentGroup = null;
-        } else {
-            // Expand the editor
-            editGroupSchedule(groupName);
+        // Block if there's a save in progress
+        if (isSaveInProgress) {
+            console.log(`[Schedule] Ignoring click on group: ${groupName} (save in progress)`);
+            return;
         }
         
-        // Also toggle the entities list visibility
-        container.classList.toggle('collapsed');
-        toggleIcon.style.transform = container.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        // Global lock: only process one group click at a time
+        if (isProcessingGroupClick) {
+            console.log(`[Schedule] Ignoring click on group: ${groupName} (already processing another group)`);
+            return;
+        }
+        
+        // Debounce: prevent multiple rapid clicks on the same group
+        const now = Date.now();
+        const lastClick = lastClickTime[groupName] || 0;
+        if (now - lastClick < CLICK_DEBOUNCE_MS) {
+            console.log(`[Schedule] Ignoring duplicate click on group: ${groupName} (debounced)`);
+            return;
+        }
+        lastClickTime[groupName] = now;
+        
+        // Set processing flag
+        isProcessingGroupClick = true;
+        
+        try {
+            // Check if we're currently editing this group
+            const isCurrentlyExpanded = currentGroup === groupName && container.classList.contains('expanded');
+            
+            if (isCurrentlyExpanded) {
+                // Collapse the editor
+                collapseAllEditors();
+                currentGroup = null;
+            } else {
+                // Expand the editor
+                await editGroupSchedule(groupName);
+            }
+            
+            // Also toggle the entities list visibility
+            container.classList.toggle('collapsed');
+            toggleIcon.style.transform = container.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        } finally {
+            // Release the lock
+            isProcessingGroupClick = false;
+        }
     };
     
     container.appendChild(header);
@@ -1108,9 +1147,45 @@ function createGroupMembersTable(entityIds) {
     table.style.display = 'none';
     
     // Toggle functionality
-    toggleHeader.onclick = () => {
+    toggleHeader.onclick = async () => {
         const isCollapsed = table.classList.contains('collapsed');
         if (isCollapsed) {
+            // Fetch fresh entity states before expanding
+            await updateClimateEntities();
+            
+            // Refresh table data
+            const now = new Date();
+            const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+            const groupSchedule = graph ? graph.getNodes() : [];
+            
+            // Update each row with fresh data
+            entityIds.forEach(entityId => {
+                const row = table.querySelector(`.group-members-row[data-entity-id="${entityId}"]`);
+                if (!row) return;
+                
+                const entity = climateEntities.find(e => e.entity_id === entityId);
+                if (!entity) return;
+                
+                // Update current temp
+                const currentCell = row.children[1];
+                const currentTemp = entity.attributes?.current_temperature;
+                currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+                
+                // Update target temp
+                const targetCell = row.children[2];
+                const targetTemp = entity.attributes?.temperature;
+                targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+                
+                // Update scheduled temp
+                const scheduledCell = row.children[3];
+                if (groupSchedule.length > 0) {
+                    const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
+                    scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+                } else {
+                    scheduledCell.textContent = '--';
+                }
+            });
+            
             table.classList.remove('collapsed');
             table.style.display = 'block';
             toggleHeader.querySelector('.toggle-icon').style.transform = 'rotate(90deg)';
@@ -2813,10 +2888,13 @@ async function saveSchedule() {
         return;
     }
     
+    // Set save in progress flag
+    isSaveInProgress = true;
+    
     // Check if we're editing a group schedule
     if (currentGroup) {
+        const nodes = graph.getNodes();
         try {
-            const nodes = graph.getNodes();
             const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
             
             // Check if we're editing a non-active profile
@@ -2831,6 +2909,14 @@ async function saveSchedule() {
             
             // Save to group schedule with day and mode
             await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
+            
+            // Update local cache immediately with the saved data
+            if (allGroups[currentGroup]) {
+                if (!allGroups[currentGroup].schedules) {
+                    allGroups[currentGroup].schedules = {};
+                }
+                allGroups[currentGroup].schedules[currentDay] = JSON.parse(JSON.stringify(nodes));
+            }
             
             // Switch back to original active profile if we changed it
             if (needsProfileSwitch && activeProfile) {
@@ -2850,12 +2936,17 @@ async function saveSchedule() {
             }
         } catch (error) {
             console.error('Failed to auto-save group schedule:', error);
+        } finally {
+            isSaveInProgress = false;
         }
         return;
     }
     
     // Otherwise save individual entity schedule
-    if (!currentEntityId) return;
+    if (!currentEntityId) {
+        isSaveInProgress = false;
+        return;
+    }
     
     try {
         const nodes = graph.getNodes();
@@ -2875,6 +2966,8 @@ async function saveSchedule() {
         }
     } catch (error) {
         console.error('Failed to auto-save schedule:', error);
+    } finally {
+        isSaveInProgress = false;
     }
 }
 
