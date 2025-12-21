@@ -33,11 +33,7 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 
 ## Frontend Card
 
-**Note:** The frontend UI is now available as a separate card repository for easier updates and HACS plugin support.
-
-**Install the card:** [Climate Scheduler Card](https://github.com/kneave/climate-scheduler-card)
-
-The card requires this integration to be installed for backend services.
+**Note:** The frontend UI is now integrated with this component and no longer as a separate card. This makes it considerably easier to install and much easier to develop.
 
 ## Usage
 
@@ -45,13 +41,12 @@ The card requires this integration to be installed for backend services.
 
 **Recommended Method (UI):**
 
-1. Install the [Climate Scheduler Card](https://github.com/kneave/climate-scheduler-card) from HACS (Frontend)
-2. Go to any dashboard
-3. Click "Edit Dashboard" (three dots → Edit Dashboard)
-4. Click "Add Card"
-5. Search for "Climate Scheduler" or use "Custom: Climate Scheduler Card"
-6. Click to add it
-7. Optionally set the view to "Panel" mode for a full-page experience
+1. Go to any dashboard
+2. Click "Edit Dashboard" (three dots → Edit Dashboard)
+3. Click "Add Card"
+4. Search for "Climate Scheduler" or use "Custom: Climate Scheduler Card"
+5. Click to add it
+6. Optionally set the view to "Panel" mode for a full-page experience
 
 **Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
 
