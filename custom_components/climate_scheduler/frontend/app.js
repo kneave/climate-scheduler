@@ -151,9 +151,6 @@ async function initApp() {
         
         // Set up UI event listeners
         setupEventListeners();
-        
-        // Update backend version in footer after API is connected
-        await updateBackendVersion();
     } catch (error) {
         console.error('Failed to initialize app:', error);
         console.error('Error stack:', error.stack);
@@ -3463,25 +3460,6 @@ async function toggleEntityInclusion(entityId, include) {
         }
     } catch (error) {
         console.error('Failed to toggle entity inclusion:', error);
-    }
-}
-
-// Update backend version in footer
-async function updateBackendVersion() {
-    try {
-        const versionElement = getDocumentRoot().querySelector('#version-info');
-        if (!versionElement) return;
-        
-        const settings = await haAPI.getSettings();
-        if (settings && settings.version) {
-            const currentText = versionElement.textContent;
-            // Only append if not already there
-            if (!currentText.includes('Integration')) {
-                versionElement.textContent = `${currentText} | Integration v${settings.version}`;
-            }
-        }
-    } catch (e) {
-        console.warn('Failed to get backend version:', e);
     }
 }
 

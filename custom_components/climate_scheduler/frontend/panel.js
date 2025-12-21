@@ -96,27 +96,27 @@ class ClimateSchedulerPanel extends HTMLElement {
                     const scriptUrl = import.meta.url;
                     const versionParam = new URL(scriptUrl).searchParams.get('v');
                     
-                    let cardVersion = '';
+                    let version = '';
                     
                     if (versionParam) {
                         if (versionParam.includes(',')) {
                             // Has timestamp - dev deployment: "tag,timestamp"
                             const parts = versionParam.split(',');
                             const tag = (parts[0] || 'unknown').replace(/^v/, '');
-                            cardVersion = `v${tag} (dev)`;
+                            version = `v${tag} (dev)`;
                         } else {
-                            // No timestamp - HACS or production: just tag
+                            // No timestamp - production: just tag
                             const tag = versionParam.replace(/^v/, '');
-                            cardVersion = `v${tag}`;
+                            version = `v${tag}`;
                         }
                     } else {
-                        cardVersion = '(manual)';
+                        version = '(manual)';
                     }
                     
-                    versionElement.textContent = `Climate Scheduler Card ${cardVersion}`;
+                    versionElement.textContent = `Climate Scheduler ${version}`;
                 } catch (e) {
                     console.warn('Failed to determine version:', e);
-                    versionElement.textContent = 'Climate Scheduler Card';
+                    versionElement.textContent = 'Climate Scheduler';
                 }
             }
 
