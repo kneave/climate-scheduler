@@ -423,3 +423,26 @@ get_profiles:
       example: false
       selector:
         boolean:
+
+cleanup_derivative_sensors:
+  name: Cleanup derivative sensors
+  description: Remove orphaned derivative sensors for entities that no longer exist
+  fields:
+    confirm_delete_all:
+      description: Confirm deletion of all derivative sensors
+      required: false
+      default: false
+      example: false
+      selector:
+        boolean:
+
+factory_reset:
+  name: Factory Reset
+  description: Reset all Climate Scheduler data to freshly installed state. WARNING - This will delete all schedules, groups, profiles, and settings permanently.
+  fields:
+    confirm:
+      description: Must be set to true to confirm the factory reset
+      required: true
+      example: true
+      selector:
+        boolean:

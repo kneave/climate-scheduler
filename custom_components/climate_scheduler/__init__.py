@@ -141,6 +141,10 @@ CLEANUP_DERIVATIVE_SENSORS_SCHEMA = vol.Schema({
     vol.Optional("confirm_delete_all", default=False): cv.boolean
 })
 
+FACTORY_RESET_SCHEMA = vol.Schema({
+    vol.Required("confirm"): cv.boolean
+})
+
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
     """Common setup for storage, coordinator, services and panel."""
@@ -537,6 +541,25 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
         return result
     
+    async def handle_factory_reset(call: ServiceCall) -> None:
+        """Handle factory_reset service call - reset all data to freshly installed state."""
+        confirm = call.data.get("confirm", False)
+        if not confirm:
+            _LOGGER.error("Factory reset requires confirmation (set confirm=true)")
+            raise ValueError("Factory reset requires confirmation. Set confirm=true to proceed.")
+        
+        _LOGGER.warning("Factory reset initiated - clearing all schedules, groups, and settings")
+        await storage.async_factory_reset()
+        
+        # Clear coordinator state
+        coordinator.last_node_states.clear()
+        coordinator.override_until.clear()
+        
+        # Trigger refresh to ensure clean state
+        await coordinator.async_request_refresh()
+        
+        _LOGGER.info("Factory reset completed successfully")
+    
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
@@ -567,6 +590,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, schema=SET_ACTIVE_PROFILE_SCHEMA)
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, schema=CLEANUP_DERIVATIVE_SENSORS_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, schema=FACTORY_RESET_SCHEMA)
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -652,7 +676,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "get_groups","set_group_schedule","enable_group","disable_group","get_settings",
             "save_settings","reload_integration","advance_schedule","advance_group",
             "cancel_advance","get_advance_status","clear_advance_history","create_profile",
-            "delete_profile","rename_profile","set_active_profile","get_profiles"
+            "delete_profile","rename_profile","set_active_profile","get_profiles",
+            "cleanup_derivative_sensors","factory_reset"
         ]:
             try:
                 hass.services.async_remove(DOMAIN, svc)

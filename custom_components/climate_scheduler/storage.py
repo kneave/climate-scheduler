@@ -248,6 +248,33 @@ class ScheduleStorage:
         self._data["advance_history"] = history
         await self.async_save()
         _LOGGER.debug(f"Saved advance history: {history}")
+    
+    async def async_factory_reset(self) -> None:
+        """Reset all data to factory defaults (freshly installed state)."""
+        _LOGGER.warning("Factory reset requested - clearing all schedules, groups, and settings")
+        
+        # Reset to fresh state with default settings
+        self._data = {
+            "entities": {},
+            "groups": {},
+            "settings": {},
+            "advance_history": {}
+        }
+        
+        # Set default min/max temp based on temperature unit
+        from homeassistant.const import UnitOfTemperature
+        if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+            self._data["settings"]["min_temp"] = 42.0  # Fahrenheit
+            self._data["settings"]["max_temp"] = 86.0  # Fahrenheit
+        else:
+            self._data["settings"]["min_temp"] = 5.0  # Celsius
+            self._data["settings"]["max_temp"] = 30.0  # Celsius
+        
+        # Set default for derivative sensors
+        self._data["settings"]["create_derivative_sensors"] = True
+        
+        await self.async_save()
+        _LOGGER.info("Factory reset completed - all data cleared and defaults restored")
 
     async def async_get_all_entities(self) -> List[str]:
         """Get list of all entity IDs with schedules."""
