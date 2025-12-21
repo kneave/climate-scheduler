@@ -23,8 +23,9 @@
 
 
 
-## [1.11.0.3b] - 2025-12-21
-### Added
-- Integrated the frontend and backend once again
 
-## [1.11.0.2b] - 2025-12-21
+## [1.12.0] - 2025-12-21
+### Added
+- Added the frontend back in to the component repo, now automatically registering
+
+## [1.11.0.3b] - 2025-12-21
