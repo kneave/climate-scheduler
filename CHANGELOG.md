@@ -20,11 +20,9 @@
 
 
 
-## [1.10.0] - 2025-12-21
+
+## [1.11.0.1b] - 2025-12-21
 ### Added
-- Added a "factory reset" action to clear the components data to a fresh install state
+- Added handling of pre-release builds to the release script
 
-### Fixed
-- Fixed entity monitoring on new installs
-
-## [1.9.1] - 2025-12-20
+## [1.10.0] - 2025-12-21
