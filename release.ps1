@@ -45,6 +45,20 @@ if (-not (Test-Path "custom_components\climate_scheduler\manifest.json")) {
     exit 1
 }
 
+# Detect current branch
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if (-not $currentBranch) {
+    Write-Error "Failed to detect current git branch"
+    exit 1
+}
+
+$isPreRelease = $currentBranch -eq "develop"
+if ($isPreRelease) {
+    Write-Host "`nDetected branch: $currentBranch (will create pre-release)" -ForegroundColor Yellow
+} else {
+    Write-Host "`nDetected branch: $currentBranch" -ForegroundColor Cyan
+}
+
 if ($DryRun) {
     Write-Host "`n*** DRY RUN MODE - No changes will be made ***`n" -ForegroundColor Magenta
 }
@@ -105,18 +119,27 @@ if ($latestTag) {
     Write-Host "Latest git tag: $latestTag" -ForegroundColor Cyan
 } else {
     Write-Host "No existing tags found." -ForegroundColor Yellow
-    $latestTag = "0.0.0"
+    $latestTag = "0.0.0.0"
 }
 
-# Parse version and suggest next versions
-if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)$') {
+# Parse version and suggest next versions (supports major.minor.patch[b].build)
+if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)b?(?:\.(\d+))?$') {
     $major = [int]$matches[1]
     $minor = [int]$matches[2]
     $patch = [int]$matches[3]
+    $build = if ($matches[4]) { [int]$matches[4] } else { 0 }
+    $hasBeta = $latestTag -match 'b'
     
-    $suggestedPatch = "$major.$minor.$($patch + 1)"
-    $suggestedMinor = "$major.$($minor + 1).0"
-    $suggestedMajor = "$($major + 1).0.0"
+    $suggestedPatch = "$major.$minor.$($patch + 1).1"
+    $suggestedMinor = "$major.$($minor + 1).0.1"
+    $suggestedMajor = "$($major + 1).0.0.1"
+    $suggestedBuild = "$major.$minor.$patch.$($build + 1)"
+    
+    # If on develop and latest tag is a pre-release, suggest incrementing build on same version
+    $suggestedPreReleaseBuild = $null
+    if ($isPreRelease -and $hasBeta -and $build -gt 0) {
+        $suggestedPreReleaseBuild = "$major.$minor.$patch.$($build + 1)"
+    }
 }
 
 # Read current version from manifest.json if not provided
@@ -135,83 +158,123 @@ if (-not $Version) {
     
     if ($suggestedPatch) {
         Write-Host "`nSelect version to release:" -ForegroundColor Yellow
-        Write-Host "  1. Patch (bug fixes):        $suggestedPatch"
-        Write-Host "  2. Minor (new features):     $suggestedMinor"
-        Write-Host "  3. Major (breaking changes): $suggestedMajor"
-        Write-Host "  4. Custom version"
-        if ($canUseManifest) {
-            Write-Host "  5. Use manifest version:     $currentVersion"
+        
+        # Show pre-release build increment option first if available
+        $optionNum = 1
+        if ($suggestedPreReleaseBuild) {
+            Write-Host "  $optionNum. Pre-release build:         $suggestedPreReleaseBuild (increment build only)"
+            $optionNum++
         }
+        
+        Write-Host "  $optionNum. Patch (bug fixes):        $suggestedPatch"
+        $patchOption = $optionNum
+        $optionNum++
+        
+        Write-Host "  $optionNum. Minor (new features):     $suggestedMinor"
+        $minorOption = $optionNum
+        $optionNum++
+        
+        Write-Host "  $optionNum. Major (breaking changes): $suggestedMajor"
+        $majorOption = $optionNum
+        $optionNum++
+        
+        if ($build -gt 0 -and -not $suggestedPreReleaseBuild) {
+            Write-Host "  $optionNum. Build (increment build):  $suggestedBuild"
+            $buildOption = $optionNum
+            $optionNum++
+        }
+        
+        Write-Host "  $optionNum. Custom version"
+        $customOption = $optionNum
+        $optionNum++
+        
+        if ($canUseManifest) {
+            Write-Host "  $optionNum. Use manifest version:     $currentVersion"
+            $manifestOption = $optionNum
+            $optionNum++
+        }
+        
         Write-Host "  Q. Exit"
     }
     
-    $validChoices = if ($canUseManifest) { "1-5, Q" } else { "1-4, Q" }
+    $maxChoice = $optionNum - 1
+    $validChoices = "1-$maxChoice, Q"
     $choice = Read-Host "`nEnter choice ($validChoices)"
     
     switch ($choice) {
         "1" { 
+            if ($suggestedPreReleaseBuild) {
+                $Version = $suggestedPreReleaseBuild
+                Write-Host "Selected: $Version (pre-release build)" -ForegroundColor Green
+            } else {
+                $Version = $suggestedPatch
+                Write-Host "Selected: $Version (patch)" -ForegroundColor Green
+            }
+        }
+        { $_ -eq $patchOption.ToString() } { 
             $Version = $suggestedPatch
             Write-Host "Selected: $Version (patch)" -ForegroundColor Green
         }
-        "2" { 
+        { $_ -eq $minorOption.ToString() } { 
             $Version = $suggestedMinor
             Write-Host "Selected: $Version (minor)" -ForegroundColor Green
         }
-        "3" { 
+        { $_ -eq $majorOption.ToString() } { 
             $Version = $suggestedMajor
             Write-Host "Selected: $Version (major)" -ForegroundColor Green
         }
-        "4" {
-            $Version = Read-Host "Enter custom version number"
+        { $buildOption -and $_ -eq $buildOption.ToString() } {
+            $Version = $suggestedBuild
+            Write-Host "Selected: $Version (build)" -ForegroundColor Green
         }
-        "5" {
-            if ($canUseManifest) {
-                $Version = $currentVersion
-                Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
-            } else {
-                Write-Error "Option 5 not available. Manifest version matches latest tag."
-                exit 1
-            }
+        { $_ -eq $customOption.ToString() } {
+            $Version = Read-Host "Enter custom version number (format: major.minor.patch.build)"
+        }
+        { $canUseManifest -and $_ -eq $manifestOption.ToString() } {
+            $Version = $currentVersion
+            Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
         }
         { $_ -eq "Q" -or $_ -eq "q" } {
             Write-Host "Release cancelled." -ForegroundColor Yellow
             exit 0
         }
         default {
-            # Try to parse as direct version input
-            if ($choice -match '^\d+\.\d+\.\d+$') {
+            # Try to parse as direct version input (with build number)
+            if ($choice -match '^\d+\.\d+\.\d+\.\d+$') {
                 $Version = $choice
                 Write-Host "Selected: $Version (custom)" -ForegroundColor Green
             } else {
-                Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number."
+                Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number (format: major.minor.patch.build)."
                 exit 1
             }
         }
     }
 }
 
-# Validate version format (semantic versioning)
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    Write-Error "Invalid version format. Use semantic versioning (e.g., 1.0.5)"
+# Validate version format (semantic versioning with build number)
+if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+    Write-Error "Invalid version format. Use format: major.minor.patch.build (e.g., 1.0.5.1)"
     exit 1
 }
 
 # Compare with latest tag to ensure version is incremented
-if ($latestTag -ne "0.0.0") {
-    # Parse versions for comparison
-    $latestParts = $latestTag -split '\.'
+if ($latestTag -ne "0.0.0.0") {
+    # Parse versions for comparison (with build number)
+    $latestParts = $latestTag -replace 'b', '' -split '\.'
     $newParts = $Version -split '\.'
     
     $latestMajor = [int]$latestParts[0]
     $latestMinor = [int]$latestParts[1]
     $latestPatch = [int]$latestParts[2]
+    $latestBuild = if ($latestParts.Count -gt 3) { [int]$latestParts[3] } else { 0 }
     
     $newMajor = [int]$newParts[0]
     $newMinor = [int]$newParts[1]
     $newPatch = [int]$newParts[2]
+    $newBuild = if ($newParts.Count -gt 3) { [int]$newParts[3] } else { 0 }
     
     # Check if version is the same or lower
-    if ($Version -eq $latestTag) {
+    if ($Version -eq ($latestTag -replace 'b', '')) {
         Write-Error "Version $Version is the same as the latest tag v$latestTag. Please increment the version."
         exit 1
     }
@@ -219,7 +282,8 @@ if ($latestTag -ne "0.0.0") {
     # Check if version is lower
     if ($newMajor -lt $latestMajor -or 
         ($newMajor -eq $latestMajor -and $newMinor -lt $latestMinor) -or
-        ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -le $latestPatch)) {
+        ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -lt $latestPatch) -or
+        ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -eq $latestPatch -and $newBuild -le $latestBuild)) {
         Write-Error "Version $Version is lower than or equal to the latest tag v$latestTag. Version must be incremented."
         Write-Host "`nSuggested versions:" -ForegroundColor Yellow
         Write-Host "  Patch: $suggestedPatch"
@@ -230,7 +294,13 @@ if ($latestTag -ne "0.0.0") {
     
     Write-Host "`nVersion check passed: $latestTag -> $Version" -ForegroundColor Green
 }
-
+# Add beta suffix if on develop branch
+$versionSuffix = ""
+if ($isPreRelease) {
+    $versionSuffix = "b"
+    Write-Host "\nAdding beta suffix to version: $Version -> $Version$versionSuffix" -ForegroundColor Yellow
+}
+$fullVersion = "$Version$versionSuffix"
 # Check for uncommitted changes
 $status = git status --porcelain
 if ($status) {
@@ -243,7 +313,7 @@ if ($status) {
     }
 }
 
-Write-Host "`n=== Creating Release v$Version ===" -ForegroundColor Cyan
+Write-Host "\n=== Creating Release v$fullVersion ===" -ForegroundColor Cyan
 
 # Get commit messages since last tag
 $commitMessages = @()
@@ -321,7 +391,7 @@ foreach ($category in $categoryPrompts.Keys | Sort-Object) {
 $date = Get-Date -Format "yyyy-MM-dd"
 $changelogContent = @"
 
-## [$Version] - $date
+## [$fullVersion] - $date
 
 "@
 
@@ -373,12 +443,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 if ($Version -ne $currentVersion) {
     Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
     if (-not $DryRun) {
-        $manifest.version = $Version
+        $manifest.version = $fullVersion
         $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
     }
-    Write-Host "Version: $currentVersion -> $Version" -ForegroundColor Green
+    Write-Host "Version: $currentVersion -> $fullVersion" -ForegroundColor Green
 } else {
-    Write-Host "`nVersion unchanged: $Version" -ForegroundColor Yellow
+    Write-Host "\nVersion unchanged: $fullVersion" -ForegroundColor Yellow
 }
 
 # Commit the version change
@@ -388,7 +458,7 @@ if (-not $DryRun) {
     if (Test-Path "CHANGELOG.md") {
         git add CHANGELOG.md
     }
-    git commit -m "Release v$Version"
+    git commit -m "Release v$fullVersion"
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to commit changes"
@@ -396,13 +466,13 @@ if (-not $DryRun) {
     }
 } else {
     Write-Host "Files to commit: manifest.json, CHANGELOG.md" -ForegroundColor Cyan
-    Write-Host "Commit message: 'Release v$Version'" -ForegroundColor Cyan
+    Write-Host "Commit message: 'Release v$fullVersion'" -ForegroundColor Cyan
 }
 
 # Create and push tag
-Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$Version..." -ForegroundColor Yellow
+Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$fullVersion..." -ForegroundColor Yellow
 if (-not $DryRun) {
-    git tag -a "v$Version" -m "Release v$Version"
+    git tag -a "v$fullVersion" -m "Release v$fullVersion"
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to create tag"
@@ -413,37 +483,37 @@ if (-not $DryRun) {
 # Push to GitHub
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would push' } else { 'Pushing' }) to GitHub..." -ForegroundColor Yellow
 if (-not $DryRun) {
-    git push origin main
+    git push origin $currentBranch
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to push to main"
+        Write-Error "Failed to push to $currentBranch"
         exit 1
     }
 
-    git push origin "v$Version"
+    git push origin "v$fullVersion"
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to push tag"
         exit 1
     }
 } else {
-    Write-Host "Would push to: origin main" -ForegroundColor Cyan
-    Write-Host "Would push tag: v$Version" -ForegroundColor Cyan
+    Write-Host "Would push to: origin $currentBranch" -ForegroundColor Cyan
+    Write-Host "Would push tag: v$fullVersion" -ForegroundColor Cyan
 }
 
-Write-Host "`n=== $(if ($DryRun) { 'DRY RUN: Release v' + $Version + ' Summary' } else { 'Release v' + $Version + ' Created Successfully' }) ===" -ForegroundColor Green
-Write-Host "`nChangelog preview:" -ForegroundColor Cyan
+Write-Host "\n=== $(if ($DryRun) { 'DRY RUN: Release v' + $fullVersion + ' Summary' } else { 'Release v' + $fullVersion + ' Created Successfully' }) ===" -ForegroundColor Green
+Write-Host "\nChangelog preview:" -ForegroundColor Cyan
 Write-Host $changelogContent
 
 # Create GitHub release
 if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
-    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) GitHub release..." -ForegroundColor Yellow
+    Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) GitHub release..." -ForegroundColor Yellow
     
     # Prompt for release title (optional)
-    Write-Host "`nRelease title (press Enter for 'v$Version'):" -ForegroundColor Cyan
+    Write-Host "\nRelease title (press Enter for 'v$fullVersion'):" -ForegroundColor Cyan
     $releaseTitle = Read-Host "  "
     if ([string]::IsNullOrWhiteSpace($releaseTitle)) {
-        $releaseTitle = "v$Version"
+        $releaseTitle = "v$fullVersion"
     }
     
     # Save changelog to temporary file for release notes
@@ -451,16 +521,27 @@ if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
     $changelogContent | Set-Content $tempChangelogFile -Encoding UTF8
     
     try {
-        gh release create "v$Version" `
-            --title $releaseTitle `
-            --notes-file $tempChangelogFile
+        $releaseArgs = @(
+            "v$fullVersion",
+            "--title", $releaseTitle,
+            "--notes-file", $tempChangelogFile
+        )
+        
+        # Add prerelease flag if on develop branch
+        if ($isPreRelease) {
+            $releaseArgs += "--prerelease"
+            Write-Host "Creating as pre-release..." -ForegroundColor Yellow
+        }
+        
+        gh release create @releaseArgs
         
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "`nGitHub release created successfully!" -ForegroundColor Green
-            Write-Host "View at: https://github.com/kneave/climate-scheduler/releases/tag/v$Version" -ForegroundColor Cyan
+            $releaseType = if ($isPreRelease) { "pre-release" } else { "release" }
+            Write-Host "\nGitHub $releaseType created successfully!" -ForegroundColor Green
+            Write-Host "View at: https://github.com/kneave/climate-scheduler/releases/tag/v$fullVersion" -ForegroundColor Cyan
         } else {
             Write-Host "`nFailed to create GitHub release. You can create it manually at:" -ForegroundColor Yellow
-            Write-Host "https://github.com/kneave/climate-scheduler/releases/new?tag=v$Version" -ForegroundColor Cyan
+            Write-Host "https://github.com/kneave/climate-scheduler/releases/new?tag=v$fullVersion" -ForegroundColor Cyan
         }
     } finally {
         Remove-Item $tempChangelogFile -ErrorAction SilentlyContinue
@@ -468,13 +549,13 @@ if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
 }
 
 if ($DryRun) {
-    Write-Host "`n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
-    Write-Host "Run without -DryRun to perform the actual release.`n" -ForegroundColor Yellow
+    Write-Host "\n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
+    Write-Host "Run without -DryRun to perform the actual release.\n" -ForegroundColor Yellow
 } elseif ($SkipGitHub -or -not $hasGhCli) {
-    Write-Host "`nNext steps:" -ForegroundColor Cyan
+    Write-Host "\nNext steps:" -ForegroundColor Cyan
     Write-Host "  1. Go to https://github.com/kneave/climate-scheduler/releases/new"
-    Write-Host "  2. Select tag: v$Version"
-    Write-Host "  3. Set title (e.g., 'v$Version' or 'v$Version - Description')"
+    Write-Host "  2. Select tag: v$fullVersion"
+    Write-Host "  3. Set title (e.g., 'v$fullVersion' or 'v$fullVersion - Description')"
     Write-Host "  4. Copy the changelog content above into the release notes"
     Write-Host "  5. Click 'Publish release'"
     Write-Host "`nHACS will automatically detect the new release within 24 hours.`n"
