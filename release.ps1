@@ -159,27 +159,35 @@ if (-not $Version) {
     if ($suggestedPatch) {
         Write-Host "`nSelect version to release:" -ForegroundColor Yellow
         
+        # Add 'b' suffix to displayed versions if this is a pre-release
+        $displaySuffix = if ($isPreRelease) { "b" } else { "" }
+        
         # Show pre-release build increment option first if available
         $optionNum = 1
         if ($suggestedPreReleaseBuild) {
-            Write-Host "  $optionNum. Pre-release build:         $suggestedPreReleaseBuild (increment build only)"
+            $displayPreReleaseBuild = $suggestedPreReleaseBuild -replace '\.(\d+)$', "b.`$1"
+            Write-Host "  $optionNum. Pre-release build:         $displayPreReleaseBuild (increment build only)"
             $optionNum++
         }
         
-        Write-Host "  $optionNum. Patch (bug fixes):        $suggestedPatch"
+        $displayPatch = $suggestedPatch -replace '\.(\d+)$', "$displaySuffix.`$1"
+        Write-Host "  $optionNum. Patch (bug fixes):        $displayPatch"
         $patchOption = $optionNum
         $optionNum++
         
-        Write-Host "  $optionNum. Minor (new features):     $suggestedMinor"
+        $displayMinor = $suggestedMinor -replace '\.(\d+)$', "$displaySuffix.`$1"
+        Write-Host "  $optionNum. Minor (new features):     $displayMinor"
         $minorOption = $optionNum
         $optionNum++
         
-        Write-Host "  $optionNum. Major (breaking changes): $suggestedMajor"
+        $displayMajor = $suggestedMajor -replace '\.(\d+)$', "$displaySuffix.`$1"
+        Write-Host "  $optionNum. Major (breaking changes): $displayMajor"
         $majorOption = $optionNum
         $optionNum++
         
         if ($build -gt 0 -and -not $suggestedPreReleaseBuild) {
-            Write-Host "  $optionNum. Build (increment build):  $suggestedBuild"
+            $displayBuild = $suggestedBuild -replace '\.(\d+)$', "$displaySuffix.`$1"
+            Write-Host "  $optionNum. Build (increment build):  $displayBuild"
             $buildOption = $optionNum
             $optionNum++
         }
