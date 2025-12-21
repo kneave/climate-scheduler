@@ -43,9 +43,9 @@ if (Test-Path $TARGET) {
         # First try to remove all files
         Get-ChildItem -Path $TARGET -Recurse -File | Remove-Item -Force -ErrorAction SilentlyContinue
         # Then remove all directories from deepest to shallowest
-        Get-ChildItem -Path $TARGET -Recurse -Directory | Sort-Object -Property FullName -Descending | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $TARGET -Recurse -Directory | Sort-Object -Property FullName -Descending | Remove-Item -Force -Recurse -Confirm:$false -ErrorAction SilentlyContinue
         # Finally remove the root directory
-        Remove-Item -Path $TARGET -Force -ErrorAction Stop
+        Remove-Item -Path $TARGET -Force -Recurse -Confirm:$false -ErrorAction Stop
         Write-Host "Old installation removed" -ForegroundColor Green
     } catch {
         Write-Host "Warning: Could not fully remove old installation: $_" -ForegroundColor Yellow
@@ -56,6 +56,27 @@ if (Test-Path $TARGET) {
 
 # Deploy new version
 Write-Host "Deploying new version..." -ForegroundColor Cyan
+
+# Increment build number in manifest.json
+$manifestPath = Join-Path $SOURCE "manifest.json"
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$currentVersion = $manifest.version
+
+if ($currentVersion -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
+    $major = $matches[1]
+    $minor = $matches[2]
+    $patch = $matches[3]
+    $build = [int]$matches[4]
+    
+    $newBuild = $build + 1
+    $newVersion = "$major.$minor.$patch.$newBuild"
+    
+    Write-Host "Incrementing build number: $currentVersion -> $newVersion" -ForegroundColor Yellow
+    $manifest.version = $newVersion
+    $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
+} else {
+    Write-Host "Warning: Version format not recognized, skipping build increment" -ForegroundColor Yellow
+}
 
 # Create .dev_version file with timestamp to mark as dev deployment
 $unixTimestamp = [int][double]::Parse((Get-Date -UFormat %s))
@@ -68,6 +89,13 @@ Copy-Item -Path $SOURCE -Destination (Split-Path $TARGET -Parent) -Recurse -Forc
 
 # Clean up local .dev_version file (keep it only on server)
 Remove-Item $devVersionPath -Force
+
+# Restore original manifest.json version locally
+if ($currentVersion) {
+    $manifest.version = $currentVersion
+    $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
+    Write-Host "Restored local manifest.json to original version" -ForegroundColor Gray
+}
 
 Write-Host "Files copied successfully" -ForegroundColor Green
 Write-Host ""

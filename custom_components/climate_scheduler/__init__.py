@@ -610,15 +610,6 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         _LOGGER.warning("Frontend directory not found at %s", frontend_path)
         return
 
-    # should_cache = False
-    # files_path = Path(__file__).parent / "static"
-    # files2_path = Path(__file__).parent / "static2"
-
-    # await hass.http.async_register_static_paths([
-    #     StaticPathConfig("/api/my_integration/static", str(files_path), should_cache),
-    #     StaticPathConfig("/api/my_integration/static2", str(files2_path), should_cache)
-    # ])
-
     # Register the static path using the correct HA API
     should_cache = False
 
@@ -661,19 +652,18 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         if not resources.loaded:
             await resources.async_load()
 
-        # Get version for cache busting
-        version_file = frontend_path / ".version"
-        if version_file.exists():
-            frontend_version = version_file.read_text().strip()
-        else:
-            # Fallback to manifest version
-            manifest_path = Path(__file__).parent / "manifest.json"
-            if manifest_path.exists():
-                import json
-                manifest = json.loads(manifest_path.read_text())
-                frontend_version = manifest.get("version", "unknown")
-            else:
-                frontend_version = "unknown"
+        # Get version from manifest.json for cache busting (async file read)
+        manifest_path = Path(__file__).parent / "manifest.json"
+        try:
+            import json
+            # Read file asynchronously to avoid blocking event loop
+            manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
+            manifest = json.loads(manifest_text)
+            frontend_version = manifest.get("version", f"u{int(time.time())}")
+            _LOGGER.debug("Using frontend version %s for cache busting", frontend_version)
+        except Exception as e:
+            _LOGGER.warning("Failed to read manifest version: %s", e)
+            frontend_version = f"u{int(time.time())}"
 
         # Build URL with version for cache busting
         base_url = f"/local/{DOMAIN}/climate-scheduler-card.js"

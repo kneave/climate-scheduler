@@ -549,6 +549,16 @@ function createGroupContainer(groupName, groupData) {
     return container;
 }// Edit group schedule - load group schedule into editor
 async function editGroupSchedule(groupName, day = null) {
+    // Fetch fresh group data from server before editing
+    try {
+        const groupsData = await haAPI.getGroups();
+        if (groupsData && groupsData[groupName]) {
+            allGroups[groupName] = groupsData[groupName];
+        }
+    } catch (error) {
+        console.error('Failed to fetch fresh group data:', error);
+    }
+    
     const groupData = allGroups[groupName];
     if (!groupData) return;
     
@@ -2040,6 +2050,7 @@ function attachEditorEventListeners(editorElement) {
             if (!isNaN(nodeIndex) && graph) {
                 graph.removeNodeByIndex(nodeIndex);
                 panel.style.display = 'none';
+                saveSchedule();
             }
         };
     }
