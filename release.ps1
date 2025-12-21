@@ -312,13 +312,17 @@ if ($latestTag -ne "0.0.0.0") {
     
     Write-Host "`nVersion check passed: $latestTag -> $Version" -ForegroundColor Green
 }
-# Add beta suffix if on develop branch
+# Create full version string for git tags and GitHub releases
+# Note: manifest.json gets numeric-only version, git tags get version with 'b' suffix for pre-releases
 $versionSuffix = ""
+$fullVersion = $Version
 if ($isPreRelease) {
     $versionSuffix = "b"
-    Write-Host "\nAdding beta suffix to version: $Version -> $Version$versionSuffix" -ForegroundColor Yellow
+    $fullVersion = "$Version$versionSuffix"
+    Write-Host "\nPre-release detected:" -ForegroundColor Yellow
+    Write-Host "  manifest.json version: $Version (numeric only, required by Home Assistant)" -ForegroundColor Cyan
+    Write-Host "  Git tag version: $fullVersion (with beta suffix)" -ForegroundColor Cyan
 }
-$fullVersion = "$Version$versionSuffix"
 # Check for uncommitted changes
 $status = git status --porcelain
 if ($status) {
@@ -458,15 +462,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 }
 
 # Update manifest.json only if version changed
+# Always use numeric-only version for manifest.json (Home Assistant requirement)
 if ($Version -ne $currentVersion) {
-    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
+    Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
     if (-not $DryRun) {
-        $manifest.version = $fullVersion
+        $manifest.version = $Version
         $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
     }
-    Write-Host "Version: $currentVersion -> $fullVersion" -ForegroundColor Green
+    Write-Host "Version: $currentVersion -> $Version" -ForegroundColor Green
 } else {
-    Write-Host "\nVersion unchanged: $fullVersion" -ForegroundColor Yellow
+    Write-Host "\nVersion unchanged: $Version" -ForegroundColor Yellow
 }
 
 # Commit the version change

@@ -73,11 +73,26 @@ class ClimateSchedulerCard extends HTMLElement {
       return;
     }
 
-    // Load panel module from local community path
+    // Load panel module
     try {
-      const basePath = '/local/community/climate-scheduler-card';
+      // Determine base path - try bundled integration path first, fallback to standalone
       const scriptUrl = import.meta.url;
+      let basePath = '/local/climate_scheduler'; // Bundled with integration
+      
+      // Check if we're using the bundled version by testing if .version exists
+      let isBundled = false;
+      try {
+        const testResponse = await fetch(`${basePath}/.version`);
+        if (testResponse.ok) {
+          isBundled = true;
+        }
+      } catch (e) {
+        // Bundled path not available, use standalone
+        basePath = '/local/community/climate-scheduler-card';
+      }
+      
       const hacstag = new URL(scriptUrl).searchParams.get('hacstag');
+      const versionParam = new URL(scriptUrl).searchParams.get('v');
       let versionString = null;
       let isDevDeployment = false;
       
@@ -90,7 +105,7 @@ class ClimateSchedulerCard extends HTMLElement {
             // Has timestamp - this is a dev deployment, use it instead of hacstag
             versionString = versionText;
             isDevDeployment = true;
-          } else if (!hacstag) {
+          } else if (!hacstag && !versionParam) {
             // No timestamp and no hacstag - production release via script
             versionString = versionText;
           }
@@ -99,8 +114,10 @@ class ClimateSchedulerCard extends HTMLElement {
         console.warn('Failed to load .version file:', e);
       }
       
-      // If not a dev deployment and hacstag exists, use hacstag (HACS installation)
-      if (!versionString && hacstag) {
+      // Prefer v= param (bundled integration), then hacstag (HACS standalone)
+      if (!versionString && versionParam) {
+        versionString = versionParam;
+      } else if (!versionString && hacstag) {
         versionString = hacstag;
       }
       
@@ -111,7 +128,9 @@ class ClimateSchedulerCard extends HTMLElement {
       this._container.innerHTML = `
         <div style="padding: 16px; color: red;">
           Failed to load panel module: ${e.message}<br>
-          Make sure the card is properly installed in /config/www/community/climate-scheduler-card/
+          ${isBundled ? 
+            'Make sure the integration is properly installed.' : 
+            'Make sure the card is properly installed in /config/www/community/climate-scheduler-card/'}
         </div>
       `;
       return;

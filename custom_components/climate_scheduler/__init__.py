@@ -610,16 +610,22 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         _LOGGER.warning("Frontend directory not found at %s", frontend_path)
         return
 
-    await hass.http.async_register_static_paths(
-        [
-            StaticPathConfig(
-                f"/local/{DOMAIN}",
-                str(frontend_path),
-                True,  # cache_headers
-            )
-        ]
-    )
-    _LOGGER.info("Registered frontend static path: %s", frontend_path)
+    # should_cache = False
+    # files_path = Path(__file__).parent / "static"
+    # files2_path = Path(__file__).parent / "static2"
+
+    # await hass.http.async_register_static_paths([
+    #     StaticPathConfig("/api/my_integration/static", str(files_path), should_cache),
+    #     StaticPathConfig("/api/my_integration/static2", str(files2_path), should_cache)
+    # ])
+
+    # Register the static path using the correct HA API
+    should_cache = False
+
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(f"/local/{DOMAIN}", str(frontend_path), should_cache)
+    ])
+    _LOGGER.info("Registered frontend static path: %s -> %s", f"/local/{DOMAIN}", frontend_path)
 
     # Register Lovelace resource
     try:
@@ -661,7 +667,6 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             frontend_version = version_file.read_text().strip()
         else:
             # Fallback to manifest version
-            from .const import DOMAIN
             manifest_path = Path(__file__).parent / "manifest.json"
             if manifest_path.exists():
                 import json

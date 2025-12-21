@@ -39,8 +39,18 @@ if (Test-Path $TARGET) {
     
     # Remove old installation
     Write-Host "Removing old installation..." -ForegroundColor Yellow
-    Remove-Item -Path $TARGET -Recurse -Force
-    Write-Host "Old installation removed" -ForegroundColor Green
+    try {
+        # First try to remove all files
+        Get-ChildItem -Path $TARGET -Recurse -File | Remove-Item -Force -ErrorAction SilentlyContinue
+        # Then remove all directories from deepest to shallowest
+        Get-ChildItem -Path $TARGET -Recurse -Directory | Sort-Object -Property FullName -Descending | Remove-Item -Force -ErrorAction SilentlyContinue
+        # Finally remove the root directory
+        Remove-Item -Path $TARGET -Force -ErrorAction Stop
+        Write-Host "Old installation removed" -ForegroundColor Green
+    } catch {
+        Write-Host "Warning: Could not fully remove old installation: $_" -ForegroundColor Yellow
+        Write-Host "Attempting to continue with deployment..." -ForegroundColor Yellow
+    }
     Write-Host ""
 }
 

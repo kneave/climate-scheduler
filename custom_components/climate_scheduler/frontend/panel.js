@@ -35,10 +35,11 @@ const getVersion = () => {
 const loadScripts = () => {
     if (scriptsLoaded) return Promise.resolve();
     
-    // Use absolute URL to avoid path resolution issues when loaded in different contexts
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    const basePath = `${protocol}//${host}/local/community/climate-scheduler-card`;
+    // Determine base path from where panel.js was loaded
+    const scriptUrl = import.meta.url;
+    const url = new URL(scriptUrl);
+    // Remove panel.js and query params to get base path
+    const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
     const version = getVersion();
     
     console.log('Loading Climate Scheduler scripts from:', basePath);
@@ -157,13 +158,14 @@ class ClimateSchedulerPanel extends HTMLElement {
 
     render() {
         if (!this.innerHTML) {
-            // Load CSS into light DOM using absolute URL
-            const protocol = window.location.protocol;
-            const host = window.location.host;
+            // Load CSS using same base path detection as scripts
+            const scriptUrl = import.meta.url;
+            const url = new URL(scriptUrl);
+            const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
             const version = getVersion();
             const styleLink = document.createElement('link');
             styleLink.rel = 'stylesheet';
-            styleLink.href = `${protocol}//${host}/local/community/climate-scheduler-card/styles.css?v=${version}`;
+            styleLink.href = `${basePath}/styles.css?v=${version}`;
             this.appendChild(styleLink);
 
             // Create container div for content
