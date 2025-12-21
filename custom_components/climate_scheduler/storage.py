@@ -519,7 +519,50 @@ class ScheduleStorage:
                 _LOGGER.info(f"Created entity {entity_id} with ignored=True")
                 _LOGGER.debug(f"New entity data: {self._data['entities'][entity_id]}")
             else:
-                _LOGGER.warning(f"Attempted to set ignored=False for non-existent entity {entity_id}")
+                # Setting ignored=False for non-existent entity - create it with default schedule
+                if "entities" not in self._data:
+                    self._data["entities"] = {}
+                
+                # Create single-entity group only if entity is not already in a group
+                if not entity_group_name:
+                    if "groups" not in self._data:
+                        self._data["groups"] = {}
+                    
+                    single_group_name = f"__entity_{entity_id}"
+                    self._data["groups"][single_group_name] = {
+                        "entities": [entity_id],
+                        "enabled": True,
+                        "ignored": False,
+                        "schedule_mode": "all_days",
+                        "schedules": {"all_days": DEFAULT_SCHEDULE.copy()},
+                        "profiles": {
+                            "Default": {
+                                "schedule_mode": "all_days",
+                                "schedules": {"all_days": DEFAULT_SCHEDULE.copy()}
+                            }
+                        },
+                        "active_profile": "Default",
+                        "_is_single_entity_group": True
+                    }
+                    group_updated = True
+                    _LOGGER.info(f"Created single-entity group '{single_group_name}' for {entity_id} with default schedule")
+                
+                # Create legacy entity with default schedule
+                self._data["entities"][entity_id] = {
+                    "enabled": True,
+                    "ignored": False,
+                    "schedule_mode": "all_days",
+                    "schedules": {"all_days": DEFAULT_SCHEDULE.copy()},
+                    "profiles": {
+                        "Default": {
+                            "schedule_mode": "all_days",
+                            "schedules": {"all_days": DEFAULT_SCHEDULE.copy()}
+                        }
+                    },
+                    "active_profile": "Default"
+                }
+                _LOGGER.info(f"Created entity {entity_id} with ignored=False and default schedule")
+                _LOGGER.debug(f"New entity data: {self._data['entities'][entity_id]}")
         
         # Always save if we updated anything
         if group_updated or entity_id in self._data.get("entities", {}):
@@ -760,6 +803,7 @@ class ScheduleStorage:
         self._data["groups"][group_name] = {
             "entities": [],
             "enabled": True,
+            "ignored": False,
             "schedule_mode": "all_days",
             "schedules": {
                 "all_days": [{"time": "00:00", "temp": 18}]
