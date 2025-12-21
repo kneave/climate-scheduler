@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.util import json as json_util
 from aiohttp import web
 import voluptuous as vol
@@ -594,49 +594,131 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
 
     hass.data[DOMAIN]["services_registered"] = True
 
-    # Notify users about separate card installation
-    await _notify_card_separation(hass)
+    # Register frontend card resources
+    await _register_frontend_resources(hass)
 
 
-async def _notify_card_separation(hass: HomeAssistant) -> None:
-    """Notify users that the frontend card is now separate."""
-    # Check if notification has already been shown
-    if hass.data[DOMAIN].get("card_notification_shown"):
+async def _register_frontend_resources(hass: HomeAssistant) -> None:
+    """Register the bundled frontend card as a Lovelace resource."""
+    # Only register once
+    if hass.data[DOMAIN].get("frontend_registered"):
         return
-    
-    # Check if card is installed (HACS or manual)
-    from pathlib import Path
-    config_path = Path(hass.config.path())
-    hacs_path = config_path / "www" / "community" / "climate-scheduler-card" / "climate-scheduler-card.js"
-    manual_path = config_path / "www" / "community" / "climate-scheduler-card" / "climate-scheduler-card.js"
-    
-    # Check if card exists
-    if hacs_path.exists() or manual_path.exists():
-        _LOGGER.info("Climate Scheduler Card already installed, skipping notification")
-        hass.data[DOMAIN]["card_notification_shown"] = True
+
+    # Register static path for frontend files
+    frontend_path = Path(__file__).parent / "frontend"
+    if not frontend_path.exists():
+        _LOGGER.warning("Frontend directory not found at %s", frontend_path)
         return
-    
-    # Create persistent notification
-    await hass.services.async_call(
-        "persistent_notification",
-        "create",
-        {
-            "title": "Climate Scheduler: Frontend Card Separated",
-            "message": (
-                "The Climate Scheduler frontend has been moved to a separate card for better updates.\n\n"
-                "**Action Required:**\n"
-                "1. Install the Climate Scheduler Card from HACS (Frontend section)\n"
-                "2. Or manually install from: https://github.com/kneave/climate-scheduler-card\n\n"
-                "The integration continues to provide backend services. "
-                "This is a one-time change for improved maintenance.\n\n"
-                "Dismiss this notification once you've installed the card."
-            ),
-            "notification_id": f"{DOMAIN}_card_separation",
-        },
+
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                f"/local/{DOMAIN}",
+                str(frontend_path),
+                True,  # cache_headers
+            )
+        ]
     )
+    _LOGGER.info("Registered frontend static path: %s", frontend_path)
+
+    # Register Lovelace resource
+    try:
+        # Get lovelace resources
+        lovelace_data = hass.data.get("lovelace")
+        if lovelace_data is None:
+            _LOGGER.warning("Lovelace integration not available, card will need manual registration")
+            hass.data[DOMAIN]["frontend_registered"] = True
+            return
+
+        # Get resources based on HA version
+        from homeassistant.const import __version__ as ha_version
+        version_parts = [int(x) for x in ha_version.split(".")[:2]]
+        version_number = version_parts[0] * 1000 + version_parts[1]
+        
+        if version_number >= 2025002:  # 2025.2.0 and later
+            resources = lovelace_data.resources
+        else:
+            resources = lovelace_data.get("resources")
+
+        if resources is None:
+            _LOGGER.warning("Lovelace resources not available, card will need manual registration")
+            hass.data[DOMAIN]["frontend_registered"] = True
+            return
+
+        # Check for YAML mode
+        if not hasattr(resources, "store") or resources.store is None:
+            _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
+            hass.data[DOMAIN]["frontend_registered"] = True
+            return
+
+        # Ensure resources are loaded
+        if not resources.loaded:
+            await resources.async_load()
+
+        # Get version for cache busting
+        version_file = frontend_path / ".version"
+        if version_file.exists():
+            frontend_version = version_file.read_text().strip()
+        else:
+            # Fallback to manifest version
+            from .const import DOMAIN
+            manifest_path = Path(__file__).parent / "manifest.json"
+            if manifest_path.exists():
+                import json
+                manifest = json.loads(manifest_path.read_text())
+                frontend_version = manifest.get("version", "unknown")
+            else:
+                frontend_version = "unknown"
+
+        # Build URL with version for cache busting
+        base_url = f"/local/{DOMAIN}/climate-scheduler-card.js"
+        url = f"{base_url}?v={frontend_version}"
+        
+        # Check for old standalone card installations and remove them
+        old_card_patterns = [
+            "/hacsfiles/climate-scheduler-card/",
+            "/local/community/climate-scheduler-card/",
+            "climate-scheduler-card.js"
+        ]
+        
+        existing_entry = None
+        removed_old = False
+        for entry in list(resources.async_items()):
+            entry_url = entry["url"]
+            entry_base_url = entry_url.split("?")[0]
+            
+            # Check if this is our new bundled card
+            if entry_base_url == base_url:
+                existing_entry = entry
+                continue
+            
+            # Check if this is an old standalone card installation
+            if any(pattern in entry_url for pattern in old_card_patterns):
+                _LOGGER.info("Removing old standalone card registration: %s", entry_url)
+                await resources.async_delete_item(entry["id"])
+                removed_old = True
+
+        if existing_entry:
+            # Update if version changed
+            if existing_entry["url"] != url:
+                _LOGGER.info("Updating bundled frontend card to version %s", frontend_version)
+                await resources.async_update_item(existing_entry["id"], {"url": url})
+            else:
+                _LOGGER.debug("Bundled frontend card already registered with current version")
+            hass.data[DOMAIN]["frontend_registered"] = True
+            return
+
+        # Register the bundled card
+        await resources.async_create_item({"res_type": "module", "url": url})
+        if removed_old:
+            _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
+        else:
+            _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+
+    except Exception as err:
+        _LOGGER.error("Failed to auto-register frontend card: %s", err)
     
-    hass.data[DOMAIN]["card_notification_shown"] = True
-    _LOGGER.info("Card separation notification displayed to user")
+    hass.data[DOMAIN]["frontend_registered"] = True
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
