@@ -130,15 +130,26 @@ if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)(?:b)?(?:\.(\d+))?(?:b)?$') {
     $build = if ($matches[4]) { [int]$matches[4] } else { 0 }
     $hasBeta = $latestTag -match 'b'
     
-    $suggestedPatch = "$major.$minor.$($patch + 1).1"
-    $suggestedMinor = "$major.$($minor + 1).0.1"
-    $suggestedMajor = "$($major + 1).0.0.1"
-    $suggestedBuild = "$major.$minor.$patch.$($build + 1)"
-    
-    # If on develop and latest tag is a pre-release, suggest incrementing build on same version
-    $suggestedPreReleaseBuild = $null
-    if ($isPreRelease -and $hasBeta -and $build -gt 0) {
-        $suggestedPreReleaseBuild = "$major.$minor.$patch.$($build + 1)"
+    # Different version format based on branch
+    if ($isPreRelease) {
+        # Develop branch: use 4-part versions (major.minor.patch.build)
+        $suggestedPatch = "$major.$minor.$($patch + 1).1"
+        $suggestedMinor = "$major.$($minor + 1).0.1"
+        $suggestedMajor = "$($major + 1).0.0.1"
+        $suggestedBuild = "$major.$minor.$patch.$($build + 1)"
+        
+        # If latest tag is a pre-release, suggest incrementing build on same version
+        $suggestedPreReleaseBuild = $null
+        if ($hasBeta -and $build -gt 0) {
+            $suggestedPreReleaseBuild = "$major.$minor.$patch.$($build + 1)"
+        }
+    } else {
+        # Main branch: use 3-part versions (major.minor.patch)
+        $suggestedPatch = "$major.$minor.$($patch + 1)"
+        $suggestedMinor = "$major.$($minor + 1).0"
+        $suggestedMajor = "$($major + 1).0.0"
+        $suggestedBuild = $null
+        $suggestedPreReleaseBuild = $null
     }
 }
 
@@ -246,7 +257,11 @@ if (-not $Version) {
             Write-Host "Selected: $Version (build)" -ForegroundColor Green
         }
         { $_ -eq $customOption.ToString() } {
-            $Version = Read-Host "Enter custom version number (format: major.minor.patch.build)"
+            if ($isPreRelease) {
+                $Version = Read-Host "Enter custom version number (format: major.minor.patch.build)"
+            } else {
+                $Version = Read-Host "Enter custom version number (format: major.minor.patch)"
+            }
         }
         { $canUseManifest -and $_ -eq $manifestOption.ToString() } {
             $Version = $currentVersion
@@ -257,22 +272,38 @@ if (-not $Version) {
             exit 0
         }
         default {
-            # Try to parse as direct version input (with build number)
-            if ($choice -match '^\d+\.\d+\.\d+\.\d+$') {
+            # Try to parse as direct version input
+            $versionPattern = if ($isPreRelease) { '^\d+\.\d+\.\d+\.\d+$' } else { '^\d+\.\d+\.\d+$' }
+            $formatExample = if ($isPreRelease) { "major.minor.patch.build" } else { "major.minor.patch" }
+            
+            if ($choice -match $versionPattern) {
                 $Version = $choice
                 Write-Host "Selected: $Version (custom)" -ForegroundColor Green
             } else {
-                Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number (format: major.minor.patch.build)."
+                Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number (format: $formatExample)."
                 exit 1
             }
         }
     }
 }
 
-# Validate version format (semantic versioning with build number)
-if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-    Write-Error "Invalid version format. Use format: major.minor.patch.build (e.g., 1.0.5.1)"
-    exit 1
+# Validate version format based on branch
+if ($isPreRelease) {
+    # Develop branch: require 4-part version (major.minor.patch.build)
+    if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        Write-Error "Invalid version format for develop branch. Use format: major.minor.patch.build (e.g., 1.0.5.1)"
+        exit 1
+    }
+} else {
+    # Main branch: require 3-part version (major.minor.patch)
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+        Write-Error "Invalid version format for main branch. Use format: major.minor.patch (e.g., 1.0.5)"
+        exit 1
+    }
+    if ($Version -match '^\d+\.\d+\.\d+\.\d+$') {
+        Write-Error "Build numbers should not be used on main branch. Use format: major.minor.patch (e.g., 1.0.5)"
+        exit 1
+    }
 }
 
 # Compare with latest tag to ensure version is incremented
