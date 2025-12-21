@@ -122,8 +122,8 @@ if ($latestTag) {
     $latestTag = "0.0.0.0"
 }
 
-# Parse version and suggest next versions (supports major.minor.patch[b].build)
-if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)b?(?:\.(\d+))?$') {
+# Parse version and suggest next versions (supports major.minor.patch[b].build or major.minor.patch.build[b])
+if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)(?:b)?(?:\.(\d+))?(?:b)?$') {
     $major = [int]$matches[1]
     $minor = [int]$matches[2]
     $patch = [int]$matches[3]
@@ -162,11 +162,21 @@ if (-not $Version) {
         # Add 'b' suffix to displayed versions if this is a pre-release
         $displaySuffix = if ($isPreRelease) { "b" } else { "" }
         
-        # Show pre-release build increment option first if available
+        # Initialize option variables
         $optionNum = 1
+        $preReleaseBuildOption = $null
+        $patchOption = $null
+        $minorOption = $null
+        $majorOption = $null
+        $buildOption = $null
+        $customOption = $null
+        $manifestOption = $null
+        
+        # Show pre-release build increment option first if available
         if ($suggestedPreReleaseBuild) {
             $displayPreReleaseBuild = $suggestedPreReleaseBuild -replace '\.(\d+)$', "b.`$1"
             Write-Host "  $optionNum. Pre-release build:         $displayPreReleaseBuild (increment build only)"
+            $preReleaseBuildOption = $optionNum
             $optionNum++
         }
         
