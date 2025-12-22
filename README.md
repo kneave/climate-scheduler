@@ -105,15 +105,12 @@ This integration supports UI-based setup (config entry). No YAML is required.
 
 ### HACS (Recommended)
 
-1. Open HACS in Home Assistant
-2. Click on "Integrations"
-3. Click the three dots in the top right corner
-4. Select "Custom repositories"
-5. Enter the repository URL: `https://github.com/kneave/climate-scheduler`
-6. Select category: "Integration"
-7. Click "Add"
-8. Search for "Climate Scheduler" and install
-9. Go to Settings → Devices & Services → Add Integration → search for "Climate Scheduler" and add it (if it doesn't appear, restart Home Assistant and try again)
+1. Install the component via HACS
+2. Reboot Home Assistant
+3. Add an Integration for "Climate Scheduler Card"
+4. Clear the frontend cache (doing this any earlier will do nothing)
+5. Finally, add the card to one of your dashboards
+
 
 ### Manual Installation
 
