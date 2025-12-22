@@ -1,0 +1,1139 @@
+"""Service definitions and handlers for Climate Scheduler."""
+import logging
+from typing import Any
+import json
+from pathlib import Path
+
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import selector
+from homeassistant.util import json as json_util
+import voluptuous as vol
+from homeassistant.helpers import config_validation as cv
+
+from .const import DOMAIN
+from .coordinator import HeatingSchedulerCoordinator
+from .storage import ScheduleStorage
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
+    """Return dynamic service definitions with runtime-populated selectors."""
+    # Get current groups and profiles from storage
+    storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
+    all_groups = await storage.async_get_groups()
+    
+    # Get group names (excluding internal single-entity groups)
+    group_names = [name for name in all_groups.keys() if not name.startswith("__entity_")]
+    
+    # Get all profiles with formatted labels
+    profile_options = []
+    for group_name, group_data in all_groups.items():
+        profiles = group_data.get("profiles", {})
+        for profile_name in profiles.keys():
+            # Format: value is just the profile name, label shows "GroupName: ProfileName"
+            if group_name.startswith("__entity_"):
+                entity_id = group_name.replace("__entity_", "")
+                display_name = entity_id
+            else:
+                display_name = group_name
+            
+            profile_options.append({
+                "value": profile_name,
+                "label": f"{display_name}: {profile_name}"
+            })
+    
+    return {
+        "set_schedule": {
+            "name": "Set climate schedule",
+            "description": "Configure temperature schedule for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to control",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                },
+                "nodes": {
+                    "description": "List of schedule nodes with time and temperature",
+                    "required": True,
+                    "example": '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]',
+                },
+                "day": {
+                    "description": "Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)",
+                    "required": False,
+                    "default": "all_days",
+                    "example": "mon",
+                    "selector": {"text": {}},
+                },
+                "schedule_mode": {
+                    "description": "Schedule mode (all_days, 5/2, individual)",
+                    "required": False,
+                    "default": "all_days",
+                    "example": "individual",
+                    "selector": {"text": {}},
+                },
+            },
+        },
+        
+        "get_schedule": {
+            "name": "Get climate schedule",
+            "description": "Retrieve the current schedule for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to get schedule for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "clear_schedule": {
+            "name": "Clear climate schedule",
+            "description": "Remove the schedule for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to clear schedule for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "enable_schedule": {
+            "name": "Enable climate schedule",
+            "description": "Enable automatic scheduling for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to enable",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "disable_schedule": {
+            "name": "Disable climate schedule",
+            "description": "Disable automatic scheduling for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to disable",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "create_group": {
+            "name": "Create thermostat group",
+            "description": "Create a new group to share schedules between multiple thermostats",
+            "fields": {
+                "group_name": {
+                    "description": "Name for the new group",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"text": {}},
+                }
+            },
+        },
+        
+        "delete_group": {
+            "name": "Delete thermostat group",
+            "description": "Delete a thermostat group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group to delete",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                }
+            },
+        },
+        
+        "rename_group": {
+            "name": "Rename thermostat group",
+            "description": "Rename a thermostat group",
+            "fields": {
+                "old_name": {
+                    "description": "Current name of the group",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                },
+                "new_name": {
+                    "description": "New name for the group",
+                    "required": True,
+                    "example": "Upstairs Bedrooms",
+                    "selector": {"text": {}},
+                },
+            },
+        },
+        
+        "add_to_group": {
+            "name": "Add thermostat to group",
+            "description": "Add a climate entity to a group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                },
+                "entity_id": {
+                    "description": "Climate entity to add to the group",
+                    "required": True,
+                    "example": "climate.bedroom_1",
+                    "selector": {"entity": {"domain": "climate"}},
+                },
+            },
+        },
+        
+        "remove_from_group": {
+            "name": "Remove thermostat from group",
+            "description": "Remove a climate entity from a group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                },
+                "entity_id": {
+                    "description": "Climate entity to remove from the group",
+                    "required": True,
+                    "example": "climate.bedroom_1",
+                    "selector": {"entity": {"domain": "climate"}},
+                },
+            },
+        },
+        
+        "get_groups": {
+            "name": "Get all groups",
+            "description": "Retrieve all thermostat groups",
+        },
+        
+        "list_groups": {
+            "name": "List all group names",
+            "description": "Get a simple list of all thermostat group names for populating selectors",
+        },
+        
+        "set_group_schedule": {
+            "name": "Set group schedule",
+            "description": "Set schedule for all thermostats in a group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                },
+                "nodes": {
+                    "description": "List of schedule nodes with time and temperature",
+                    "required": True,
+                    "example": '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]',
+                },
+                "day": {
+                    "description": "Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)",
+                    "required": False,
+                    "default": "all_days",
+                    "example": "mon",
+                    "selector": {"text": {}},
+                },
+                "schedule_mode": {
+                    "description": "Schedule mode (all_days, 5/2, individual)",
+                    "required": False,
+                    "default": "all_days",
+                    "example": "individual",
+                    "selector": {"text": {}},
+                },
+            },
+        },
+        
+        "sync_all": {
+            "name": "Sync all thermostats",
+            "description": "Force synchronization of all enabled thermostats with their schedules",
+        },
+        
+        "enable_group": {
+            "name": "Enable group schedule",
+            "description": "Enable automatic scheduling for all thermostats in a group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group to enable",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                }
+            },
+        },
+        
+        "disable_group": {
+            "name": "Disable group schedule",
+            "description": "Disable automatic scheduling for all thermostats in a group",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group to disable",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                }
+            },
+        },
+        
+        "get_settings": {
+            "name": "Get settings",
+            "description": "Retrieve global integration settings (min/max temp, default schedule, etc.)",
+        },
+        
+        "save_settings": {
+            "name": "Save settings",
+            "description": "Save global integration settings",
+            "fields": {
+                "settings": {
+                    "description": "Settings object with min_temp, max_temp, defaultSchedule, tooltipMode, etc.",
+                    "required": True,
+                    "example": '{"min_temp": 10, "max_temp": 30}',
+                }
+            },
+        },
+        
+        "set_ignored": {
+            "name": "Set entity ignored status",
+            "description": "Mark an entity as ignored (not monitored) or un-ignore it",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to set ignored status for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                },
+                "ignored": {
+                    "description": "Whether to ignore this entity (true) or monitor it (false)",
+                    "required": True,
+                    "example": True,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "reload_integration": {
+            "name": "Reload integration (Dev)",
+            "description": "Reload the Climate Scheduler integration (development only)",
+        },
+        
+        "advance_schedule": {
+            "name": "Advance to next scheduled node",
+            "description": "Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to advance to next scheduled node",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "advance_group": {
+            "name": "Advance group to next scheduled node",
+            "description": "Manually advance all climate entities in a group to their next scheduled temperature and settings, even if the scheduled time hasn't arrived yet",
+            "fields": {
+                "group_name": {
+                    "description": "Name of the group to advance",
+                    "required": True,
+                    "example": "Bedrooms",
+                    "selector": {"select": {"options": group_names}},
+                }
+            },
+        },
+        
+        "cancel_advance": {
+            "name": "Cancel advance override",
+            "description": "Cancel an active advance override and return the climate entity to its current scheduled settings",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to cancel advance for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "clear_advance_history": {
+            "name": "Clear advance history",
+            "description": "Clear all advance history markers for a climate entity",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to clear history for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "get_override_status": {
+            "name": "Get override status",
+            "description": "Check if a climate entity has an active advance override",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity to check",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"entity": {"domain": "climate"}},
+                }
+            },
+        },
+        
+        "create_profile": {
+            "name": "Create schedule profile",
+            "description": "Create a new schedule profile for an entity or group",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity ID or group name to create profile for",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"text": {}},
+                },
+                "profile_name": {
+                    "description": "Name for the new profile",
+                    "required": True,
+                    "example": "Winter Schedule",
+                    "selector": {"text": {}},
+                },
+                "is_group": {
+                    "description": "Whether this is a group (true) or entity (false)",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "delete_profile": {
+            "name": "Delete schedule profile",
+            "description": "Delete a schedule profile from an entity or group",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity ID or group name to delete profile from",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"text": {}},
+                },
+                "profile_name": {
+                    "description": "Name of the profile to delete",
+                    "required": True,
+                    "example": "Winter Schedule",
+                    "selector": {"select": {"options": profile_options}},
+                },
+                "is_group": {
+                    "description": "Whether this is a group (true) or entity (false)",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "rename_profile": {
+            "name": "Rename schedule profile",
+            "description": "Rename a schedule profile for an entity or group",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity ID or group name",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"text": {}},
+                },
+                "old_name": {
+                    "description": "Current name of the profile",
+                    "required": True,
+                    "example": "Winter Schedule",
+                    "selector": {"select": {"options": profile_options}},
+                },
+                "new_name": {
+                    "description": "New name for the profile",
+                    "required": True,
+                    "example": "Cold Weather Schedule",
+                    "selector": {"text": {}},
+                },
+                "is_group": {
+                    "description": "Whether this is a group (true) or entity (false)",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "set_active_profile": {
+            "name": "Set active schedule profile",
+            "description": "Switch to a different schedule profile for an entity or group",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity ID or group name",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"text": {}},
+                },
+                "profile_name": {
+                    "description": "Name of the profile to activate",
+                    "required": True,
+                    "example": "Winter Schedule",
+                    "selector": {"select": {"options": profile_options}},
+                },
+                "is_group": {
+                    "description": "Whether this is a group (true) or entity (false)",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "get_profiles": {
+            "name": "Get schedule profiles",
+            "description": "Get list of all available profiles for an entity or group",
+            "fields": {
+                "entity_id": {
+                    "description": "Climate entity ID or group name",
+                    "required": True,
+                    "example": "climate.living_room",
+                    "selector": {"text": {}},
+                },
+                "is_group": {
+                    "description": "Whether this is a group (true) or entity (false)",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                },
+            },
+        },
+        
+        "list_profiles": {
+            "name": "List all profile names",
+            "description": "Get a list of all profiles across all entities and groups with group prefix for populating selectors",
+        },
+        
+        "cleanup_derivative_sensors": {
+            "name": "Cleanup derivative sensors",
+            "description": "Remove orphaned derivative sensors for entities that no longer exist",
+            "fields": {
+                "confirm_delete_all": {
+                    "description": "Confirm deletion of all derivative sensors",
+                    "required": False,
+                    "default": False,
+                    "example": False,
+                    "selector": {"boolean": {}},
+                }
+            },
+        },
+        
+        "factory_reset": {
+            "name": "Factory Reset",
+            "description": "Reset all Climate Scheduler data to freshly installed state. WARNING - This will delete all schedules, groups, profiles, and settings permanently.",
+            "fields": {
+                "confirm": {
+                    "description": "Must be set to true to confirm the factory reset",
+                    "required": True,
+                    "example": True,
+                    "selector": {"boolean": {}},
+                }
+            },
+        },
+    }
+
+
+async def async_setup_services(hass: HomeAssistant) -> None:
+    """Set up all services for the Climate Scheduler integration."""
+    storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
+    coordinator: HeatingSchedulerCoordinator = hass.data[DOMAIN]["coordinator"]
+    
+    # Get dynamic data for selectors
+    all_groups = await storage.async_get_groups()
+    group_names = [name for name in all_groups.keys() if not name.startswith("__entity_")]
+    
+    # Build profile options with labels
+    profile_options = []
+    for group_name, group_data in all_groups.items():
+        profiles = group_data.get("profiles", {})
+        for profile_name in profiles.keys():
+            if group_name.startswith("__entity_"):
+                entity_id = group_name.replace("__entity_", "")
+                display_name = entity_id
+            else:
+                display_name = group_name
+            
+            profile_options.append({
+                "value": profile_name,
+                "label": f"{display_name}: {profile_name}"
+            })
+    
+    # Build dynamic selectors
+    group_selector = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=group_names,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    ) if group_names else cv.string
+    
+    profile_selector = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=profile_options,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    ) if profile_options else cv.string
+    
+    entity_selector = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="climate")
+    )
+    
+    # Service schemas with dynamic selectors
+    node_schema = vol.Schema({
+        vol.Required("time"): cv.string,
+        vol.Required("temp"): vol.Coerce(float),
+        vol.Optional("hvac_mode"): cv.string,
+        vol.Optional("fan_mode"): cv.string,
+        vol.Optional("swing_mode"): cv.string,
+        vol.Optional("preset_mode"): cv.string
+    })
+    
+    SET_SCHEDULE_SCHEMA = vol.Schema({
+        vol.Required("entity_id"): entity_selector,
+        vol.Required("nodes"): vol.All(cv.ensure_list, [node_schema]),
+        vol.Optional("day"): cv.string,
+        vol.Optional("schedule_mode"): cv.string
+    })
+    
+    ENTITY_SCHEMA = vol.Schema({
+        vol.Required("entity_id"): entity_selector
+    })
+    
+    CREATE_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): cv.string
+    })
+    
+    DELETE_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector
+    })
+    
+    RENAME_GROUP_SCHEMA = vol.Schema({
+        vol.Required("old_name"): group_selector,
+        vol.Required("new_name"): cv.string
+    })
+    
+    ADD_TO_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector,
+        vol.Required("entity_id"): entity_selector
+    })
+    
+    REMOVE_FROM_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector,
+        vol.Required("entity_id"): entity_selector
+    })
+    
+    SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector,
+        vol.Required("nodes"): vol.All(cv.ensure_list, [node_schema]),
+        vol.Optional("day"): cv.string,
+        vol.Optional("schedule_mode"): cv.string
+    })
+    
+    ENABLE_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector
+    })
+    
+    DISABLE_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector
+    })
+    
+    SET_IGNORED_SCHEMA = vol.Schema({
+        vol.Required("entity_id"): entity_selector,
+        vol.Required("ignored"): cv.boolean
+    })
+    
+    ADVANCE_GROUP_SCHEMA = vol.Schema({
+        vol.Required("group_name"): group_selector
+    })
+    
+    CREATE_PROFILE_SCHEMA = vol.Schema({
+        vol.Required("target_id"): cv.string,
+        vol.Required("profile_name"): cv.string,
+        vol.Optional("is_group", default=False): cv.boolean
+    })
+    
+    DELETE_PROFILE_SCHEMA = vol.Schema({
+        vol.Required("target_id"): cv.string,
+        vol.Required("profile_name"): profile_selector,
+        vol.Optional("is_group", default=False): cv.boolean
+    })
+    
+    RENAME_PROFILE_SCHEMA = vol.Schema({
+        vol.Required("target_id"): cv.string,
+        vol.Required("old_name"): profile_selector,
+        vol.Required("new_name"): cv.string,
+        vol.Optional("is_group", default=False): cv.boolean
+    })
+    
+    SET_ACTIVE_PROFILE_SCHEMA = vol.Schema({
+        vol.Required("target_id"): cv.string,
+        vol.Required("profile_name"): profile_selector,
+        vol.Optional("is_group", default=False): cv.boolean
+    })
+    
+    GET_PROFILES_SCHEMA = vol.Schema({
+        vol.Required("target_id"): cv.string,
+        vol.Optional("is_group", default=False): cv.boolean
+    })
+    
+    SAVE_SETTINGS_SCHEMA = vol.Schema({
+        vol.Required("settings"): cv.string
+    })
+    
+    CLEANUP_DERIVATIVE_SENSORS_SCHEMA = vol.Schema({
+        vol.Optional("confirm_delete_all", default=False): cv.boolean
+    })
+    
+    FACTORY_RESET_SCHEMA = vol.Schema({
+        vol.Required("confirm"): cv.boolean
+    })
+    
+    # Service handler functions
+    async def handle_set_schedule(call: ServiceCall) -> None:
+        """Handle set_schedule service call."""
+        entity_id = call.data["entity_id"]
+        nodes = call.data["nodes"]
+        day = call.data.get("day")
+        schedule_mode = call.data.get("schedule_mode")
+        await storage.async_set_schedule(entity_id, nodes, day, schedule_mode)
+        
+        # Force immediate update
+        if entity_id in coordinator.last_node_states:
+            del coordinator.last_node_states[entity_id]
+        
+        await coordinator.async_request_refresh()
+    
+    async def handle_get_schedule(call: ServiceCall) -> dict:
+        """Handle get_schedule service call."""
+        entity_id = call.data["entity_id"]
+        schedule = await storage.async_get_schedule(entity_id)
+        
+        if schedule is None:
+            return {"schedule": None, "enabled": False}
+        
+        schedules = schedule.get("schedules", {})
+        schedule_mode = schedule.get("schedule_mode", "all_days")
+        enabled = schedule.get("enabled", True)
+        profiles = schedule.get("profiles", {})
+        active_profile = schedule.get("active_profile", "Default")
+        
+        return {
+            "schedules": schedules,
+            "schedule_mode": schedule_mode,
+            "enabled": enabled,
+            "profiles": profiles,
+            "active_profile": active_profile
+        }
+    
+    async def handle_clear_schedule(call: ServiceCall) -> None:
+        """Handle clear_schedule service call."""
+        entity_id = call.data["entity_id"]
+        await storage.async_clear_schedule(entity_id)
+        await coordinator.async_request_refresh()
+    
+    async def handle_enable_schedule(call: ServiceCall) -> None:
+        """Handle enable_schedule service call."""
+        entity_id = call.data["entity_id"]
+        await storage.async_enable_schedule(entity_id)
+        
+        # Force immediate update
+        if entity_id in coordinator.last_node_states:
+            del coordinator.last_node_states[entity_id]
+        
+        await coordinator.async_request_refresh()
+        _LOGGER.info(f"Enabled schedule for {entity_id}")
+    
+    async def handle_disable_schedule(call: ServiceCall) -> None:
+        """Handle disable_schedule service call."""
+        entity_id = call.data["entity_id"]
+        await storage.async_disable_schedule(entity_id)
+        _LOGGER.info(f"Disabled schedule for {entity_id}")
+    
+    async def handle_sync_all(call: ServiceCall) -> None:
+        """Handle sync_all service call."""
+        coordinator.last_node_states.clear()
+        await coordinator.async_request_refresh()
+        _LOGGER.info("Forced sync of all thermostats")
+    
+    async def handle_create_group(call: ServiceCall) -> None:
+        """Handle create_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_create_group(group_name)
+            _LOGGER.info(f"Created group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error creating group: {err}")
+            raise
+    
+    async def handle_delete_group(call: ServiceCall) -> None:
+        """Handle delete_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_delete_group(group_name)
+            _LOGGER.info(f"Deleted group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error deleting group: {err}")
+            raise
+    
+    async def handle_rename_group(call: ServiceCall) -> None:
+        """Handle rename_group service call."""
+        old_name = call.data["old_name"]
+        new_name = call.data["new_name"]
+        try:
+            await storage.async_rename_group(old_name, new_name)
+            _LOGGER.info(f"Renamed group '{old_name}' to '{new_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error renaming group: {err}")
+            raise
+    
+    async def handle_add_to_group(call: ServiceCall) -> None:
+        """Handle add_to_group service call."""
+        group_name = call.data["group_name"]
+        entity_id = call.data["entity_id"]
+        try:
+            await storage.async_add_entity_to_group(group_name, entity_id)
+            _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error adding to group: {err}")
+            raise
+    
+    async def handle_remove_from_group(call: ServiceCall) -> None:
+        """Handle remove_from_group service call."""
+        group_name = call.data["group_name"]
+        entity_id = call.data["entity_id"]
+        await storage.async_remove_entity_from_group(group_name, entity_id)
+        _LOGGER.info(f"Removed {entity_id} from group '{group_name}'")
+    
+    async def handle_get_groups(call: ServiceCall) -> dict:
+        """Handle get_groups service call."""
+        groups = await storage.async_get_groups()
+        return {"groups": groups}
+    
+    async def handle_list_groups(call: ServiceCall) -> dict:
+        """Handle list_groups service call - return simple list of group names."""
+        groups = await storage.async_get_groups()
+        group_names = [name for name in groups.keys() if not name.startswith("__entity_")]
+        return {"groups": group_names}
+    
+    async def handle_list_profiles(call: ServiceCall) -> dict:
+        """Handle list_profiles service call - return list of all profiles with value/label format."""
+        groups = await storage.async_get_groups()
+        profiles_list = []
+        
+        for group_name, group_data in groups.items():
+            profiles = group_data.get("profiles", {})
+            for profile_name in profiles.keys():
+                if group_name.startswith("__entity_"):
+                    entity_id = group_name.replace("__entity_", "")
+                    display_name = entity_id
+                else:
+                    display_name = group_name
+                
+                profiles_list.append({
+                    "value": profile_name,
+                    "label": f"{display_name}: {profile_name}"
+                })
+        
+        return {"profiles": profiles_list}
+    
+    async def handle_set_group_schedule(call: ServiceCall) -> None:
+        """Handle set_group_schedule service call."""
+        group_name = call.data["group_name"]
+        nodes = call.data["nodes"]
+        day = call.data.get("day")
+        schedule_mode = call.data.get("schedule_mode")
+        try:
+            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            
+            # Force immediate update for all entities in the group
+            group_data = await storage.async_get_groups()
+            if group_name in group_data and "entities" in group_data[group_name]:
+                for entity_id in group_data[group_name]["entities"]:
+                    if entity_id in coordinator.last_node_states:
+                        del coordinator.last_node_states[entity_id]
+                
+                await coordinator.async_request_refresh()
+        except ValueError as err:
+            _LOGGER.error(f"Error setting group schedule: {err}")
+            raise
+    
+    async def handle_enable_group(call: ServiceCall) -> None:
+        """Handle enable_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_enable_group(group_name)
+            _LOGGER.info(f"Enabled group '{group_name}'")
+            
+            # Force immediate update for all entities in the group
+            group_data = await storage.async_get_groups()
+            if group_name in group_data and "entities" in group_data[group_name]:
+                for entity_id in group_data[group_name]["entities"]:
+                    if entity_id in coordinator.last_node_states:
+                        del coordinator.last_node_states[entity_id]
+                
+                await coordinator.async_request_refresh()
+        except ValueError as err:
+            _LOGGER.error(f"Error enabling group: {err}")
+            raise
+    
+    async def handle_disable_group(call: ServiceCall) -> None:
+        """Handle disable_group service call."""
+        group_name = call.data["group_name"]
+        try:
+            await storage.async_disable_group(group_name)
+            _LOGGER.info(f"Disabled group '{group_name}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error disabling group: {err}")
+            raise
+    
+    async def handle_get_settings(call: ServiceCall) -> dict:
+        """Handle get_settings service call."""
+        settings = await storage.async_get_settings()
+        
+        # Include version information
+        from homeassistant.const import __version__ as ha_version
+        
+        # Get integration version from manifest
+        integration_version = "unknown"
+        try:
+            from homeassistant.loader import async_get_integration
+            integration = await async_get_integration(hass, DOMAIN)
+            integration_version = integration.version
+        except Exception:
+            pass
+        
+        return {
+            "settings": settings,
+            "version": {
+                "integration": integration_version,
+                "home_assistant": ha_version
+            }
+        }
+    
+    async def handle_save_settings(call: ServiceCall) -> None:
+        """Handle save_settings service call."""
+        settings_json = call.data["settings"]
+        import json
+        settings = json.loads(settings_json)
+        await storage.async_save_settings(settings)
+        _LOGGER.info("Settings saved")
+    
+    async def handle_set_ignored(call: ServiceCall) -> None:
+        """Handle set_ignored service call."""
+        entity_id = call.data["entity_id"]
+        ignored = call.data["ignored"]
+        await storage.async_set_ignored(entity_id, ignored)
+        _LOGGER.info(f"Set {entity_id} ignored status to {ignored}")
+    
+    async def handle_reload_integration(call: ServiceCall) -> None:
+        """Handle reload_integration service call."""
+        _LOGGER.info("Reloading Climate Scheduler integration")
+        
+        # Trigger a config entry reload
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            await hass.config_entries.async_reload(entry.entry_id)
+    
+    async def handle_advance_schedule(call: ServiceCall) -> None:
+        """Handle advance_schedule service call."""
+        entity_id = call.data["entity_id"]
+        await coordinator.async_advance_schedule(entity_id)
+        _LOGGER.info(f"Advanced schedule for {entity_id}")
+    
+    async def handle_advance_group(call: ServiceCall) -> None:
+        """Handle advance_group service call."""
+        group_name = call.data["group_name"]
+        await coordinator.async_advance_group(group_name)
+        _LOGGER.info(f"Advanced schedule for group '{group_name}'")
+    
+    async def handle_cancel_advance(call: ServiceCall) -> None:
+        """Handle cancel_advance service call."""
+        entity_id = call.data["entity_id"]
+        await coordinator.async_cancel_advance(entity_id)
+        
+        # Force immediate update
+        if entity_id in coordinator.last_node_states:
+            del coordinator.last_node_states[entity_id]
+        
+        await coordinator.async_request_refresh()
+        _LOGGER.info(f"Cancelled advance for {entity_id}")
+    
+    async def handle_get_advance_status(call: ServiceCall) -> dict:
+        """Handle get_advance_status service call."""
+        entity_id = call.data["entity_id"]
+        status = await coordinator.async_get_advance_status(entity_id)
+        
+        return {
+            "entity_id": entity_id,
+            "is_advanced": status.get("is_advanced", False),
+            "advance_time": status.get("advance_time"),
+            "original_node": status.get("original_node"),
+            "advanced_node": status.get("advanced_node")
+        }
+    
+    async def handle_clear_advance_history(call: ServiceCall) -> None:
+        """Handle clear_advance_history service call."""
+        entity_id = call.data["entity_id"]
+        await storage.async_clear_advance_history(entity_id)
+        _LOGGER.info(f"Cleared advance history for {entity_id}")
+    
+    async def handle_create_profile(call: ServiceCall) -> None:
+        """Handle create_profile service call."""
+        target_id = call.data["entity_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        
+        try:
+            await storage.async_create_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Created profile '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error creating profile: {err}")
+            raise
+    
+    async def handle_delete_profile(call: ServiceCall) -> None:
+        """Handle delete_profile service call."""
+        target_id = call.data["entity_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        
+        try:
+            await storage.async_delete_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Deleted profile '{profile_name}' from {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error deleting profile: {err}")
+            raise
+    
+    async def handle_rename_profile(call: ServiceCall) -> None:
+        """Handle rename_profile service call."""
+        target_id = call.data["entity_id"]
+        old_name = call.data["old_name"]
+        new_name = call.data["new_name"]
+        is_group = call.data.get("is_group", False)
+        
+        try:
+            await storage.async_rename_profile(target_id, old_name, new_name, is_group)
+            _LOGGER.info(f"Renamed profile '{old_name}' to '{new_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        except ValueError as err:
+            _LOGGER.error(f"Error renaming profile: {err}")
+            raise
+    
+    async def handle_set_active_profile(call: ServiceCall) -> None:
+        """Handle set_active_profile service call."""
+        target_id = call.data["entity_id"]
+        profile_name = call.data["profile_name"]
+        is_group = call.data.get("is_group", False)
+        
+        try:
+            await storage.async_set_active_profile(target_id, profile_name, is_group)
+            _LOGGER.info(f"Set active profile to '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+            
+            # Force immediate update
+            if not is_group:
+                if target_id in coordinator.last_node_states:
+                    del coordinator.last_node_states[target_id]
+            else:
+                # If it's a group, clear state for all entities in the group
+                group_data = await storage.async_get_groups()
+                if target_id in group_data and "entities" in group_data[target_id]:
+                    for entity_id in group_data[target_id]["entities"]:
+                        if entity_id in coordinator.last_node_states:
+                            del coordinator.last_node_states[entity_id]
+            
+            await coordinator.async_request_refresh()
+        except ValueError as err:
+            _LOGGER.error(f"Error setting active profile: {err}")
+            raise
+    
+    async def handle_get_profiles(call: ServiceCall) -> dict:
+        """Handle get_profiles service call."""
+        target_id = call.data["entity_id"]
+        is_group = call.data.get("is_group", False)
+        profiles = await storage.async_get_profiles(target_id, is_group)
+        active_profile = await storage.async_get_active_profile_name(target_id, is_group)
+        return {
+            "profiles": profiles,
+            "active_profile": active_profile
+        }
+    
+    async def handle_cleanup_derivative_sensors(call: ServiceCall) -> dict:
+        """Handle cleanup_derivative_sensors service call."""
+        confirm_delete_all = call.data.get("confirm_delete_all", False)
+        result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
+        return result
+    
+    async def handle_factory_reset(call: ServiceCall) -> None:
+        """Handle factory_reset service call."""
+        confirm = call.data.get("confirm", False)
+        
+        if not confirm:
+            raise ValueError("Factory reset must be confirmed by setting 'confirm' to true")
+        
+        _LOGGER.warning("Factory reset initiated - deleting all schedules, groups, and settings")
+        
+        # Clear coordinator state
+        coordinator.last_node_states.clear()
+        
+        # Reset storage
+        await storage.async_factory_reset()
+        
+        # Force refresh
+        await coordinator.async_request_refresh()
+        
+        _LOGGER.info("Factory reset completed successfully")
+    
+    # Register all services with schemas
+    hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "set_ignored", handle_set_ignored, schema=SET_IGNORED_SCHEMA)
+    hass.services.async_register(DOMAIN, "sync_all", handle_sync_all)
+    hass.services.async_register(DOMAIN, "create_group", handle_create_group, schema=CREATE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "delete_group", handle_delete_group, schema=DELETE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "rename_group", handle_rename_group, schema=RENAME_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group, schema=ADD_TO_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "list_groups", handle_list_groups, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "list_profiles", handle_list_profiles, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, schema=SET_GROUP_SCHEDULE_SCHEMA)
+    hass.services.async_register(DOMAIN, "enable_group", handle_enable_group, schema=ENABLE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, schema=DISABLE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=SAVE_SETTINGS_SCHEMA)
+    hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
+    hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
+    hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_override_status", handle_get_advance_status, schema=ENTITY_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=ENTITY_SCHEMA)
+    hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, schema=CREATE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile, schema=DELETE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, schema=RENAME_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, schema=SET_ACTIVE_PROFILE_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, schema=CLEANUP_DERIVATIVE_SENSORS_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, schema=FACTORY_RESET_SCHEMA)
+    
+    _LOGGER.info("All Climate Scheduler services registered with dynamic selectors")
