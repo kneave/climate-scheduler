@@ -33,10 +33,18 @@ async def async_setup_entry(
     from homeassistant.helpers import device_registry as dr, entity_registry as er
     
     storage = hass.data[DOMAIN]["storage"]
+    coordinator = hass.data[DOMAIN]["coordinator"]
     
     # Get settings to check if derivative sensors are enabled
     settings = storage._data.get("settings", {})
+    sensors = []
+    
+    # Always create coldest and warmest sensors
+    sensors.append(ColdestEntitySensor(hass, storage, coordinator))
+    sensors.append(WarmestEntitySensor(hass, storage, coordinator))
+    
     if not settings.get("create_derivative_sensors", True):
+        async_add_entities(sensors, True)
         return
     
     # Get registries
@@ -45,7 +53,6 @@ async def async_setup_entry(
     
     # Create derivative sensors for all enabled entities
     entities = storage._data.get("entities", {})
-    sensors = []
     
     for entity_id, entity_data in entities.items():
         if entity_data.get("enabled", True):
@@ -240,4 +247,176 @@ class ClimateSchedulerRateSensor(SensorEntity):
             "temperature_attribute": self._temperature_attribute,
             "sample_count": len(self._samples),
             "time_window_minutes": 5,
+        }
+
+
+class ColdestEntitySensor(SensorEntity):
+    """Sensor that shows the coldest climate entity."""
+
+    def __init__(
+        self, 
+        hass: HomeAssistant,
+        storage,
+        coordinator
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._storage = storage
+        self._coordinator = coordinator
+        
+        self._attr_name = "Climate Scheduler Coldest Entity"
+        self._attr_unique_id = "climate_scheduler_coldest_entity"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        self._attr_icon = "mdi:snowflake"
+        self._attr_native_value = None
+        self._coldest_entity_id = None
+        self._coldest_friendly_name = None
+    
+    async def async_added_to_hass(self) -> None:
+        """Register state listener when entity is added."""
+        # Listen to coordinator updates
+        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        # Initial update
+        await self._async_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister listener when entity is removed."""
+        self._coordinator.async_remove_listener(self._handle_coordinator_update)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.hass.async_create_task(self._async_update())
+
+    async def _async_update(self) -> None:
+        """Update the sensor value."""
+        # Get all entities from groups
+        all_entities = await self._storage.async_get_all_entities()
+        
+        coldest_temp = None
+        coldest_entity = None
+        coldest_name = None
+        
+        for entity_id in all_entities:
+            # Skip ignored entities
+            if await self._storage.async_is_ignored(entity_id):
+                continue
+            
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            
+            # Check if entity has current_temperature attribute
+            current_temp = state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue
+            
+            try:
+                temp = float(current_temp)
+                if coldest_temp is None or temp < coldest_temp:
+                    coldest_temp = temp
+                    coldest_entity = entity_id
+                    coldest_name = state.attributes.get("friendly_name", entity_id)
+            except (ValueError, TypeError):
+                continue
+        
+        self._attr_native_value = coldest_temp
+        self._coldest_entity_id = coldest_entity
+        self._coldest_friendly_name = coldest_name
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        return {
+            "entity_id": self._coldest_entity_id,
+            "friendly_name": self._coldest_friendly_name,
+        }
+
+
+class WarmestEntitySensor(SensorEntity):
+    """Sensor that shows the warmest climate entity."""
+
+    def __init__(
+        self, 
+        hass: HomeAssistant,
+        storage,
+        coordinator
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._storage = storage
+        self._coordinator = coordinator
+        
+        self._attr_name = "Climate Scheduler Warmest Entity"
+        self._attr_unique_id = "climate_scheduler_warmest_entity"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        self._attr_icon = "mdi:fire"
+        self._attr_native_value = None
+        self._warmest_entity_id = None
+        self._warmest_friendly_name = None
+    
+    async def async_added_to_hass(self) -> None:
+        """Register state listener when entity is added."""
+        # Listen to coordinator updates
+        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        # Initial update
+        await self._async_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister listener when entity is removed."""
+        self._coordinator.async_remove_listener(self._handle_coordinator_update)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.hass.async_create_task(self._async_update())
+
+    async def _async_update(self) -> None:
+        """Update the sensor value."""
+        # Get all entities from groups
+        all_entities = await self._storage.async_get_all_entities()
+        
+        warmest_temp = None
+        warmest_entity = None
+        warmest_name = None
+        
+        for entity_id in all_entities:
+            # Skip ignored entities
+            if await self._storage.async_is_ignored(entity_id):
+                continue
+            
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            
+            # Check if entity has current_temperature attribute
+            current_temp = state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue
+            
+            try:
+                temp = float(current_temp)
+                if warmest_temp is None or temp > warmest_temp:
+                    warmest_temp = temp
+                    warmest_entity = entity_id
+                    warmest_name = state.attributes.get("friendly_name", entity_id)
+            except (ValueError, TypeError):
+                continue
+        
+        self._attr_native_value = warmest_temp
+        self._warmest_entity_id = warmest_entity
+        self._warmest_friendly_name = warmest_name
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        return {
+            "entity_id": self._warmest_entity_id,
+            "friendly_name": self._warmest_friendly_name,
         }
