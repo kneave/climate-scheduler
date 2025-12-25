@@ -4092,7 +4092,7 @@ function handleNodeSettings(event) {
 // Sync all thermostats to scheduled temperatures
 async function syncAllTemperatures() {
     try {
-        const button = getDocumentRoot().querySelector('#sync-all');
+        const button = getDocumentRoot().querySelector('#sync-all-menu');
         button.disabled = true;
         button.textContent = '⟲ Syncing...';
         
@@ -4100,15 +4100,17 @@ async function syncAllTemperatures() {
         
         button.textContent = '✓ Synced!';
         setTimeout(() => {
-            button.textContent = '⟲ Sync All';
+            button.textContent = '⟲ Sync All Thermostats';
             button.disabled = false;
         }, 2000);
     } catch (error) {
         console.error('Failed to sync temperatures:', error);
         alert('Failed to sync temperatures: ' + error.message);
-        const button = getDocumentRoot().querySelector('#sync-all');
-        button.textContent = '⟲ Sync All';
-        button.disabled = false;
+        const button = getDocumentRoot().querySelector('#sync-all-menu');
+        if (button) {
+            button.textContent = '⟲ Sync All Thermostats';
+            button.disabled = false;
+        }
     }
 }
 
