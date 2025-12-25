@@ -1135,8 +1135,6 @@ function createGroupMembersTable(entityIds) {
         <span class="toggle-icon">▶</span>
         <span class="toggle-text">Member Entities (${entityIds.length})</span>
     `;
-    toggleHeader.style.cursor = 'pointer';
-    toggleHeader.style.userSelect = 'none';
     
     // Create table
     const table = document.createElement('div');
@@ -1145,10 +1143,11 @@ function createGroupMembersTable(entityIds) {
     
     // Toggle functionality
     toggleHeader.onclick = async () => {
+        console.log('[Group Members Toggle] Clicked!');
         const isCollapsed = table.classList.contains('collapsed');
         if (isCollapsed) {
             // Fetch fresh entity states before expanding
-            await updateClimateEntities();
+            await loadClimateEntities();
             
             // Refresh table data
             const now = new Date();
