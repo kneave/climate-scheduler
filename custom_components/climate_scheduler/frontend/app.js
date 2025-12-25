@@ -469,23 +469,8 @@ function createGroupContainer(groupName, groupData) {
     const title = document.createElement('span');
     title.className = 'group-title';
     
-    // For single-entity groups, display the entity's friendly name only if the group name equals the entity ID
-    // (indicating an auto-created group). Otherwise, show the group name (user explicitly created it)
-    const isSingleEntity = groupData.entities && groupData.entities.length === 1;
-    if (isSingleEntity) {
-        const entityId = groupData.entities[0];
-        // Only show friendly name if group name matches entity ID (auto-created)
-        if (groupName === entityId) {
-            const entity = climateEntities.find(e => e.entity_id === entityId);
-            const friendlyName = entity?.attributes?.friendly_name || entityId;
-            title.textContent = friendlyName;
-        } else {
-            // User explicitly created this group with a custom name
-            title.textContent = groupName;
-        }
-    } else {
-        title.textContent = groupName;
-    }
+    // Always display the actual group name for consistency with service calls/actions
+    title.textContent = groupName;
     
     const count = document.createElement('span');
     count.className = 'group-count';
@@ -1025,7 +1010,7 @@ async function setupProfileHandlers(container, groupData) {
             if (!profileName || profileName.trim() === '') return;
             
             try {
-                await haAPI.createProfile(currentGroup, profileName.trim(), true);
+                await haAPI.createProfile(currentGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
                 await loadProfiles(container, currentGroup, true);
                 updateGraphProfileDropdown();
@@ -1048,7 +1033,7 @@ async function setupProfileHandlers(container, groupData) {
             if (!newName || newName.trim() === '' || newName === currentProfile) return;
             
             try {
-                await haAPI.renameProfile(currentGroup, currentProfile, newName.trim(), true);
+                await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
                 await loadProfiles(container, currentGroup, true);
                 updateGraphProfileDropdown();
@@ -1070,7 +1055,7 @@ async function setupProfileHandlers(container, groupData) {
             if (!confirm(`Delete profile "${currentProfile}"?`)) return;
             
             try {
-                await haAPI.deleteProfile(currentGroup, currentProfile, true);
+                await haAPI.deleteProfile(currentGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
                 await loadProfiles(container, currentGroup, true);
                 updateGraphProfileDropdown();
@@ -1085,7 +1070,7 @@ async function setupProfileHandlers(container, groupData) {
 // Load and populate profiles dropdown
 async function loadProfiles(container, targetId, isGroup) {
     try {
-        const result = await haAPI.getProfiles(targetId, isGroup);
+        const result = await haAPI.getProfiles(targetId);
         const profiles = result.profiles || {};
         const activeProfile = result.active_profile || 'Default';
         
@@ -2532,7 +2517,7 @@ function updateGraphProfileDropdown() {
         
         try {
             if (currentGroup) {
-                await haAPI.setActiveProfile(currentGroup, newProfile, true);
+                await haAPI.setActiveProfile(currentGroup, newProfile);
                 
                 // Reload group data from server
                 const groupsResult = await haAPI.getGroups();
@@ -2900,7 +2885,7 @@ async function saveSchedule() {
             
             // Temporarily switch to editing profile if needed
             if (needsProfileSwitch) {
-                await haAPI.setActiveProfile(currentGroup, editingProfile, true);
+                await haAPI.setActiveProfile(currentGroup, editingProfile);
             }
             
             // Save to group schedule with day and mode
@@ -2916,7 +2901,7 @@ async function saveSchedule() {
             
             // Switch back to original active profile if we changed it
             if (needsProfileSwitch && activeProfile) {
-                await haAPI.setActiveProfile(currentGroup, activeProfile, true);
+                await haAPI.setActiveProfile(currentGroup, activeProfile);
             }
             
             // Update enabled state

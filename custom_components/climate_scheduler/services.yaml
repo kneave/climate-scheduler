@@ -2,13 +2,12 @@ set_schedule:
   name: Set climate schedule
   description: Configure temperature schedule for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to control
+    schedule_id:
+      description: Climate entity ID to control
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
     nodes:
       description: List of schedule nodes with time and temperature
       required: true
@@ -32,49 +31,45 @@ get_schedule:
   name: Get climate schedule
   description: Retrieve the current schedule for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to get schedule for
+    schedule_id:
+      description: Climate entity ID to get schedule for
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 clear_schedule:
   name: Clear climate schedule
   description: Remove the schedule for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to clear schedule for
+    schedule_id:
+      description: Climate entity ID to clear schedule for
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 enable_schedule:
   name: Enable climate schedule
   description: Enable automatic scheduling for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to enable
+    schedule_id:
+      description: Climate entity ID to enable
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 disable_schedule:
   name: Disable climate schedule
   description: Disable automatic scheduling for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to disable
+    schedule_id:
+      description: Climate entity ID to disable
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 create_group:
   name: Create thermostat group
@@ -227,13 +222,12 @@ set_ignored:
   name: Set entity ignored status
   description: Mark an entity as ignored (not monitored) or un-ignore it
   fields:
-    entity_id:
-      description: Climate entity to set ignored status for
+    schedule_id:
+      description: Climate entity ID to set ignored status for
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
     ignored:
       description: Whether to ignore this entity (true) or monitor it (false)
       required: true
@@ -249,13 +243,12 @@ advance_schedule:
   name: Advance to next scheduled node
   description: Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet
   fields:
-    entity_id:
-      description: Climate entity to advance to next scheduled node
+    schedule_id:
+      description: Climate entity ID to advance to next scheduled node
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 advance_group:
   name: Advance group to next scheduled node
@@ -272,46 +265,43 @@ cancel_advance:
   name: Cancel advance override
   description: Cancel an active advance override and return the climate entity to its current scheduled settings
   fields:
-    entity_id:
-      description: Climate entity to cancel advance for
+    schedule_id:
+      description: Climate entity ID to cancel advance for
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 clear_advance_history:
   name: Clear advance history
   description: Clear all advance history markers for a climate entity
   fields:
-    entity_id:
-      description: Climate entity to clear history for
+    schedule_id:
+      description: Climate entity ID to clear history for
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 get_override_status:
   name: Get override status
   description: Check if a climate entity has an active advance override
   fields:
-    entity_id:
-      description: Climate entity to check
+    schedule_id:
+      description: Climate entity ID to check
       required: true
       example: "climate.living_room"
       selector:
-        entity:
-          domain: climate
+        text:
 
 create_profile:
   name: Create schedule profile
-  description: Create a new schedule profile for an entity or group
+  description: Create a new schedule profile
   fields:
-    entity_id:
-      description: Climate entity ID or group name to create profile for
+    schedule_id:
+      description: Schedule name to create profile for
       required: true
-      example: "climate.living_room"
+      example: "living_room"
       selector:
         text:
     profile_name:
@@ -320,22 +310,15 @@ create_profile:
       example: "Winter Schedule"
       selector:
         text:
-    is_group:
-      description: Whether this is a group (true) or entity (false)
-      required: false
-      default: false
-      example: false
-      selector:
-        boolean:
 
 delete_profile:
   name: Delete schedule profile
-  description: Delete a schedule profile from an entity or group
+  description: Delete a schedule profile
   fields:
-    entity_id:
-      description: Climate entity ID or group name to delete profile from
+    schedule_id:
+      description: Schedule name to delete profile from
       required: true
-      example: "climate.living_room"
+      example: "living_room"
       selector:
         text:
     profile_name:
@@ -344,22 +327,15 @@ delete_profile:
       example: "Winter Schedule"
       selector:
         text:
-    is_group:
-      description: Whether this is a group (true) or entity (false)
-      required: false
-      default: false
-      example: false
-      selector:
-        boolean:
 
 rename_profile:
   name: Rename schedule profile
-  description: Rename a schedule profile for an entity or group
+  description: Rename a schedule profile
   fields:
-    entity_id:
-      description: Climate entity ID or group name
+    schedule_id:
+      description: Schedule name to rename profile for
       required: true
-      example: "climate.living_room"
+      example: "living_room"
       selector:
         text:
     old_name:
@@ -374,22 +350,15 @@ rename_profile:
       example: "Cold Weather Schedule"
       selector:
         text:
-    is_group:
-      description: Whether this is a group (true) or entity (false)
-      required: false
-      default: false
-      example: false
-      selector:
-        boolean:
 
 set_active_profile:
   name: Set active schedule profile
-  description: Switch to a different schedule profile for an entity or group
+  description: Switch to a different schedule profile
   fields:
-    entity_id:
-      description: Climate entity ID or group name
+    schedule_id:
+      description: Schedule name
       required: true
-      example: "climate.living_room"
+      example: "living_room"
       selector:
         text:
     profile_name:
@@ -398,31 +367,17 @@ set_active_profile:
       example: "Winter Schedule"
       selector:
         text:
-    is_group:
-      description: Whether this is a group (true) or entity (false)
-      required: false
-      default: false
-      example: false
-      selector:
-        boolean:
 
 get_profiles:
   name: Get schedule profiles
-  description: Get list of all available profiles for an entity or group
+  description: Get list of all available profiles
   fields:
-    entity_id:
-      description: Climate entity ID or group name
+    schedule_id:
+      description: Schedule name
       required: true
-      example: "climate.living_room"
+      example: "living_room"
       selector:
         text:
-    is_group:
-      description: Whether this is a group (true) or entity (false)
-      required: false
-      default: false
-      example: false
-      selector:
-        boolean:
 
 cleanup_derivative_sensors:
   name: Cleanup derivative sensors

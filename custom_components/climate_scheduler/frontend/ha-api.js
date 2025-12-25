@@ -242,7 +242,7 @@ class HomeAssistantAPI {
     async getSchedule(entityId, day = null) {
         try {
             const serviceData = {
-                entity_id: entityId
+                schedule_id: entityId
             };
             
             if (day) {
@@ -261,7 +261,7 @@ class HomeAssistantAPI {
     
     async setSchedule(entityId, nodes, day = null, scheduleMode = null) {
         const serviceData = {
-            entity_id: entityId,
+            schedule_id: entityId,
             nodes: nodes
         };
         
@@ -277,19 +277,19 @@ class HomeAssistantAPI {
     
     async enableSchedule(entityId) {
         return await this.callService('climate_scheduler', 'enable_schedule', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async disableSchedule(entityId) {
         return await this.callService('climate_scheduler', 'disable_schedule', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async advanceSchedule(entityId) {
         return await this.callService('climate_scheduler', 'advance_schedule', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
@@ -301,14 +301,14 @@ class HomeAssistantAPI {
     
     async cancelAdvance(entityId) {
         return await this.callService('climate_scheduler', 'cancel_advance', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async getAdvanceStatus(entityId) {
         try {
             const result = await this.callService('climate_scheduler', 'get_advance_status', {
-                entity_id: entityId
+                schedule_id: entityId
             }, true);
             return result;
         } catch (error) {
@@ -319,20 +319,20 @@ class HomeAssistantAPI {
     
     async clearAdvanceHistory(entityId) {
         return await this.callService('climate_scheduler', 'clear_advance_history', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async cancelAdvance(entityId) {
         return await this.callService('climate_scheduler', 'cancel_advance', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async getOverrideStatus(entityId) {
         try {
             const result = await this.callService('climate_scheduler', 'get_override_status', {
-                entity_id: entityId
+                schedule_id: entityId
             }, true);
             return result;
         } catch (error) {
@@ -343,13 +343,13 @@ class HomeAssistantAPI {
     
     async clearSchedule(entityId) {
         return await this.callService('climate_scheduler', 'clear_schedule', {
-            entity_id: entityId
+            schedule_id: entityId
         });
     }
     
     async setIgnored(entityId, ignored) {
         return await this.callService('climate_scheduler', 'set_ignored', {
-            entity_id: entityId,
+            schedule_id: entityId,
             ignored: ignored
         });
     }
@@ -504,44 +504,40 @@ class HomeAssistantAPI {
     }
     
     // Profile management methods
-    async createProfile(targetId, profileName, isGroup = false) {
+    async createProfile(scheduleId, profileName, isGroup = false) {
         return await this.callService('climate_scheduler', 'create_profile', {
-            target_id: targetId,
+            schedule_id: scheduleId,
             profile_name: profileName,
             is_group: isGroup
         });
     }
     
-    async deleteProfile(targetId, profileName, isGroup = false) {
+    async deleteProfile(scheduleId, profileName) {
         return await this.callService('climate_scheduler', 'delete_profile', {
-            target_id: targetId,
-            profile_name: profileName,
-            is_group: isGroup
+            schedule_id: scheduleId,
+            profile_name: profileName
         });
     }
     
-    async renameProfile(targetId, oldName, newName, isGroup = false) {
+    async renameProfile(scheduleId, oldName, newName) {
         return await this.callService('climate_scheduler', 'rename_profile', {
-            target_id: targetId,
+            schedule_id: scheduleId,
             old_name: oldName,
-            new_name: newName,
-            is_group: isGroup
+            new_name: newName
         });
     }
     
-    async setActiveProfile(targetId, profileName, isGroup = false) {
+    async setActiveProfile(scheduleId, profileName) {
         return await this.callService('climate_scheduler', 'set_active_profile', {
-            target_id: targetId,
-            profile_name: profileName,
-            is_group: isGroup
+            schedule_id: scheduleId,
+            profile_name: profileName
         });
     }
     
-    async getProfiles(targetId, isGroup = false) {
+    async getProfiles(scheduleId) {
         try {
             const result = await this.callService('climate_scheduler', 'get_profiles', {
-                target_id: targetId,
-                is_group: isGroup
+                schedule_id: scheduleId
             }, true);
             return result;
         } catch (error) {
