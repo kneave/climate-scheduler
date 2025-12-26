@@ -51,47 +51,54 @@ async def async_setup_entry(
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     
-    # Create derivative sensors for all enabled entities
-    entities = storage._data.get("entities", {})
+    # Get all entities from groups (both single and multi-entity groups)
+    all_entity_ids = await storage.async_get_all_entities()
     
-    for entity_id, entity_data in entities.items():
-        if entity_data.get("enabled", True):
-            # Find the device for this climate entity
-            entity_entry = entity_registry.async_get(entity_id)
-            _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
+    for entity_id in all_entity_ids:
+        # Skip ignored entities
+        if await storage.async_is_ignored(entity_id):
+            continue
             
-            device_id = None
-            if entity_entry and entity_entry.device_id:
-                device_id = entity_entry.device_id
-                _LOGGER.debug(f"Found device {device_id} for {entity_id}")
+        # Skip disabled schedules
+        if not await storage.async_is_enabled(entity_id):
+            continue
+        
+        # Find the device for this climate entity
+        entity_entry = entity_registry.async_get(entity_id)
+        _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
+        
+        device_id = None
+        if entity_entry and entity_entry.device_id:
+            device_id = entity_entry.device_id
+            _LOGGER.debug(f"Found device {device_id} for {entity_id}")
+        
+        # Create main temperature rate sensor
+        _LOGGER.debug(f"Creating derivative sensor for {entity_id}")
+        sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature", device_id))
+        
+        if device_id:
+            # Find all sensor entities on the same device
+            device_sensors = [
+                entry for entry in entity_registry.entities.values()
+                if entry.device_id == device_id 
+                and entry.domain == "sensor"
+                and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
+            ]
             
-            # Create main temperature rate sensor
-            _LOGGER.debug(f"Creating derivative sensor for {entity_id}")
-            sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature", device_id))
+            _LOGGER.debug(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
             
-            if device_id:
-                # Find all sensor entities on the same device
-                device_sensors = [
-                    entry for entry in entity_registry.entities.values()
-                    if entry.device_id == device_id 
-                    and entry.domain == "sensor"
-                    and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
-                ]
-                
-                _LOGGER.debug(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
-                
-                # Create derivative sensors for floor temperature sensors
-                for floor_sensor in device_sensors:
-                    _LOGGER.debug(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
-                    sensors.append(ClimateSchedulerRateSensor(
-                        hass, 
-                        entity_id,  # Associated climate entity
-                        floor_sensor.entity_id,  # Floor sensor to track
-                        "state",  # Use state instead of attribute
-                        device_id  # Link to same device
-                    ))
-            else:
-                _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
+            # Create derivative sensors for floor temperature sensors
+            for floor_sensor in device_sensors:
+                _LOGGER.debug(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
+                sensors.append(ClimateSchedulerRateSensor(
+                    hass, 
+                    entity_id,  # Associated climate entity
+                    floor_sensor.entity_id,  # Floor sensor to track
+                    "state",  # Use state instead of attribute
+                    device_id  # Link to same device
+                ))
+        else:
+            _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
     
     if sensors:
         async_add_entities(sensors, True)
