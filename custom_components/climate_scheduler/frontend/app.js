@@ -3902,6 +3902,9 @@ function setupEventListeners() {
     
     // Initialize settings panel
     setupSettingsPanel();
+    
+    // Initialize performance tracking card
+    setupPerformanceTrackingCard();
 }
 
 // Handle node settings panel
@@ -4239,6 +4242,34 @@ async function loadSettings() {
                 checkbox.checked = settings.create_derivative_sensors;
             }
         }
+        
+        // Load performance tracking settings
+        if (settings && settings.performance_tracking) {
+            const performanceToggle = getDocumentRoot().querySelector('#performance-tracking-enabled');
+            const outdoorSensorContainer = getDocumentRoot().querySelector('#outdoor-sensor-container');
+            const outdoorSensorSelect = getDocumentRoot().querySelector('#outdoor-sensor-select');
+            const performanceStatus = getDocumentRoot().querySelector('#performance-status');
+            
+            if (performanceToggle) {
+                performanceToggle.checked = settings.performance_tracking.enabled || false;
+                
+                if (outdoorSensorContainer) {
+                    outdoorSensorContainer.style.display = settings.performance_tracking.enabled ? 'block' : 'none';
+                }
+                if (performanceStatus) {
+                    performanceStatus.style.display = settings.performance_tracking.enabled ? 'block' : 'none';
+                }
+            }
+            
+            if (outdoorSensorSelect && settings.performance_tracking.outdoor_sensor) {
+                outdoorSensorSelect.value = settings.performance_tracking.outdoor_sensor;
+            }
+            
+            if (settings.performance_tracking.enabled && performanceStatus) {
+                updatePerformanceStatus();
+            }
+        }
+        
         // Load min/max temps if present (convert if unit changed)
         if (settings && typeof settings.min_temp !== 'undefined') {
             let minTemp = parseFloat(settings.min_temp);
@@ -4310,6 +4341,17 @@ async function saveSettings() {
         if (derivativeCheckbox) {
             settings.create_derivative_sensors = derivativeCheckbox.checked;
         }
+        
+        // Read performance tracking settings
+        const performanceToggle = getDocumentRoot().querySelector('#performance-tracking-enabled');
+        const outdoorSensorSelect = getDocumentRoot().querySelector('#outdoor-sensor-select');
+        if (performanceToggle || outdoorSensorSelect) {
+            settings.performance_tracking = {
+                enabled: performanceToggle?.checked || false,
+                outdoor_sensor: outdoorSensorSelect?.value || null
+            };
+        }
+        
         await haAPI.saveSettings(settings);
         // Update runtime globals and graphs
         if (typeof settings.min_temp !== 'undefined') {
@@ -4603,7 +4645,144 @@ async function setupSettingsPanel() {
             }
         });
     }
+    
+    // Performance tracking toggle
+    const performanceToggle = getDocumentRoot().querySelector('#performance-tracking-enabled');
+    const outdoorSensorContainer = getDocumentRoot().querySelector('#outdoor-sensor-container');
+    const performanceStatus = getDocumentRoot().querySelector('#performance-status');
+    
+    if (performanceToggle) {
+        performanceToggle.addEventListener('change', async (e) => {
+            try {
+                const enabled = e.target.checked;
+                
+                // Show/hide outdoor sensor dropdown
+                if (outdoorSensorContainer) {
+                    outdoorSensorContainer.style.display = enabled ? 'block' : 'none';
+                }
+                if (performanceStatus) {
+                    performanceStatus.style.display = enabled ? 'block' : 'none';
+                }
+                
+                // Save all settings including performance tracking
+                await saveSettings();
+                showToast(`Performance tracking ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                
+                if (enabled) {
+                    updatePerformanceStatus();
+                    await populatePerformanceEntitySelect();
+                    await loadPerformanceData();
+                }
+                
+                // Update card visibility
+                await updatePerformanceCardVisibility();
+            } catch (error) {
+                console.error('Failed to save performance tracking settings:', error);
+                showToast('Failed to save performance tracking settings', 'error');
+                // Revert toggle
+                e.target.checked = !e.target.checked;
+            }
+        });
+    }
+    
+    // Outdoor sensor dropdown
+    const outdoorSensorSelect = getDocumentRoot().querySelector('#outdoor-sensor-select');
+    if (outdoorSensorSelect) {
+        // Populate with temperature sensors
+        populateOutdoorSensorDropdown();
+        
+        outdoorSensorSelect.addEventListener('change', async (e) => {
+            try {
+                await saveSettings();
+                showToast('Outdoor sensor updated', 'success');
+                updatePerformanceStatus();
+            } catch (error) {
+                console.error('Failed to save outdoor sensor:', error);
+                showToast('Failed to save outdoor sensor', 'error');
+            }
+        });
+    }
 
+}
+
+// Populate outdoor sensor dropdown with temperature sensors
+async function populateOutdoorSensorDropdown() {
+    try {
+        const select = getDocumentRoot().querySelector('#outdoor-sensor-select');
+        if (!select) return;
+        
+        // Get all entities from Home Assistant
+        const states = await haAPI.getStates();
+        
+        // Filter for temperature sensors
+        const tempSensors = states.filter(entity => 
+            entity.entity_id.startsWith('sensor.') &&
+            (entity.attributes.device_class === 'temperature' ||
+             entity.attributes.unit_of_measurement === '°C' ||
+             entity.attributes.unit_of_measurement === '°F' ||
+             entity.entity_id.includes('temperature') ||
+             entity.entity_id.includes('temp'))
+        ).sort((a, b) => {
+            const nameA = a.attributes.friendly_name || a.entity_id;
+            const nameB = b.attributes.friendly_name || b.entity_id;
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Clear existing options except first
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">-- Select outdoor sensor --</option>';
+        
+        // Add temperature sensors
+        tempSensors.forEach(sensor => {
+            const option = document.createElement('option');
+            option.value = sensor.entity_id;
+            option.textContent = sensor.attributes.friendly_name || sensor.entity_id;
+            if (sensor.entity_id === currentValue) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Failed to populate outdoor sensor dropdown:', error);
+    }
+}
+
+// Update performance tracking status display
+async function updatePerformanceStatus() {
+    try {
+        const statusDiv = getDocumentRoot().querySelector('#performance-status-text');
+        if (!statusDiv) return;
+        
+        const settings = await haAPI.getSettings();
+        const performanceSettings = settings?.performance_tracking || {};
+        
+        if (!performanceSettings.enabled) {
+            statusDiv.innerHTML = '<span style="color: var(--warning);">⚠ Disabled</span>';
+            return;
+        }
+        
+        let statusHtml = '<span style="color: var(--success);">✓ Active</span><br>';
+        
+        if (performanceSettings.outdoor_sensor) {
+            statusHtml += `<small>Outdoor sensor: ${performanceSettings.outdoor_sensor}</small><br>`;
+        } else {
+            statusHtml += '<small style="color: var(--warning);">⚠ No outdoor sensor configured</small><br>';
+        }
+        
+        // Try to get basic stats
+        try {
+            const stats = await haAPI.getPerformanceStats();
+            const entityCount = Object.keys(stats || {}).length;
+            statusHtml += `<small>Tracking ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}</small>`;
+        } catch (err) {
+            // Stats not available yet
+            statusHtml += '<small>No data collected yet</small>';
+        }
+        
+        statusDiv.innerHTML = statusHtml;
+    } catch (error) {
+        console.error('Failed to update performance status:', error);
+    }
 }
 
 // Handle node settings for default schedule
@@ -4858,6 +5037,283 @@ async function loadAdvanceHistory(entityId) {
         }
     } catch (error) {
         console.error('Failed to load advance history:', error);
+    }
+}
+
+// Performance Tracking Card Functions
+async function setupPerformanceTrackingCard() {
+    const performanceCard = getDocumentRoot().querySelector('#performance-card');
+    if (!performanceCard) return;
+    
+    // Load initial state
+    await updatePerformanceCardVisibility();
+    
+    // Entity selector
+    const entitySelect = getDocumentRoot().querySelector('#performance-entity-select');
+    if (entitySelect) {
+        entitySelect.addEventListener('change', async () => {
+            await loadPerformanceData();
+        });
+    }
+    
+    // Filter buttons
+    const applyFiltersBtn = getDocumentRoot().querySelector('#apply-filters-btn');
+    if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener('click', async () => {
+            await loadPerformanceData();
+        });
+    }
+    
+    const clearFiltersBtn = getDocumentRoot().querySelector('#clear-filters-btn');
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', () => {
+            getDocumentRoot().querySelector('#filter-session-type').value = '';
+            getDocumentRoot().querySelector('#filter-season').value = '';
+            getDocumentRoot().querySelector('#filter-time-category').value = '';
+            getDocumentRoot().querySelector('#filter-day-of-week').value = '';
+            loadPerformanceData();
+        });
+    }
+    
+    const exportBtn = getDocumentRoot().querySelector('#export-data-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', async () => {
+            await exportPerformanceData();
+        });
+    }
+    
+    // Initial load if enabled
+    const settings = await haAPI.getSettings();
+    if (settings?.performance_tracking?.enabled) {
+        await populatePerformanceEntitySelect();
+        await loadPerformanceData();
+    }
+}
+
+async function updatePerformanceCardVisibility() {
+    const settings = await haAPI.getSettings();
+    const enabled = settings?.performance_tracking?.enabled || false;
+    
+    const disabledMessage = getDocumentRoot().querySelector('#performance-disabled-message');
+    const enabledContent = getDocumentRoot().querySelector('#performance-enabled-content');
+    
+    if (disabledMessage) disabledMessage.style.display = enabled ? 'none' : 'block';
+    if (enabledContent) enabledContent.style.display = enabled ? 'block' : 'none';
+}
+
+async function populatePerformanceEntitySelect() {
+    const select = getDocumentRoot().querySelector('#performance-entity-select');
+    if (!select) return;
+    
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">-- All Entities --</option>';
+    
+    // Get all climate entities
+    climateEntities.forEach(entity => {
+        const option = document.createElement('option');
+        option.value = entity.entity_id;
+        option.textContent = entity.attributes.friendly_name || entity.entity_id;
+        if (entity.entity_id === currentValue) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
+}
+
+async function loadPerformanceData() {
+    const entitySelect = getDocumentRoot().querySelector('#performance-entity-select');
+    const entityId = entitySelect?.value || null;
+    
+    // Load statistics
+    await loadPerformanceStats(entityId);
+    
+    // Load sessions with filters
+    await loadPerformanceSessions(entityId);
+}
+
+async function loadPerformanceStats(entityId) {
+    try {
+        const statsContainer = getDocumentRoot().querySelector('#performance-stats-grid');
+        if (!statsContainer) return;
+        
+        statsContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--text-secondary);">Loading statistics...</div>';
+        
+        const allStats = await haAPI.getPerformanceStats(entityId);
+        
+        if (!allStats || Object.keys(allStats).length === 0) {
+            statsContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--text-secondary);">No performance data available yet. Data will be collected as your thermostats operate.</div>';
+            return;
+        }
+        
+        statsContainer.innerHTML = '';
+        
+        for (const [entId, stats] of Object.entries(allStats)) {
+            const entity = climateEntities.find(e => e.entity_id === entId);
+            const entityName = entity?.attributes.friendly_name || entId;
+            
+            const card = document.createElement('div');
+            card.style.cssText = 'padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;';
+            
+            let heatingHtml = '';
+            let coolingHtml = '';
+            
+            if (stats.heating) {
+                heatingHtml = `
+                    <div style="margin-top: 12px;">
+                        <strong style="color: var(--heating);">🔥 Heating</strong>
+                        <div style="margin-top: 6px; font-size: 0.9rem;">
+                            <div>Avg Rate: <strong>${stats.heating.avg_rate.toFixed(2)}°${temperatureUnit}/h</strong></div>
+                            <div>Sessions: ${stats.heating.session_count}</div>
+                            ${stats.heating.avg_outdoor_differential ? `<div>Avg Outdoor Diff: ${stats.heating.avg_outdoor_differential.toFixed(1)}°${temperatureUnit}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (stats.cooling) {
+                coolingHtml = `
+                    <div style="margin-top: 12px;">
+                        <strong style="color: var(--cooling);">❄️ Cooling</strong>
+                        <div style="margin-top: 6px; font-size: 0.9rem;">
+                            <div>Avg Rate: <strong>${Math.abs(stats.cooling.avg_rate).toFixed(2)}°${temperatureUnit}/h</strong></div>
+                            <div>Sessions: ${stats.cooling.session_count}</div>
+                            ${stats.cooling.avg_outdoor_differential ? `<div>Avg Outdoor Diff: ${Math.abs(stats.cooling.avg_outdoor_differential).toFixed(1)}°${temperatureUnit}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            card.innerHTML = `
+                <strong style="display: block; margin-bottom: 8px; font-size: 1.05rem;">${entityName}</strong>
+                ${heatingHtml}
+                ${coolingHtml}
+            `;
+            
+            statsContainer.appendChild(card);
+        }
+    } catch (error) {
+        console.error('Failed to load performance stats:', error);
+        const statsContainer = getDocumentRoot().querySelector('#performance-stats-grid');
+        if (statsContainer) {
+            statsContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--error);">Failed to load statistics</div>';
+        }
+    }
+}
+
+async function loadPerformanceSessions(entityId) {
+    try {
+        const sessionsList = getDocumentRoot().querySelector('#performance-sessions-list');
+        const sessionCount = getDocumentRoot().querySelector('#session-count');
+        if (!sessionsList) return;
+        
+        sessionsList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading sessions...</div>';
+        
+        // Build filters
+        const filters = {};
+        if (entityId) filters.entity_id = entityId;
+        
+        const sessionType = getDocumentRoot().querySelector('#filter-session-type')?.value;
+        if (sessionType) filters.session_type = sessionType;
+        
+        const season = getDocumentRoot().querySelector('#filter-season')?.value;
+        if (season) filters.season = season;
+        
+        const timeCategory = getDocumentRoot().querySelector('#filter-time-category')?.value;
+        if (timeCategory) filters.time_category = timeCategory;
+        
+        const dayOfWeek = getDocumentRoot().querySelector('#filter-day-of-week')?.value;
+        if (dayOfWeek) filters.day_of_week = dayOfWeek;
+        
+        filters.completed_only = true;
+        
+        const result = await haAPI.getPerformanceSessions(filters);
+        const sessions = result.sessions || [];
+        
+        if (sessionCount) {
+            sessionCount.textContent = `(${sessions.length} sessions)`;
+        }
+        
+        if (sessions.length === 0) {
+            sessionsList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">No sessions found matching the filters.</div>';
+            return;
+        }
+        
+        sessionsList.innerHTML = '';
+        
+        // Sort by start time descending (newest first)
+        sessions.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+        
+        // Show most recent 50
+        sessions.slice(0, 50).forEach(session => {
+            const entity = climateEntities.find(e => e.entity_id === session.entity_id);
+            const entityName = entity?.attributes.friendly_name || session.entity_id;
+            
+            const startDate = new Date(session.start_time);
+            const sessionCard = document.createElement('div');
+            sessionCard.style.cssText = 'padding: 12px; margin-bottom: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem;';
+            
+            const typeColor = session.session_type === 'heating' ? 'var(--heating)' : 'var(--cooling)';
+            const typeIcon = session.session_type === 'heating' ? '🔥' : '❄️';
+            
+            sessionCard.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                    <strong>${entityName}</strong>
+                    <span style="color: ${typeColor};">${typeIcon} ${session.session_type}</span>
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 6px;">
+                    ${startDate.toLocaleDateString()} ${startDate.toLocaleTimeString()} • ${session.duration_minutes.toFixed(0)} min
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
+                    <div><span style="color: var(--text-secondary);">Temp Change:</span> ${session.temp_change > 0 ? '+' : ''}${session.temp_change.toFixed(1)}°${temperatureUnit}</div>
+                    <div><span style="color: var(--text-secondary);">Rate:</span> ${session.rate.toFixed(2)}°${temperatureUnit}/h</div>
+                    ${session.outdoor_temps && session.outdoor_temps.start != null ? `<div><span style="color: var(--text-secondary);">Outdoor:</span> ${session.outdoor_temps.start.toFixed(1)}°${temperatureUnit}</div>` : ''}
+                    ${session.hvac_mode ? `<div><span style="color: var(--text-secondary);">Mode:</span> ${session.hvac_mode}</div>` : ''}
+                </div>
+            `;
+            
+            sessionsList.appendChild(sessionCard);
+        });
+        
+        if (sessions.length > 50) {
+            const moreMsg = document.createElement('div');
+            moreMsg.style.cssText = 'text-align: center; padding: 12px; color: var(--text-secondary); font-size: 0.9rem;';
+            moreMsg.textContent = `Showing 50 of ${sessions.length} sessions`;
+            sessionsList.appendChild(moreMsg);
+        }
+    } catch (error) {
+        console.error('Failed to load performance sessions:', error);
+        const sessionsList = getDocumentRoot().querySelector('#performance-sessions-list');
+        if (sessionsList) {
+            sessionsList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--error);">Failed to load sessions</div>';
+        }
+    }
+}
+
+async function exportPerformanceData() {
+    try {
+        const entitySelect = getDocumentRoot().querySelector('#performance-entity-select');
+        const entityId = entitySelect?.value || null;
+        
+        const filters = {};
+        if (entityId) filters.entity_id = entityId;
+        
+        const data = await haAPI.exportPerformanceData(filters);
+        
+        // Download as JSON
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `performance-data-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showToast('Performance data exported successfully', 'success');
+    } catch (error) {
+        console.error('Failed to export performance data:', error);
+        showToast('Failed to export performance data', 'error');
     }
 }
 

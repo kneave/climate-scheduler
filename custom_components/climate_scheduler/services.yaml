@@ -401,3 +401,168 @@ factory_reset:
       example: true
       selector:
         boolean:
+
+get_performance_stats:
+  name: Get performance statistics
+  description: Retrieve heating/cooling performance statistics for climate entities
+  fields:
+    entity_id:
+      description: Climate entity ID to get stats for (leave empty for all entities)
+      required: false
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+get_performance_sessions:
+  name: Get performance sessions
+  description: Query performance tracking sessions with optional filters
+  fields:
+    entity_id:
+      description: Climate entity ID to filter by
+      required: false
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+    session_type:
+      description: Filter by session type
+      required: false
+      example: "heating"
+      selector:
+        select:
+          options:
+            - "heating"
+            - "cooling"
+    start_date:
+      description: Filter sessions starting from this date (YYYY-MM-DD)
+      required: false
+      example: "2024-01-01"
+      selector:
+        text:
+    end_date:
+      description: Filter sessions ending before this date (YYYY-MM-DD)
+      required: false
+      example: "2024-12-31"
+      selector:
+        text:
+    day_of_week:
+      description: Filter by day of week
+      required: false
+      example: "monday"
+      selector:
+        select:
+          options:
+            - "monday"
+            - "tuesday"
+            - "wednesday"
+            - "thursday"
+            - "friday"
+            - "saturday"
+            - "sunday"
+    time_category:
+      description: Filter by time of day
+      required: false
+      example: "morning"
+      selector:
+        select:
+          options:
+            - "night"
+            - "morning"
+            - "afternoon"
+            - "evening"
+    season:
+      description: Filter by season
+      required: false
+      example: "winter"
+      selector:
+        select:
+          options:
+            - "winter"
+            - "spring"
+            - "summer"
+            - "fall"
+    profile_name:
+      description: Filter by active profile name
+      required: false
+      example: "Winter Schedule"
+      selector:
+        text:
+    completed_only:
+      description: Only return completed sessions (exclude interrupted)
+      required: false
+      default: true
+      example: true
+      selector:
+        boolean:
+
+save_performance_settings:
+  name: Save performance tracking settings
+  description: Enable/disable performance tracking and configure outdoor temperature sensor
+  fields:
+    enabled:
+      description: Enable or disable performance tracking
+      required: true
+      example: true
+      selector:
+        boolean:
+    outdoor_sensor:
+      description: Outdoor temperature sensor entity ID
+      required: false
+      example: "sensor.outdoor_temperature"
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+reset_performance_history:
+  name: Reset performance history
+  description: Clear performance tracking history for one or all entities
+  fields:
+    entity_id:
+      description: Climate entity ID to clear history for (leave empty for all entities)
+      required: false
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+    months:
+      description: List of specific months to delete (YYYY_MM format, leave empty for all)
+      required: false
+      example: '["2024_01", "2024_02"]'
+
+recalculate_performance_stats:
+  name: Recalculate performance statistics
+  description: Recalculate aggregate statistics from raw session data
+  fields:
+    entity_id:
+      description: Climate entity ID to recalculate for (leave empty for all entities)
+      required: false
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+
+export_performance_data:
+  name: Export performance data
+  description: Export performance sessions and statistics to JSON format
+  fields:
+    entity_id:
+      description: Climate entity ID to export data for
+      required: false
+      example: "climate.living_room"
+      selector:
+        entity:
+          domain: climate
+    start_date:
+      description: Export sessions starting from this date (YYYY-MM-DD)
+      required: false
+      example: "2024-01-01"
+      selector:
+        text:
+    end_date:
+      description: Export sessions ending before this date (YYYY-MM-DD)
+      required: false
+      example: "2024-12-31"
+      selector:
+        text:

@@ -389,6 +389,30 @@ class ClimateSchedulerPanel extends HTMLElement {
                                             <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">When enabled, creates sensor.climate_scheduler_[name]_rate for each thermostat to track temperature change rate (°C/h)</p>
                                         </div>
                                     </div>
+                                    
+                                    <div class="settings-section">
+                                        <h4>Performance Tracking</h4>
+                                        <p class="settings-description">Track heating/cooling performance over time to measure insulation and HVAC efficiency</p>
+                                        <div class="setting-item">
+                                            <label>
+                                                <input type="checkbox" id="performance-tracking-enabled" style="margin-right: 8px;"> Enable performance tracking
+                                            </label>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Tracks how quickly rooms heat and cool, comparing against outdoor temperature and other contextual data</p>
+                                        </div>
+                                        <div class="setting-item" id="outdoor-sensor-container" style="margin-top: 16px; display: none;">
+                                            <label for="outdoor-sensor-select" style="font-weight: 600; display: block; margin-bottom: 8px;">Outdoor Temperature Sensor</label>
+                                            <select id="outdoor-sensor-select" style="width: 100%; max-width: 400px; padding: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
+                                                <option value="">-- Select outdoor sensor --</option>
+                                            </select>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Select a temperature sensor that measures outdoor temperature for differential analysis</p>
+                                        </div>
+                                        <div id="performance-status" style="margin-top: 12px; padding: 12px; background: var(--surface-light); border-radius: 6px; display: none;">
+                                            <strong style="display: block; margin-bottom: 6px;">Status:</strong>
+                                            <div style="font-size: 0.9rem; color: var(--text-secondary);">
+                                                <div id="performance-status-text">Initializing...</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- right column removed: min/max now inline in Graph Options -->
@@ -401,6 +425,98 @@ class ClimateSchedulerPanel extends HTMLElement {
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
                                 <button id="cleanup-derivative-sensors-btn" class="btn-secondary">🧹 Cleanup Derivative Sensors</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Performance Tracking Card -->
+                    <div id="performance-card" class="settings-panel" style="margin-top: 20px;">
+                        <div class="settings-header">
+                            <h3>📊 Performance Tracking</h3>
+                        </div>
+                        <div class="settings-content" style="padding: 20px;">
+                            <div id="performance-disabled-message" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                                <p style="font-size: 1.1rem; margin-bottom: 12px;">⚠️ Performance tracking is disabled</p>
+                                <p>Enable it in the settings panel above to start collecting heating and cooling performance data.</p>
+                            </div>
+                            
+                            <div id="performance-enabled-content" style="display: none;">
+                                <!-- Entity Selection -->
+                                <div class="setting-item" style="margin-bottom: 20px;">
+                                    <label for="performance-entity-select" style="font-weight: 600; display: block; margin-bottom: 8px;">Select Entity:</label>
+                                    <select id="performance-entity-select" style="width: 100%; max-width: 400px; padding: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;">
+                                        <option value="">-- All Entities --</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Statistics Display -->
+                                <div id="performance-stats-container" style="margin-bottom: 30px;">
+                                    <h4 style="margin-bottom: 16px;">Statistics</h4>
+                                    <div id="performance-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
+                                
+                                <!-- Session Filters -->
+                                <div style="margin-bottom: 20px; padding: 16px; background: var(--surface-light); border-radius: 8px;">
+                                    <h4 style="margin-bottom: 12px;">Filter Sessions</h4>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                                        <div>
+                                            <label style="display: block; margin-bottom: 4px; font-size: 0.9rem;">Session Type:</label>
+                                            <select id="filter-session-type" style="width: 100%; padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;">
+                                                <option value="">All</option>
+                                                <option value="heating">Heating</option>
+                                                <option value="cooling">Cooling</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="display: block; margin-bottom: 4px; font-size: 0.9rem;">Season:</label>
+                                            <select id="filter-season" style="width: 100%; padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;">
+                                                <option value="">All</option>
+                                                <option value="winter">Winter</option>
+                                                <option value="spring">Spring</option>
+                                                <option value="summer">Summer</option>
+                                                <option value="fall">Fall</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="display: block; margin-bottom: 4px; font-size: 0.9rem;">Time of Day:</label>
+                                            <select id="filter-time-category" style="width: 100%; padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;">
+                                                <option value="">All</option>
+                                                <option value="night">Night</option>
+                                                <option value="morning">Morning</option>
+                                                <option value="afternoon">Afternoon</option>
+                                                <option value="evening">Evening</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="display: block; margin-bottom: 4px; font-size: 0.9rem;">Day of Week:</label>
+                                            <select id="filter-day-of-week" style="width: 100%; padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px;">
+                                                <option value="">All</option>
+                                                <option value="monday">Monday</option>
+                                                <option value="tuesday">Tuesday</option>
+                                                <option value="wednesday">Wednesday</option>
+                                                <option value="thursday">Thursday</option>
+                                                <option value="friday">Friday</option>
+                                                <option value="saturday">Saturday</option>
+                                                <option value="sunday">Sunday</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+                                        <button id="apply-filters-btn" class="btn-primary">Apply Filters</button>
+                                        <button id="clear-filters-btn" class="btn-secondary">Clear Filters</button>
+                                        <button id="export-data-btn" class="btn-secondary" style="margin-left: auto;">📥 Export Data</button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Sessions List -->
+                                <div id="performance-sessions-container">
+                                    <h4 style="margin-bottom: 12px;">Recent Sessions <span id="session-count" style="color: var(--text-secondary); font-weight: normal; font-size: 0.9rem;"></span></h4>
+                                    <div id="performance-sessions-list" style="max-height: 600px; overflow-y: auto;">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

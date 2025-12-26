@@ -20,6 +20,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self,
         hass: HomeAssistant,
         storage: ScheduleStorage,
+        performance_storage,
         update_interval: timedelta,
     ) -> None:
         """Initialize the coordinator."""
@@ -30,9 +31,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
         self.storage = storage
+        self.performance_storage = performance_storage
         self.last_node_states = {}  # Track last node state (temp + modes) for each entity
         self.override_until = {}  # Track entities with advance override (entity_id -> time)
         self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
+        self.performance_sessions = {}  # Track active performance sessions (entity_id -> session dict)
 
     async def async_config_entry_first_refresh(self) -> None:
         """Handle the first refresh."""
@@ -532,7 +535,25 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
                 # Get current target temperature
                 current_target = state.attributes.get("temperature")
-                _LOGGER.info(f"{entity_id} current target: {current_target}°C")
+                current_temp = state.attributes.get("current_temperature")
+                _LOGGER.info(f"{entity_id} current target: {current_target}°C, current temp: {current_temp}°C")
+                
+                # Check if we should start a performance tracking session
+                # Only if target temp changes significantly (>0.5°C) and current temp is available
+                if current_temp is not None and abs(target_temp - current_temp) > 0.5:
+                    # End any existing session (interrupted by new target)
+                    if entity_id in self.performance_sessions:
+                        await self._end_performance_session(entity_id, current_temp, "new_target")
+                    
+                    # Start new session
+                    await self._start_performance_session(
+                        entity_id,
+                        current_temp,
+                        target_temp,
+                        active_node,
+                        group_name,
+                        group_data.get("active_profile", "Default")
+                    )
                 
                 # Get entity capabilities
                 supported_features = state.attributes.get("supported_features", 0)
@@ -666,8 +687,202 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "previous_temp": current_target,
                 }
             
+            # Update active performance sessions
+            await self._update_performance_sessions()
+            
             return results
             
         except Exception as err:
             _LOGGER.error(f"Error updating heating schedules: {err}")
             raise UpdateFailed(f"Error updating heating schedules: {err}")
+
+    async def _start_performance_session(
+        self,
+        entity_id: str,
+        start_temp: float,
+        target_temp: float,
+        active_node: Dict[str, Any],
+        group_name: str,
+        active_profile: str
+    ) -> None:
+        """Start tracking a performance session for heating/cooling analysis."""
+        # Check if performance tracking is enabled
+        settings = await self.performance_storage.async_get_settings()
+        if not settings.get("enabled", False):
+            return
+
+        # Determine session type
+        session_type = "heating" if target_temp > start_temp else "cooling"
+        
+        # Get outdoor temperature if configured
+        outdoor_sensor = settings.get("outdoor_sensor")
+        outdoor_temp_start = None
+        if outdoor_sensor:
+            outdoor_state = self.hass.states.get(outdoor_sensor)
+            if outdoor_state:
+                try:
+                    outdoor_temp_start = float(outdoor_state.state)
+                except (ValueError, TypeError):
+                    _LOGGER.warning(f"Could not parse outdoor temperature from {outdoor_sensor}")
+
+        # Get current datetime
+        now = datetime.now()
+        
+        # Create session record
+        session = {
+            "entity_id": entity_id,
+            "start_time": now.isoformat(),
+            "start_temp": start_temp,
+            "target_temp": target_temp,
+            "session_type": session_type,
+            "hvac_mode": active_node.get("hvac_mode", "unknown"),
+            "active_profile": active_profile,
+            "schedule_group": group_name,
+            "day_of_week": now.strftime("%a").lower(),
+            "time_category": self.performance_storage._determine_time_category(now.hour),
+            "month": now.month,
+            "season": self.performance_storage._determine_season(now.month),
+            "fan_mode": active_node.get("fan_mode"),
+            "preset_mode": active_node.get("preset_mode"),
+            "outdoor_temp_start": outdoor_temp_start,
+            "outdoor_temp_samples": [outdoor_temp_start] if outdoor_temp_start is not None else []
+        }
+        
+        # Store active session
+        self.performance_sessions[entity_id] = session
+        _LOGGER.info(f"Started {session_type} session for {entity_id}: {start_temp}°C → {target_temp}°C")
+
+    async def _update_performance_sessions(self) -> None:
+        """Update active performance sessions during coordinator cycle."""
+        # Check if performance tracking is enabled
+        settings = await self.performance_storage.async_get_settings()
+        if not settings.get("enabled", False):
+            return
+
+        # Get outdoor temperature if configured
+        outdoor_sensor = settings.get("outdoor_sensor")
+        current_outdoor_temp = None
+        if outdoor_sensor:
+            outdoor_state = self.hass.states.get(outdoor_sensor)
+            if outdoor_state:
+                try:
+                    current_outdoor_temp = float(outdoor_state.state)
+                except (ValueError, TypeError):
+                    pass
+
+        # Check each active session
+        for entity_id in list(self.performance_sessions.keys()):
+            session = self.performance_sessions[entity_id]
+            
+            # Sample outdoor temperature
+            if current_outdoor_temp is not None:
+                session["outdoor_temp_samples"].append(current_outdoor_temp)
+            
+            # Get current temperature
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            
+            current_temp = state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue
+            
+            # Check if session should end
+            target_temp = session["target_temp"]
+            session_start = datetime.fromisoformat(session["start_time"])
+            duration = (datetime.now() - session_start).total_seconds() / 60  # minutes
+            
+            # End conditions: reached target (within 0.5°C), timeout (4 hours), or interrupted by new target
+            reached_target = abs(current_temp - target_temp) < 0.5
+            timeout = duration > 240  # 4 hours
+            
+            if reached_target or timeout:
+                await self._end_performance_session(entity_id, current_temp, "target_reached" if reached_target else "timeout")
+
+    async def _end_performance_session(
+        self,
+        entity_id: str,
+        end_temp: float,
+        reason: str
+    ) -> None:
+        """End and save a performance session."""
+        if entity_id not in self.performance_sessions:
+            return
+        
+        session = self.performance_sessions[entity_id]
+        
+        # Calculate session metrics
+        now = datetime.now()
+        start_time = datetime.fromisoformat(session["start_time"])
+        duration_minutes = (now - start_time).total_seconds() / 60
+        temp_change = end_temp - session["start_temp"]
+        
+        # Validate session (minimum 5 minutes, minimum 0.5°C change)
+        if duration_minutes < 5 or abs(temp_change) < 0.5:
+            _LOGGER.debug(f"Session for {entity_id} too short or insufficient change, not saving")
+            del self.performance_sessions[entity_id]
+            return
+        
+        # Calculate rate (°C/hour)
+        rate = (temp_change / duration_minutes) * 60
+        
+        # Calculate outdoor temperature metrics
+        outdoor_temp_end = None
+        outdoor_temp_avg = None
+        indoor_outdoor_diff_start = None
+        indoor_outdoor_diff_end = None
+        
+        if session["outdoor_temp_samples"]:
+            outdoor_temp_end = session["outdoor_temp_samples"][-1]
+            outdoor_temp_avg = sum(session["outdoor_temp_samples"]) / len(session["outdoor_temp_samples"])
+            if session["outdoor_temp_start"] is not None:
+                indoor_outdoor_diff_start = session["start_temp"] - session["outdoor_temp_start"]
+            if outdoor_temp_end is not None:
+                indoor_outdoor_diff_end = end_temp - outdoor_temp_end
+        
+        # Get humidity if available
+        state = self.hass.states.get(entity_id)
+        humidity_start = None
+        humidity_end = None
+        if state:
+            humidity_end = state.attributes.get("current_humidity")
+        
+        # Build final session record
+        final_session = {
+            "entity_id": entity_id,
+            "start_time": session["start_time"],
+            "end_time": now.isoformat(),
+            "duration_minutes": int(duration_minutes),
+            "start_temp": session["start_temp"],
+            "end_temp": end_temp,
+            "temp_change": round(temp_change, 2),
+            "target_temp": session["target_temp"],
+            "session_type": session["session_type"],
+            "rate": round(rate, 2),
+            "outdoor_temp_start": session["outdoor_temp_start"],
+            "outdoor_temp_end": outdoor_temp_end,
+            "outdoor_temp_avg": round(outdoor_temp_avg, 2) if outdoor_temp_avg is not None else None,
+            "indoor_outdoor_differential_start": round(indoor_outdoor_diff_start, 2) if indoor_outdoor_diff_start is not None else None,
+            "indoor_outdoor_differential_end": round(indoor_outdoor_diff_end, 2) if indoor_outdoor_diff_end is not None else None,
+            "hvac_mode": session["hvac_mode"],
+            "active_profile": session["active_profile"],
+            "schedule_group": session["schedule_group"],
+            "day_of_week": session["day_of_week"],
+            "time_category": session["time_category"],
+            "month": session["month"],
+            "season": session["season"],
+            "completed": reason == "target_reached",
+            "interruption_reason": reason if reason != "target_reached" else None,
+            "fan_mode": session.get("fan_mode"),
+            "preset_mode": session.get("preset_mode"),
+            "humidity_start": humidity_start,
+            "humidity_end": humidity_end
+        }
+        
+        # Save to performance storage
+        await self.performance_storage.async_add_session(final_session)
+        
+        # Remove from active sessions
+        del self.performance_sessions[entity_id]
+        
+        _LOGGER.info(f"Completed {session['session_type']} session for {entity_id}: {temp_change:.1f}°C in {duration_minutes:.0f}min (rate: {rate:.2f}°C/h)")

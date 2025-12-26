@@ -18,6 +18,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, UPDATE_INTERVAL_SECONDS
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
+from .performance_storage import PerformanceStorage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,6 +141,42 @@ FACTORY_RESET_SCHEMA = vol.Schema({
     vol.Required("confirm"): cv.boolean
 })
 
+GET_PERFORMANCE_STATS_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_id,
+})
+
+GET_PERFORMANCE_SESSIONS_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_id,
+    vol.Optional("session_type"): vol.In(["heating", "cooling"]),
+    vol.Optional("start_date"): cv.string,
+    vol.Optional("end_date"): cv.string,
+    vol.Optional("day_of_week"): vol.In(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]),
+    vol.Optional("time_category"): vol.In(["night", "morning", "afternoon", "evening"]),
+    vol.Optional("season"): vol.In(["winter", "spring", "summer", "fall"]),
+    vol.Optional("profile_name"): cv.string,
+    vol.Optional("completed_only", default=True): cv.boolean,
+})
+
+SAVE_PERFORMANCE_SETTINGS_SCHEMA = vol.Schema({
+    vol.Required("enabled"): cv.boolean,
+    vol.Optional("outdoor_sensor"): cv.entity_id,
+})
+
+RESET_PERFORMANCE_HISTORY_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_id,
+    vol.Optional("months"): vol.All(cv.ensure_list, [cv.string]),
+})
+
+RECALCULATE_PERFORMANCE_STATS_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_id,
+})
+
+EXPORT_PERFORMANCE_DATA_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_id,
+    vol.Optional("start_date"): cv.string,
+    vol.Optional("end_date"): cv.string,
+})
+
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
     """Common setup for storage, coordinator, services and panel."""
@@ -153,12 +190,20 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         await storage.async_load()
         hass.data[DOMAIN]["storage"] = storage
 
+    # Initialize performance storage once
+    performance_storage: PerformanceStorage | None = hass.data[DOMAIN].get("performance_storage")
+    if performance_storage is None:
+        performance_storage = PerformanceStorage(hass)
+        await performance_storage.async_load()
+        hass.data[DOMAIN]["performance_storage"] = performance_storage
+
     # Initialize coordinator once
     coordinator: HeatingSchedulerCoordinator | None = hass.data[DOMAIN].get("coordinator")
     if coordinator is None:
         coordinator = HeatingSchedulerCoordinator(
             hass,
             storage,
+            performance_storage,
             timedelta(seconds=UPDATE_INTERVAL_SECONDS)
         )
         hass.data[DOMAIN]["coordinator"] = coordinator
@@ -576,6 +621,121 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, schema=CLEANUP_DERIVATIVE_SENSORS_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, schema=FACTORY_RESET_SCHEMA)
+    
+    # Performance tracking services
+    async def handle_get_performance_stats(call: ServiceCall) -> dict:
+        """Handle get_performance_stats service call."""
+        entity_id = call.data.get("entity_id")
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        storage = hass.data[DOMAIN]["storage"]
+        
+        if entity_id:
+            stats = await performance_storage.async_get_stats(entity_id)
+            return {entity_id: stats}
+        else:
+            # Return stats for all entities
+            all_stats = {}
+            all_entities = await storage.async_get_all_entities()
+            for ent_id in all_entities:
+                stats = await performance_storage.async_get_stats(ent_id)
+                all_stats[ent_id] = stats
+            return all_stats
+    
+    async def handle_get_performance_sessions(call: ServiceCall) -> dict:
+        """Handle get_performance_sessions service call."""
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        
+        filters = {
+            "entity_id": call.data.get("entity_id"),
+            "session_type": call.data.get("session_type"),
+            "start_date": call.data.get("start_date"),
+            "end_date": call.data.get("end_date"),
+            "day_of_week": call.data.get("day_of_week"),
+            "time_category": call.data.get("time_category"),
+            "season": call.data.get("season"),
+            "profile_name": call.data.get("profile_name"),
+            "completed_only": call.data.get("completed_only", True),
+        }
+        
+        # Remove None values
+        filters = {k: v for k, v in filters.items() if v is not None}
+        
+        sessions = await performance_storage.async_get_sessions(filters)
+        return {"sessions": sessions, "count": len(sessions)}
+    
+    async def handle_save_performance_settings(call: ServiceCall) -> None:
+        """Handle save_performance_settings service call."""
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        
+        settings = {
+            "enabled": call.data["enabled"],
+        }
+        
+        if "outdoor_sensor" in call.data:
+            settings["outdoor_sensor"] = call.data["outdoor_sensor"]
+        
+        await performance_storage.async_save_settings(settings)
+        _LOGGER.info(f"Performance tracking settings saved: {settings}")
+    
+    async def handle_reset_performance_history(call: ServiceCall) -> None:
+        """Handle reset_performance_history service call."""
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        entity_id = call.data.get("entity_id")
+        months = call.data.get("months")
+        
+        await performance_storage.async_clear_history(entity_id, months)
+        _LOGGER.info(f"Performance history cleared for entity_id={entity_id}, months={months}")
+    
+    async def handle_recalculate_performance_stats(call: ServiceCall) -> None:
+        """Handle recalculate_performance_stats service call."""
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        storage = hass.data[DOMAIN]["storage"]
+        entity_id = call.data.get("entity_id")
+        
+        if entity_id:
+            await performance_storage.async_recalculate_stats(entity_id)
+            _LOGGER.info(f"Recalculated performance stats for {entity_id}")
+        else:
+            # Recalculate for all entities
+            all_entities = await storage.async_get_all_entities()
+            for ent_id in all_entities:
+                await performance_storage.async_recalculate_stats(ent_id)
+            _LOGGER.info("Recalculated performance stats for all entities")
+    
+    async def handle_export_performance_data(call: ServiceCall) -> dict:
+        """Handle export_performance_data service call."""
+        performance_storage = hass.data[DOMAIN]["performance_storage"]
+        
+        filters = {
+            "entity_id": call.data.get("entity_id"),
+            "start_date": call.data.get("start_date"),
+            "end_date": call.data.get("end_date"),
+            "completed_only": True,
+        }
+        
+        # Remove None values
+        filters = {k: v for k, v in filters.items() if v is not None}
+        
+        sessions = await performance_storage.async_get_sessions(filters)
+        
+        # Get statistics for the entity
+        stats = {}
+        if filters.get("entity_id"):
+            stats = await performance_storage.async_get_stats(filters["entity_id"])
+        
+        return {
+            "sessions": sessions,
+            "statistics": stats,
+            "export_date": json_util.utcnow().isoformat(),
+            "session_count": len(sessions),
+        }
+    
+    hass.services.async_register(DOMAIN, "get_performance_stats", handle_get_performance_stats, schema=GET_PERFORMANCE_STATS_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "get_performance_sessions", handle_get_performance_sessions, schema=GET_PERFORMANCE_SESSIONS_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "save_performance_settings", handle_save_performance_settings, schema=SAVE_PERFORMANCE_SETTINGS_SCHEMA)
+    hass.services.async_register(DOMAIN, "reset_performance_history", handle_reset_performance_history, schema=RESET_PERFORMANCE_HISTORY_SCHEMA)
+    hass.services.async_register(DOMAIN, "recalculate_performance_stats", handle_recalculate_performance_stats, schema=RECALCULATE_PERFORMANCE_STATS_SCHEMA)
+    hass.services.async_register(DOMAIN, "export_performance_data", handle_export_performance_data, schema=EXPORT_PERFORMANCE_DATA_SCHEMA, supports_response=SupportsResponse.ONLY)
 
     hass.data[DOMAIN]["services_registered"] = True
 

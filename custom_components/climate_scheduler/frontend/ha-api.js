@@ -546,6 +546,72 @@ class HomeAssistantAPI {
         }
     }
     
+    // Performance tracking methods
+    async savePerformanceSettings(settings) {
+        try {
+            await this.callService('climate_scheduler', 'save_performance_settings', settings);
+            return true;
+        } catch (error) {
+            console.error('Failed to save performance settings:', error);
+            throw error;
+        }
+    }
+    
+    async getPerformanceStats(entityId = null) {
+        try {
+            const data = entityId ? { entity_id: entityId } : {};
+            const result = await this.callService('climate_scheduler', 'get_performance_stats', data, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to get performance stats:', error);
+            throw error;
+        }
+    }
+    
+    async getPerformanceSessions(filters = {}) {
+        try {
+            const result = await this.callService('climate_scheduler', 'get_performance_sessions', filters, true);
+            return result?.response || result || { sessions: [], count: 0 };
+        } catch (error) {
+            console.error('Failed to get performance sessions:', error);
+            throw error;
+        }
+    }
+    
+    async resetPerformanceHistory(entityId = null, months = null) {
+        try {
+            const data = {};
+            if (entityId) data.entity_id = entityId;
+            if (months) data.months = months;
+            await this.callService('climate_scheduler', 'reset_performance_history', data);
+            return true;
+        } catch (error) {
+            console.error('Failed to reset performance history:', error);
+            throw error;
+        }
+    }
+    
+    async recalculatePerformanceStats(entityId = null) {
+        try {
+            const data = entityId ? { entity_id: entityId } : {};
+            await this.callService('climate_scheduler', 'recalculate_performance_stats', data);
+            return true;
+        } catch (error) {
+            console.error('Failed to recalculate performance stats:', error);
+            throw error;
+        }
+    }
+    
+    async exportPerformanceData(filters = {}) {
+        try {
+            const result = await this.callService('climate_scheduler', 'export_performance_data', filters, true);
+            return result?.response || result || { sessions: [], statistics: {}, session_count: 0 };
+        } catch (error) {
+            console.error('Failed to export performance data:', error);
+            throw error;
+        }
+    }
+    
     onStateUpdate(callback) {
         this.stateUpdateCallbacks.push(callback);
     }
