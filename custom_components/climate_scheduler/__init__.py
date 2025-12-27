@@ -585,8 +585,22 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
 
 async def _register_frontend_resources(hass: HomeAssistant) -> None:
     """Register the bundled frontend card as a Lovelace resource."""
-    # Only register once
-    if hass.data[DOMAIN].get("frontend_registered"):
+    # Get version from manifest.json first
+    manifest_path = Path(__file__).parent / "manifest.json"
+    try:
+        import json
+        manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
+        manifest = json.loads(manifest_text)
+        frontend_version = manifest.get("version", f"u{int(time.time())}")
+        _LOGGER.debug("Current integration version: %s", frontend_version)
+    except Exception as e:
+        _LOGGER.warning("Failed to read manifest version: %s", e)
+        frontend_version = f"u{int(time.time())}"
+    
+    # Check if we've already registered this version
+    registered_version = hass.data[DOMAIN].get("frontend_registered_version")
+    if registered_version == frontend_version:
+        _LOGGER.debug("Frontend already registered with version %s", frontend_version)
         return
 
     # Register static path for frontend files
@@ -609,7 +623,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         lovelace_data = hass.data.get("lovelace")
         if lovelace_data is None:
             _LOGGER.warning("Lovelace integration not available, card will need manual registration")
-            hass.data[DOMAIN]["frontend_registered"] = True
+            hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
             return
 
         # Get resources based on HA version
@@ -624,31 +638,18 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
 
         if resources is None:
             _LOGGER.warning("Lovelace resources not available, card will need manual registration")
-            hass.data[DOMAIN]["frontend_registered"] = True
+            hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
             return
 
         # Check for YAML mode
         if not hasattr(resources, "store") or resources.store is None:
             _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
-            hass.data[DOMAIN]["frontend_registered"] = True
+            hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
             return
 
         # Ensure resources are loaded
         if not resources.loaded:
             await resources.async_load()
-
-        # Get version from manifest.json for cache busting (async file read)
-        manifest_path = Path(__file__).parent / "manifest.json"
-        try:
-            import json
-            # Read file asynchronously to avoid blocking event loop
-            manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
-            manifest = json.loads(manifest_text)
-            frontend_version = manifest.get("version", f"u{int(time.time())}")
-            _LOGGER.debug("Using frontend version %s for cache busting", frontend_version)
-        except Exception as e:
-            _LOGGER.warning("Failed to read manifest version: %s", e)
-            frontend_version = f"u{int(time.time())}"
 
         # Build URL with version for cache busting
         base_url = f"/local/{DOMAIN}/climate-scheduler-card.js"
@@ -679,26 +680,28 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                 removed_old = True
 
         if existing_entry:
-            # Update if version changed
+            # Always update to ensure latest version
+            existing_url = existing_entry["url"]
+            existing_version = existing_url.split("?v=")[1] if "?v=" in existing_url else "unknown"
+            
             if existing_entry["url"] != url:
-                _LOGGER.info("Updating bundled frontend card to version %s", frontend_version)
+                _LOGGER.info("Updating bundled frontend card from version %s to %s", existing_version, frontend_version)
                 await resources.async_update_item(existing_entry["id"], {"url": url})
             else:
-                _LOGGER.debug("Bundled frontend card already registered with current version")
-            hass.data[DOMAIN]["frontend_registered"] = True
-            return
-
-        # Register the bundled card
-        await resources.async_create_item({"res_type": "module", "url": url})
-        if removed_old:
-            _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
+                _LOGGER.debug("Bundled frontend card already registered with current version %s", frontend_version)
         else:
-            _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+            # Register the bundled card
+            await resources.async_create_item({"res_type": "module", "url": url})
+            if removed_old:
+                _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
+            else:
+                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
 
     except Exception as err:
         _LOGGER.error("Failed to auto-register frontend card: %s", err)
     
-    hass.data[DOMAIN]["frontend_registered"] = True
+    # Store the version we just registered
+    hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
