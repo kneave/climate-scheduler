@@ -38,7 +38,7 @@ When a node has "no change" temperature:
 
 ## Custom Node Values
 
-Each node can store three optional numerical values (fields `1`, `2`, and `3`) that are passed through to the event. These can be used to pass custom parameters to your automations, such as:
+Each node can store three optional numerical values (fields `A`, `B`, and `C`) that are passed through to the event. These can be used to pass custom parameters to your automations, such as:
 - Light brightness levels
 - Fan speeds
 - Durations or delays
@@ -61,9 +61,9 @@ The event includes the following data:
 | `node.fan_mode` | string | Fan mode (if set) |
 | `node.swing_mode` | string | Swing mode (if set) |
 | `node.preset_mode` | string | Preset mode (if set) |
-| `node.1` | number or null | Custom value 1 (optional) |
-| `node.2` | number or null | Custom value 2 (optional) |
-| `node.3` | number or null | Custom value 3 (optional) |
+| `node.A` | number or null | Custom value A (optional) |
+| `node.B` | number or null | Custom value B (optional) |
+| `node.C` | number or null | Custom value C (optional) |
 | `previous_node` | object | Previous node state (only for `scheduled` triggers) |
 
 ## Example Automations
@@ -253,8 +253,8 @@ automation:
         target:
           entity_id: light.living_room
         data:
-          brightness_pct: "{{ trigger.event.data.node['1'] | int }}"  # Use custom value 1 for brightness
-          color_temp: "{{ trigger.event.data.node['2'] | int }}"      # Use custom value 2 for color temp
+          brightness_pct: "{{ trigger.event.data.node['A'] | int }}"  # Use custom value A for brightness
+          color_temp: "{{ trigger.event.data.node['B'] | int }}"      # Use custom value B for color temp
 ```
 
 ### 10. Use Custom Values for Complex Automations
@@ -269,24 +269,24 @@ automation:
           group_name: "Home Comfort Schedule"
           trigger_type: scheduled
     action:
-      # Value 1: Fan speed (0-100)
+      # Value A: Fan speed (0-100)
       - service: fan.set_percentage
         target:
           entity_id: fan.whole_house
         data:
-          percentage: "{{ trigger.event.data.node['1'] | default(50) }}"
+          percentage: "{{ trigger.event.data.node['A'] | default(50) }}"
       
-      # Value 2: Humidifier target (30-60%)
+      # Value B: Humidifier target (30-60%)
       - service: humidifier.set_humidity
         target:
           entity_id: humidifier.bedroom
         data:
-          humidity: "{{ trigger.event.data.node['2'] | default(45) }}"
+          humidity: "{{ trigger.event.data.node['B'] | default(45) }}"
       
-      # Value 3: Light scene number
+      # Value C: Light scene number
       - service: scene.turn_on
         target:
-          entity_id: "scene.comfort_{{ trigger.event.data.node['3'] | default(1) }}"
+          entity_id: "scene.comfort_{{ trigger.event.data.node['C'] | default(1) }}"
 ```
 
 ## Use Cases
@@ -304,9 +304,9 @@ automation:
 4. **Scene activation**: Switch between different home scenes on a schedule
 
 ### Custom Values
-1. **Brightness levels**: Store target brightness for lights in custom value 1
-2. **Fan speeds**: Store fan percentage in custom value 2
-3. **Scene numbers**: Reference different scenes with custom value 3
+1. **Brightness levels**: Store target brightness for lights in custom value A
+2. **Fan speeds**: Store fan percentage in custom value B
+3. **Scene numbers**: Reference different scenes with custom value C
 4. **Durations**: Store how long an action should last
 5. **Thresholds**: Store custom trigger thresholds for conditional logic
 

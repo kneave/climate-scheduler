@@ -1713,16 +1713,16 @@ function createScheduleEditor() {
                             </select>
                         </div>
                         <div class="setting-item">
-                            <label>Value 1:</label>
-                            <input type="number" id="node-value-1" class="value-input" step="any" placeholder="Optional" />
+                            <label>Value A:</label>
+                            <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" />
                         </div>
                         <div class="setting-item">
-                            <label>Value 2:</label>
-                            <input type="number" id="node-value-2" class="value-input" step="any" placeholder="Optional" />
+                            <label>Value B:</label>
+                            <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" />
                         </div>
                         <div class="setting-item">
-                            <label>Value 3:</label>
-                            <input type="number" id="node-value-3" class="value-input" step="any" placeholder="Optional" />
+                            <label>Value C:</label>
+                            <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" />
                         </div>
                     </div>
                     <div class="settings-actions">
@@ -2298,21 +2298,21 @@ function attachEditorEventListeners(editorElement) {
         }
         
         // Update value fields
-        const value1Input = editorElement.querySelector('#node-value-1');
-        const value2Input = editorElement.querySelector('#node-value-2');
-        const value3Input = editorElement.querySelector('#node-value-3');
+        const valueAInput = editorElement.querySelector('#node-value-A');
+        const valueBInput = editorElement.querySelector('#node-value-B');
+        const valueCInput = editorElement.querySelector('#node-value-C');
         
-        if (value1Input) {
-            const val = value1Input.value.trim();
-            node['1'] = val !== '' ? parseFloat(val) : null;
+        if (valueAInput) {
+            const val = valueAInput.value.trim();
+            node['A'] = val !== '' ? parseFloat(val) : null;
         }
-        if (value2Input) {
-            const val = value2Input.value.trim();
-            node['2'] = val !== '' ? parseFloat(val) : null;
+        if (valueBInput) {
+            const val = valueBInput.value.trim();
+            node['B'] = val !== '' ? parseFloat(val) : null;
         }
-        if (value3Input) {
-            const val = value3Input.value.trim();
-            node['3'] = val !== '' ? parseFloat(val) : null;
+        if (valueCInput) {
+            const val = valueCInput.value.trim();
+            node['C'] = val !== '' ? parseFloat(val) : null;
         }
         
         // This will trigger save and force immediate update
@@ -2325,12 +2325,12 @@ function attachEditorEventListeners(editorElement) {
     if (swingModeSelect) swingModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (presetModeSelect) presetModeSelect.addEventListener('change', autoSaveNodeSettings);
     
-    const value1Input = editorElement.querySelector('#node-value-1');
-    const value2Input = editorElement.querySelector('#node-value-2');
-    const value3Input = editorElement.querySelector('#node-value-3');
-    if (value1Input) value1Input.addEventListener('change', autoSaveNodeSettings);
-    if (value2Input) value2Input.addEventListener('change', autoSaveNodeSettings);
-    if (value3Input) value3Input.addEventListener('change', autoSaveNodeSettings);
+    const valueAInput = editorElement.querySelector('#node-value-A');
+    const valueBInput = editorElement.querySelector('#node-value-B');
+    const valueCInput = editorElement.querySelector('#node-value-C');
+    if (valueAInput) valueAInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueBInput) valueBInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueCInput) valueCInput.addEventListener('change', autoSaveNodeSettings);
     
     // Schedule mode radio buttons
     const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
@@ -4250,13 +4250,13 @@ function handleNodeSettings(event) {
     }
     
     // Update value inputs
-    const value1Input = getDocumentRoot().querySelector('#node-value-1');
-    const value2Input = getDocumentRoot().querySelector('#node-value-2');
-    const value3Input = getDocumentRoot().querySelector('#node-value-3');
+    const valueAInput = getDocumentRoot().querySelector('#node-value-A');
+    const valueBInput = getDocumentRoot().querySelector('#node-value-B');
+    const valueCInput = getDocumentRoot().querySelector('#node-value-C');
     
-    if (value1Input) value1Input.value = (node['1'] !== null && node['1'] !== undefined) ? node['1'] : '';
-    if (value2Input) value2Input.value = (node['2'] !== null && node['2'] !== undefined) ? node['2'] : '';
-    if (value3Input) value3Input.value = (node['3'] !== null && node['3'] !== undefined) ? node['3'] : '';
+    if (valueAInput) valueAInput.value = (node['A'] !== null && node['A'] !== undefined) ? node['A'] : '';
+    if (valueBInput) valueBInput.value = (node['B'] !== null && node['B'] !== undefined) ? node['B'] : '';
+    if (valueCInput) valueCInput.value = (node['C'] !== null && node['C'] !== undefined) ? node['C'] : '';
     
     // Show panel
     const panel = getDocumentRoot().querySelector('#node-settings-panel');
