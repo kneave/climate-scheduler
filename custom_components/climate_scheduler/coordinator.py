@@ -244,6 +244,26 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     blocking=True,
                 )
         
+        # Fire event for manual advance
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_node_activated",
+            {
+                "entity_id": entity_id,
+                "group_name": group_name,
+                "node": {
+                    "time": next_node.get("time"),
+                    "temp": clamped_temp,
+                    "hvac_mode": next_node.get("hvac_mode"),
+                    "fan_mode": next_node.get("fan_mode"),
+                    "swing_mode": next_node.get("swing_mode"),
+                    "preset_mode": next_node.get("preset_mode"),
+                },
+                "day": current_day,
+                "trigger_type": "manual_advance",
+            }
+        )
+        _LOGGER.info(f"Fired node_activated event for {entity_id} (manual_advance)")
+        
         return {
             "success": True,
             "next_node": next_node,
@@ -660,6 +680,27 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     )
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
+                
+                # Fire event for scheduled node activation
+                self.hass.bus.async_fire(
+                    f"{DOMAIN}_node_activated",
+                    {
+                        "entity_id": entity_id,
+                        "group_name": group_name,
+                        "node": {
+                            "time": active_node.get("time"),
+                            "temp": clamped_temp,
+                            "hvac_mode": active_node.get("hvac_mode"),
+                            "fan_mode": active_node.get("fan_mode"),
+                            "swing_mode": active_node.get("swing_mode"),
+                            "preset_mode": active_node.get("preset_mode"),
+                        },
+                        "previous_node": last_node,
+                        "day": current_day,
+                        "trigger_type": "scheduled",
+                    }
+                )
+                _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled)")
                 
                 results[entity_id] = {
                     "updated": True,
