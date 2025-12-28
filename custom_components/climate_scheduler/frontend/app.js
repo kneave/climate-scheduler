@@ -642,6 +642,34 @@ async function editGroupSchedule(groupName, day = null) {
         // Attach graph event listeners (permanent listeners)
         svgElement.addEventListener('nodeSettings', handleNodeSettings);
         
+        // Handle node updates during dragging
+        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
+            const { nodeIndex, node } = event.detail;
+            const panel = editor.querySelector('#node-settings-panel');
+            
+            // Only update if this node's panel is currently showing
+            if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
+                const tempInput = panel.querySelector('#node-temp-input');
+                const tempNoChange = panel.querySelector('#temp-no-change');
+                const tempUpBtn = panel.querySelector('#temp-up');
+                const tempDownBtn = panel.querySelector('#temp-down');
+                const timeInput = panel.querySelector('#node-time-input');
+                
+                // Update time
+                if (timeInput) timeInput.value = node.time;
+                
+                // Update temperature and checkbox state
+                const isNoChange = node.noChange === true;
+                if (tempNoChange) tempNoChange.checked = isNoChange;
+                if (tempInput) {
+                    tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
+                    tempInput.disabled = isNoChange;
+                }
+                if (tempUpBtn) tempUpBtn.disabled = isNoChange;
+                if (tempDownBtn) tempDownBtn.disabled = isNoChange;
+            }
+        });
+        
         // Create and insert settings panel after the graph container but before instructions
         const graphContainer = svgElement.closest('.graph-container') || svgElement.parentElement;
         const instructionsContainer = editor.querySelector('.instructions-container');
@@ -680,6 +708,14 @@ async function editGroupSchedule(groupName, day = null) {
     } else {
         //
     }
+    
+    // Migrate old nodes that have temp=null to use noChange property
+    nodes = nodes.map(node => {
+        if ((node.temp === null || node.temp === undefined) && !node.hasOwnProperty('noChange')) {
+            return { ...node, noChange: true, temp: 20 }; // Default position at 20°C
+        }
+        return node;
+    });
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
     
@@ -1161,7 +1197,7 @@ function createGroupMembersTable(entityIds) {
                 const scheduledCell = row.children[3];
                 if (groupSchedule.length > 0) {
                     const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-                    scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+                    scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
                 } else {
                     scheduledCell.textContent = '--';
                 }
@@ -1213,7 +1249,7 @@ function createGroupMembersTable(entityIds) {
         const scheduledCell = document.createElement('span');
         if (groupSchedule.length > 0) {
             const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -1635,6 +1671,12 @@ function createScheduleEditor() {
                                 <button class="spinner-btn" id="temp-up" title="+0.5°">▲</button>
                             </div>
                         </div>
+                        <div class="setting-item" style="padding-left: 20px;">
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="checkbox" id="temp-no-change" style="margin-right: 8px; cursor: pointer;" />
+                                <span>No Change</span>
+                            </label>
+                        </div>
                         <div class="setting-item">
                             <label>HVAC Mode:</label>
                             <select id="node-hvac-mode" disabled title="Coming soon">
@@ -1990,10 +2032,16 @@ function attachEditorEventListeners(editorElement) {
         }
         
         // Update temperature
-        if (tempInput && tempInput.value) {
-            const temp = parseFloat(tempInput.value);
-            if (!isNaN(temp)) {
-                node.temp = temp;
+        const tempNoChange = editorElement.querySelector('#temp-no-change');
+        if (tempNoChange && tempNoChange.checked) {
+            node.noChange = true;
+        } else {
+            node.noChange = false;
+            if (tempInput && tempInput.value) {
+                const temp = parseFloat(tempInput.value);
+                if (!isNaN(temp)) {
+                    node.temp = temp;
+                }
             }
         }
         
@@ -2068,6 +2116,10 @@ function attachEditorEventListeners(editorElement) {
             const node = graph.nodes[nodeIndex];
             if (!node) return;
             
+            // Check if no-change is enabled
+            const tempNoChange = editorElement.querySelector('#temp-no-change');
+            if (tempNoChange && tempNoChange.checked) return;
+            
             // Increment based on temperature unit (0.5°C or 1°F)
             const increment = temperatureUnit === '°F' ? 1 : 0.5;
             node.temp = Math.round((node.temp + increment) * 10) / 10;
@@ -2086,6 +2138,10 @@ function attachEditorEventListeners(editorElement) {
             
             const node = graph.nodes[nodeIndex];
             if (!node) return;
+            
+            // Check if no-change is enabled
+            const tempNoChange = editorElement.querySelector('#temp-no-change');
+            if (tempNoChange && tempNoChange.checked) return;
             
             // Decrement based on temperature unit (0.5°C or 1°F)
             const increment = temperatureUnit === '°F' ? 1 : 0.5;
@@ -2108,6 +2164,40 @@ function attachEditorEventListeners(editorElement) {
                 panel.style.display = 'none';
                 saveSchedule();
             }
+        };
+    }
+    
+    // Handle no-change checkbox
+    const tempNoChange = editorElement.querySelector('#temp-no-change');
+    if (tempNoChange) {
+        tempNoChange.onchange = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            if (tempNoChange.checked) {
+                // Set to no change
+                node.noChange = true;
+                tempInput.disabled = true;
+                tempUpBtn.disabled = true;
+                tempDownBtn.disabled = true;
+            } else {
+                // Restore to normal temperature node
+                node.noChange = false;
+                if (node.temp === null || node.temp === undefined) {
+                    node.temp = 20; // Default temp
+                }
+                tempInput.value = node.temp;
+                tempInput.disabled = false;
+                tempUpBtn.disabled = false;
+                tempDownBtn.disabled = false;
+            }
+            
+            graph.render();
+            saveSchedule();
         };
     }
     
@@ -3170,7 +3260,7 @@ function updateScheduledTemp() {
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
-        scheduledTempEl.textContent = `${temp.toFixed(1)}${temperatureUnit}`;
+        scheduledTempEl.textContent = (temp !== null && temp !== undefined) ? `${temp.toFixed(1)}${temperatureUnit}` : 'No Change';
     } else {
         scheduledTempEl.textContent = '--';
     }
@@ -3353,7 +3443,7 @@ function updateGroupMemberRow(entityId, entityState) {
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -3376,7 +3466,7 @@ function updateAllGroupMemberScheduledTemps() {
         if (scheduledCell) {
             if (nodes.length > 0) {
                 const scheduledTemp = interpolateTemperature(nodes, currentTime);
-                scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+                scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
             } else {
                 scheduledCell.textContent = '--';
             }
@@ -3968,9 +4058,21 @@ function handleNodeSettings(event) {
     // Update panel content
     const timeInput = getDocumentRoot().querySelector('#node-time-input');
     const tempInput = getDocumentRoot().querySelector('#node-temp-input');
+    const tempNoChange = getDocumentRoot().querySelector('#temp-no-change');
+    const tempUpBtn = getDocumentRoot().querySelector('#temp-up');
+    const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
     
     if (timeInput) timeInput.value = node.time;
-    if (tempInput) tempInput.value = node.temp;
+    
+    // Handle temperature and no-change checkbox
+    const isNoChange = node.noChange === true;
+    if (tempNoChange) tempNoChange.checked = isNoChange;
+    if (tempInput) {
+        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
+        tempInput.disabled = isNoChange;
+    }
+    if (tempUpBtn) tempUpBtn.disabled = isNoChange;
+    if (tempDownBtn) tempDownBtn.disabled = isNoChange;
     
     // Populate HVAC mode dropdown
     const hvacModeSelect = getDocumentRoot().querySelector('#node-hvac-mode');

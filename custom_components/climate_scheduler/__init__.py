@@ -28,7 +28,8 @@ SET_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("nodes"): vol.All(cv.ensure_list, [
         vol.Schema({
             vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float),
+            vol.Optional("temp"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("noChange"): cv.boolean,
             vol.Optional("hvac_mode"): cv.string,
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,
@@ -71,7 +72,8 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required("nodes"): vol.All(cv.ensure_list, [
         vol.Schema({
             vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float),
+            vol.Optional("temp"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("noChange"): cv.boolean,
             vol.Optional("hvac_mode"): cv.string,
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,

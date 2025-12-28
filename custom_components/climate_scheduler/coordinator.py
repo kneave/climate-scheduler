@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
 
-from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP
+from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,9 +138,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         
         _LOGGER.info(f"{entity_id} next node: {next_node}")
         
-        # Clamp target temp
-        target_temp = next_node["temp"]
-        clamped_temp = max(min_temp, min(max_temp, target_temp))
+        # Clamp target temp (or use None for no change)
+        target_temp = next_node.get("temp")
+        is_no_change = next_node.get("noChange", False)
+        if is_no_change:
+            clamped_temp = None
+            _LOGGER.info(f"{entity_id} temp set to NO_CHANGE - will not modify temperature")
+        else:
+            clamped_temp = max(min_temp, min(max_temp, target_temp)) if target_temp is not None else None
         
         # Create node signature
         node_signature = {
@@ -190,23 +195,26 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         blocking=True,
                     )
         else:
-            # Set temperature
-            _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": entity_id,
-                        ATTR_TEMPERATURE: clamped_temp,
-                    },
-                    blocking=True,
-                )
-            except Exception as exc:
-                return {
-                    "success": False,
-                    "error": f"Failed to set temperature: {str(exc)}"
-                }
+            # Set temperature (only if not NO_CHANGE)
+            if clamped_temp is not None:
+                _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {
+                            "entity_id": entity_id,
+                            ATTR_TEMPERATURE: clamped_temp,
+                        },
+                        blocking=True,
+                    )
+                except Exception as exc:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set temperature: {str(exc)}"
+                    }
+            else:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
             
             # Apply HVAC mode
             if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
@@ -511,18 +519,25 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(f"No active node for {entity_id}")
                     continue
                     
-                target_temp = active_node["temp"]
+                target_temp = active_node.get("temp")
                 _LOGGER.info(f"{entity_id} active node: {active_node}")
                 
                 # Clamp target temp to global min/max BEFORE creating signature
                 # This prevents infinite update loops where unclamped signature differs from clamped output
-                clamped_temp = target_temp
-                if target_temp < min_temp:
-                    clamped_temp = min_temp
-                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
-                elif target_temp > max_temp:
-                    clamped_temp = max_temp
-                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                # Handle NO_CHANGE temperature (noChange flag)
+                is_no_change = active_node.get("noChange", False)
+                if is_no_change:
+                    clamped_temp = None
+                    _LOGGER.info(f"{entity_id} temp set to NO_CHANGE - will not modify temperature")
+                else:
+                    clamped_temp = target_temp
+                    if target_temp is not None:
+                        if target_temp < min_temp:
+                            clamped_temp = min_temp
+                            _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                        elif target_temp > max_temp:
+                            clamped_temp = max_temp
+                            _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
                 
                 # Create a state signature for the node using CLAMPED temp + modes
                 node_signature = {
@@ -592,34 +607,38 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             )
                 else:
                     # Update to new node temperature (already clamped in signature)
-                    _LOGGER.info(
-                        f"Updating {entity_id} to new node: temp={clamped_temp}°C"
-                    )
-
-                    # Build service data
-                    service_data = {
-                        "entity_id": entity_id,
-                        ATTR_TEMPERATURE: clamped_temp,
-                    }
-
-                    # Call climate service to set temperature (handle per-entity errors)
-                    try:
-                        await self.hass.services.async_call(
-                            "climate",
-                            "set_temperature",
-                            service_data,
-                            blocking=True,
+                    # Only set temperature if not NO_CHANGE
+                    if clamped_temp is not None:
+                        _LOGGER.info(
+                            f"Updating {entity_id} to new node: temp={clamped_temp}°C"
                         )
-                    except Exception as exc:
-                        _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
-                        results[entity_id] = {
-                            "updated": False,
-                            "target_temp": target_temp,
-                            "applied_temp": None,
-                            "error": str(exc),
+
+                        # Build service data
+                        service_data = {
+                            "entity_id": entity_id,
+                            ATTR_TEMPERATURE: clamped_temp,
                         }
-                        # Skip further actions for this entity
-                        continue
+
+                        # Call climate service to set temperature (handle per-entity errors)
+                        try:
+                            await self.hass.services.async_call(
+                                "climate",
+                                "set_temperature",
+                                service_data,
+                                blocking=True,
+                            )
+                        except Exception as exc:
+                            _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
+                            results[entity_id] = {
+                                "updated": False,
+                                "target_temp": target_temp,
+                                "applied_temp": None,
+                                "error": str(exc),
+                            }
+                            # Skip further actions for this entity
+                            continue
+                    else:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
                     
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:

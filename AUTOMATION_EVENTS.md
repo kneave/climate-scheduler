@@ -10,6 +10,18 @@ This event is fired whenever:
 - A scheduled node transition occurs (scheduled time reached)
 - A node is manually advanced using the `climate_scheduler.advance_to_next_node` service
 
+## "No Change" Temperature Feature
+
+You can set a node's temperature to `null` (or leave it empty in the UI) to indicate that the temperature should **not be changed** when that node activates. This is useful for:
+- Turning off heating at a certain time without changing the temperature setpoint
+- Switching HVAC modes (heat/cool) without changing temperature
+- Adjusting fan or swing modes while keeping the current temperature
+
+When a node has "no change" temperature:
+- `node.temp` will be `null` in the event data
+- Only HVAC mode, fan mode, swing mode, and preset mode will be applied
+- The thermostat's current temperature setpoint remains unchanged
+
 ## Event Data
 
 The event includes the following data:
@@ -176,6 +188,33 @@ automation:
         target:
           entity_id: scene.weekend_morning
 ```
+
+### 8. React to Mode Changes Without Temperature Change
+
+```yaml
+automation:
+  - alias: "HVAC Mode Changed (No Temp Change)"
+    trigger:
+      - platform: event
+        event_type: climate_scheduler_node_activated
+    condition:
+      - condition: template
+        value_template: "{{ trigger.event.data.node.temp is none }}"
+    action:
+      - service: logbook.log
+        data:
+          name: "Climate Scheduler"
+          message: >
+            {{ trigger.event.data.entity_id }} changed mode to 
+            {{ trigger.event.data.node.hvac_mode }} without changing temperature
+```
+
+## Use Cases for "No Change" Temperature
+
+1. **Turn off at bedtime**: Set a node at 23:00 with `temp: null` and `hvac_mode: off` to turn off heating without affecting the temperature setpoint
+2. **Switch modes seasonally**: Change from `heat` to `cool` mode at a specific time without modifying temperature
+3. **Fan boost periods**: Increase fan speed during certain hours while maintaining current temperature
+4. **Preset changes**: Switch to eco/away preset during work hours without temperature changes
 
 ## Tips
 
