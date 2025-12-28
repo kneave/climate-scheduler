@@ -33,7 +33,10 @@ SET_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("hvac_mode"): cv.string,
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,
-            vol.Optional("preset_mode"): cv.string
+            vol.Optional("preset_mode"): cv.string,
+            vol.Optional("1"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("2"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("3"): vol.Any(vol.Coerce(float), None)
         })
     ]),
     vol.Optional("day"): cv.string,
@@ -77,7 +80,10 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("hvac_mode"): cv.string,
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,
-            vol.Optional("preset_mode"): cv.string
+            vol.Optional("preset_mode"): cv.string,
+            vol.Optional("1"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("2"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("3"): vol.Any(vol.Coerce(float), None)
         })
     ]),
     vol.Optional("day"): cv.string,

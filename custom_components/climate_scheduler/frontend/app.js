@@ -1701,6 +1701,18 @@ function createScheduleEditor() {
                                 <option value="none">None</option>
                             </select>
                         </div>
+                        <div class="setting-item">
+                            <label>Value 1:</label>
+                            <input type="number" id="node-value-1" class="value-input" step="any" placeholder="Optional" />
+                        </div>
+                        <div class="setting-item">
+                            <label>Value 2:</label>
+                            <input type="number" id="node-value-2" class="value-input" step="any" placeholder="Optional" />
+                        </div>
+                        <div class="setting-item">
+                            <label>Value 3:</label>
+                            <input type="number" id="node-value-3" class="value-input" step="any" placeholder="Optional" />
+                        </div>
                     </div>
                     <div class="settings-actions">
                         <button id="delete-node" class="btn-danger">Delete Node</button>
@@ -2255,15 +2267,40 @@ function attachEditorEventListeners(editorElement) {
             }
         }
         
+        // Update value fields
+        const value1Input = editorElement.querySelector('#node-value-1');
+        const value2Input = editorElement.querySelector('#node-value-2');
+        const value3Input = editorElement.querySelector('#node-value-3');
+        
+        if (value1Input) {
+            const val = value1Input.value.trim();
+            node['1'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (value2Input) {
+            const val = value2Input.value.trim();
+            node['2'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (value3Input) {
+            const val = value3Input.value.trim();
+            node['3'] = val !== '' ? parseFloat(val) : null;
+        }
+        
         // This will trigger save and force immediate update
         graph.notifyChange(true);
     };
     
-    // Attach change listeners to all dropdowns
+    // Attach change listeners to all dropdowns and value inputs
     if (hvacModeSelect) hvacModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (fanModeSelect) fanModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (swingModeSelect) swingModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (presetModeSelect) presetModeSelect.addEventListener('change', autoSaveNodeSettings);
+    
+    const value1Input = editorElement.querySelector('#node-value-1');
+    const value2Input = editorElement.querySelector('#node-value-2');
+    const value3Input = editorElement.querySelector('#node-value-3');
+    if (value1Input) value1Input.addEventListener('change', autoSaveNodeSettings);
+    if (value2Input) value2Input.addEventListener('change', autoSaveNodeSettings);
+    if (value3Input) value3Input.addEventListener('change', autoSaveNodeSettings);
     
     // Schedule mode radio buttons
     const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
@@ -4181,6 +4218,15 @@ function handleNodeSettings(event) {
     } else {
         presetModeItem.style.display = 'none';
     }
+    
+    // Update value inputs
+    const value1Input = getDocumentRoot().querySelector('#node-value-1');
+    const value2Input = getDocumentRoot().querySelector('#node-value-2');
+    const value3Input = getDocumentRoot().querySelector('#node-value-3');
+    
+    if (value1Input) value1Input.value = (node['1'] !== null && node['1'] !== undefined) ? node['1'] : '';
+    if (value2Input) value2Input.value = (node['2'] !== null && node['2'] !== undefined) ? node['2'] : '';
+    if (value3Input) value3Input.value = (node['3'] !== null && node['3'] !== undefined) ? node['3'] : '';
     
     // Show panel
     const panel = getDocumentRoot().querySelector('#node-settings-panel');
