@@ -25,17 +25,11 @@
 
 
 
-## [1.13.1.1b] - 2025-12-28
+
+## [1.14.0.1b] - 2025-12-28
 ### Added
-- New sensors to track warmest and coldest rooms
+- Non-entity schedules supported for custom automations
+- "no-change" temperature nodes in case you want to change another setting only
+- Added documentation for use in automations
 
-### Changed
-- entity_id renamed to schedule_id as it isn't a Home Asssistant entity
-
-### Fixed
-- Various UI fixes
-- Sensors created against grouped entities
-- Member entity list properly expands
-- Sync all thermostat button works again
-
-## [1.12.0] - 2025-12-21
+## [1.13.1.1b] - 2025-12-28
