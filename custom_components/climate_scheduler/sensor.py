@@ -128,8 +128,15 @@ class ClimateSchedulerRateSensor(SensorEntity):
         
         # Determine if this is a floor sensor (tracking a separate sensor entity)
         is_floor = source_entity_id != climate_entity_id
-        suffix = "Floor Rate" if is_floor else "Rate"
-        unique_suffix = "floor_rate" if is_floor else "rate"
+        
+        if is_floor:
+            # For floor sensors, include the floor sensor name in unique_id to avoid collisions
+            floor_sensor_name = source_entity_id.split(".")[-1]
+            suffix = f"{floor_sensor_name.replace('_', ' ').title()} Rate"
+            unique_suffix = floor_sensor_name
+        else:
+            suffix = "Rate"
+            unique_suffix = "rate"
         
         _LOGGER.debug(f"Creating sensor climate_scheduler_{entity_name}_{unique_suffix} with device_id: {device_id}")
         
@@ -280,17 +287,19 @@ class ColdestEntitySensor(SensorEntity):
         self._attr_native_value = None
         self._coldest_entity_id = None
         self._coldest_friendly_name = None
+        self._remove_listener = None
     
     async def async_added_to_hass(self) -> None:
         """Register state listener when entity is added."""
         # Listen to coordinator updates
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        self._remove_listener = self._coordinator.async_add_listener(self._handle_coordinator_update)
         # Initial update
         await self._async_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister listener when entity is removed."""
-        self._coordinator.async_remove_listener(self._handle_coordinator_update)
+        if self._remove_listener:
+            self._remove_listener()
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -366,17 +375,19 @@ class WarmestEntitySensor(SensorEntity):
         self._attr_native_value = None
         self._warmest_entity_id = None
         self._warmest_friendly_name = None
+        self._remove_listener = None
     
     async def async_added_to_hass(self) -> None:
         """Register state listener when entity is added."""
         # Listen to coordinator updates
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        self._remove_listener = self._coordinator.async_add_listener(self._handle_coordinator_update)
         # Initial update
         await self._async_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister listener when entity is removed."""
-        self._coordinator.async_remove_listener(self._handle_coordinator_update)
+        if self._remove_listener:
+            self._remove_listener()
 
     @callback
     def _handle_coordinator_update(self) -> None:

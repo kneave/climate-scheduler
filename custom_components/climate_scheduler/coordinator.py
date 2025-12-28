@@ -439,6 +439,12 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             
             # Process all entities that have group schedules (both single and multi-entity groups)
             for entity_id, (group_name, schedule_data) in entity_group_schedules.items():
+                # Check if entity exists in Home Assistant first
+                state = self.hass.states.get(entity_id)
+                if state is None:
+                    _LOGGER.debug(f"Entity {entity_id} not found in Home Assistant, skipping (may have been removed or renamed)")
+                    continue
+                
                 _LOGGER.info(f"Processing entity: {entity_id} from group '{group_name}'")
                 
                 # Check if entity has an active advance override
@@ -523,12 +529,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 _LOGGER.info(f"{entity_id} node changed: {last_node} -> {node_signature}")
                 self.last_node_states[entity_id] = node_signature
                 
-                # Get current state
-                state = self.hass.states.get(entity_id)
-                if state is None:
-                    _LOGGER.warning(f"Entity {entity_id} not found")
-                    continue
-                
+                # Re-get current state (we checked it exists earlier)
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
                 # Get current target temperature
                 current_target = state.attributes.get("temperature")
