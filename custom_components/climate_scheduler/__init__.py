@@ -115,6 +115,10 @@ CANCEL_ADVANCE_SCHEMA = vol.Schema({
     vol.Required("schedule_id"): cv.string
 })
 
+TEST_FIRE_EVENT_SCHEMA = vol.Schema({
+    vol.Required("group_name"): cv.string
+})
+
 CREATE_PROFILE_SCHEMA = vol.Schema({
     vol.Required("schedule_id"): cv.string,
     vol.Required("profile_name"): cv.string
@@ -444,6 +448,62 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             _LOGGER.error(f"Failed to cancel advance for {schedule_id}: {result.get('error')}")
             raise ValueError(result.get("error", "Unknown error"))
     
+    async def handle_test_fire_event(call: ServiceCall) -> None:
+        """Handle test_fire_event service call - manually fire a node_activated event for testing."""
+        group_name = call.data["group_name"]
+        _LOGGER.info(f"Test firing event for group '{group_name}'")
+        
+        # Get group data
+        groups = await storage.async_get_groups()
+        if group_name not in groups:
+            _LOGGER.error(f"Group '{group_name}' not found")
+            raise ValueError(f"Group '{group_name}' not found")
+        
+        group_data = groups[group_name]
+        
+        # Get current schedule
+        current_time = datetime.now().time()
+        current_day = datetime.now().strftime('%a').lower()
+        group_schedule = await storage.async_get_group_schedule(group_name, current_day)
+        
+        if not group_schedule or "nodes" not in group_schedule:
+            _LOGGER.error(f"No schedule found for group '{group_name}' on {current_day}")
+            raise ValueError(f"No schedule found for group '{group_name}'")
+        
+        nodes = group_schedule["nodes"]
+        active_node = storage.get_active_node(nodes, current_time)
+        
+        if not active_node:
+            _LOGGER.error(f"No active node found for group '{group_name}' at {current_time}")
+            raise ValueError(f"No active node found at {current_time}")
+        
+        # Determine entity_id (first entity or None for virtual groups)
+        entities_list = group_data.get("entities", [])
+        entity_id = entities_list[0] if len(entities_list) > 0 else None
+        
+        # Fire the event
+        hass.bus.async_fire(
+            f"{DOMAIN}_node_activated",
+            {
+                "entity_id": entity_id,
+                "group_name": group_name,
+                "node": {
+                    "time": active_node.get("time"),
+                    "temp": active_node.get("temp"),
+                    "hvac_mode": active_node.get("hvac_mode"),
+                    "fan_mode": active_node.get("fan_mode"),
+                    "swing_mode": active_node.get("swing_mode"),
+                    "preset_mode": active_node.get("preset_mode"),
+                    "1": active_node.get("1"),
+                    "2": active_node.get("2"),
+                    "3": active_node.get("3"),
+                },
+                "day": current_day,
+                "trigger_type": "test",
+            }
+        )
+        _LOGGER.info(f"Test event fired for group '{group_name}' with node at {active_node.get('time')}")
+    
     async def handle_get_advance_status(call: ServiceCall) -> dict:
         """Handle get_advance_status service call - get advance override status and history."""
         schedule_id = call.data["schedule_id"]
@@ -575,6 +635,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule, schema=ADVANCE_SCHEDULE_SCHEMA)
     hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
+    hass.services.async_register(DOMAIN, "test_fire_event", handle_test_fire_event, schema=TEST_FIRE_EVENT_SCHEMA)
     hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=SCHEDULE_ID_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=SCHEDULE_ID_SCHEMA)
     hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, schema=CREATE_PROFILE_SCHEMA)

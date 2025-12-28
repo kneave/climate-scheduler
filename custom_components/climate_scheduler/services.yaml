@@ -272,6 +272,17 @@ cancel_advance:
       selector:
         text:
 
+test_fire_event:
+  name: Test fire event
+  description: Manually fire a climate_scheduler_node_activated event with the current active node for testing automations
+  fields:
+    group_name:
+      description: Group name to fire event for
+      required: true
+      example: "Living Room"
+      selector:
+        text:
+
 clear_advance_history:
   name: Clear advance history
   description: Clear all advance history markers for a climate entity

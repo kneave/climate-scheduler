@@ -791,6 +791,7 @@ function createSettingsPanel(groupData, editor) {
             <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
             <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
             <button id="advance-schedule-btn" class="btn-secondary-outline schedule-btn" title="Advance to next scheduled node">Advance</button>
+            <button id="test-fire-event-btn" class="btn-secondary-outline schedule-btn" title="Test fire event with current active node">🧪 Test Event</button>
             <button id="clear-advance-history-btn" class="btn-secondary-outline schedule-btn" title="Clear advance history markers">Clear Advance History</button>`;
     
     // Only show unmonitor button for single-entity groups
@@ -1143,7 +1144,17 @@ async function loadProfiles(container, targetId, isGroup) {
 
 // Create group members table element
 function createGroupMembersTable(entityIds) {
-    if (!entityIds || entityIds.length === 0) return null;
+    if (!entityIds || entityIds.length === 0) {
+        // Return a message for virtual groups (no entities)
+        const container = document.createElement('div');
+        container.className = 'group-members-container';
+        container.innerHTML = `
+            <div style="padding: 16px; text-align: center; color: var(--secondary-text-color); font-style: italic;">
+                Virtual Schedule (No Entities) - Events Only
+            </div>
+        `;
+        return container;
+    }
     
     // Create container wrapper
     const container = document.createElement('div');
@@ -1913,6 +1924,25 @@ function attachEditorEventListeners(editorElement) {
                 showToast('Failed: ' + error.message, 'error');
             } finally {
                 advanceBtn.disabled = false;
+            }
+        };
+    }
+    
+    // Test fire event button
+    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
+    if (testFireBtn) {
+        testFireBtn.onclick = async () => {
+            if (!currentGroup) return;
+            
+            testFireBtn.disabled = true;
+            try {
+                await haAPI.testFireEvent(currentGroup);
+                showToast(`Test event fired for group '${currentGroup}'`, 'success');
+            } catch (error) {
+                console.error('Failed to test fire event:', error);
+                showToast('Failed to fire test event: ' + error.message, 'error');
+            } finally {
+                testFireBtn.disabled = false;
             }
         };
     }

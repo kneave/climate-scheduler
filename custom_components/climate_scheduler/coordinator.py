@@ -265,6 +265,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "fan_mode": next_node.get("fan_mode"),
                     "swing_mode": next_node.get("swing_mode"),
                     "preset_mode": next_node.get("preset_mode"),
+                    "1": next_node.get("1"),
+                    "2": next_node.get("2"),
+                    "3": next_node.get("3"),
                 },
                 "day": current_day,
                 "trigger_type": "manual_advance",
@@ -449,12 +452,19 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Get group schedule for current day
                 group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
                 if group_schedule and "nodes" in group_schedule:
-                    # Map all entities in this group to this schedule
-                    for entity_id in group_data.get("entities", []):
-                        entity_group_schedules[entity_id] = (group_name, group_schedule)
-                        is_single = group_data.get("_is_single_entity_group", False)
-                        group_type = "single-entity" if is_single else "multi-entity"
-                        _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
+                    entities_list = group_data.get("entities", [])
+                    
+                    if len(entities_list) == 0:
+                        # Virtual group with no entities - track separately for event-only processing
+                        entity_group_schedules[f"_virtual_{group_name}"] = (group_name, group_schedule, True)
+                        _LOGGER.info(f"Virtual group '{group_name}' will fire events only (no entities)")
+                    else:
+                        # Map all entities in this group to this schedule
+                        for entity_id in entities_list:
+                            entity_group_schedules[entity_id] = (group_name, group_schedule, False)
+                            is_single = group_data.get("_is_single_entity_group", False)
+                            group_type = "single-entity" if is_single else "multi-entity"
+                            _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
             
             # Save storage if any groups were migrated
             if groups_migrated:
@@ -466,7 +476,73 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             results = {}
             
             # Process all entities that have group schedules (both single and multi-entity groups)
-            for entity_id, (group_name, schedule_data) in entity_group_schedules.items():
+            for entity_id, (group_name, schedule_data, is_virtual) in entity_group_schedules.items():
+                # Handle virtual groups (no entities, events only)
+                if is_virtual:
+                    _LOGGER.info(f"Processing virtual group: '{group_name}'")
+                    
+                    nodes = schedule_data["nodes"]
+                    active_node = self.storage.get_active_node(nodes, current_time)
+                    if not active_node:
+                        _LOGGER.debug(f"No active node for virtual group '{group_name}'")
+                        continue
+                    
+                    # Create signature for virtual group tracking
+                    virtual_key = f"_virtual_{group_name}"
+                    node_signature = {
+                        "time": active_node.get("time"),
+                        "temp": active_node.get("temp"),
+                        "hvac_mode": active_node.get("hvac_mode"),
+                        "fan_mode": active_node.get("fan_mode"),
+                        "swing_mode": active_node.get("swing_mode"),
+                        "preset_mode": active_node.get("preset_mode"),
+                        "1": active_node.get("1"),
+                        "2": active_node.get("2"),
+                        "3": active_node.get("3"),
+                    }
+                    
+                    # Check if we've transitioned to a new node
+                    last_node = self.last_node_states.get(virtual_key)
+                    if last_node == node_signature:
+                        _LOGGER.debug(f"Virtual group '{group_name}' still on same node, skipping")
+                        results[virtual_key] = {
+                            "updated": False,
+                            "reason": "same_node"
+                        }
+                        continue
+                    
+                    # Node has changed, fire event
+                    self.last_node_states[virtual_key] = node_signature
+                    
+                    self.hass.bus.async_fire(
+                        f"{DOMAIN}_node_activated",
+                        {
+                            "entity_id": None,  # No entity for virtual groups
+                            "group_name": group_name,
+                            "node": {
+                                "time": active_node.get("time"),
+                                "temp": active_node.get("temp"),
+                                "hvac_mode": active_node.get("hvac_mode"),
+                                "fan_mode": active_node.get("fan_mode"),
+                                "swing_mode": active_node.get("swing_mode"),
+                                "preset_mode": active_node.get("preset_mode"),
+                                "1": active_node.get("1"),
+                                "2": active_node.get("2"),
+                                "3": active_node.get("3"),
+                            },
+                            "previous_node": last_node,
+                            "day": current_day,
+                            "trigger_type": "scheduled",
+                        }
+                    )
+                    _LOGGER.info(f"Fired node_activated event for virtual group '{group_name}' (scheduled)")
+                    
+                    results[virtual_key] = {
+                        "updated": True,
+                        "virtual": True
+                    }
+                    continue
+                
                 # Check if entity exists in Home Assistant first
                 state = self.hass.states.get(entity_id)
                 if state is None:
@@ -713,6 +789,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             "fan_mode": active_node.get("fan_mode"),
                             "swing_mode": active_node.get("swing_mode"),
                             "preset_mode": active_node.get("preset_mode"),
+                            "1": active_node.get("1"),
+                            "2": active_node.get("2"),
+                            "3": active_node.get("3"),
                         },
                         "previous_node": last_node,
                         "day": current_day,

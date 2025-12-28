@@ -323,6 +323,12 @@ class HomeAssistantAPI {
         });
     }
     
+    async testFireEvent(groupName) {
+        return await this.callService('climate_scheduler', 'test_fire_event', {
+            group_name: groupName
+        });
+    }
+    
     async cancelAdvance(entityId) {
         return await this.callService('climate_scheduler', 'cancel_advance', {
             schedule_id: entityId
