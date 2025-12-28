@@ -2,7 +2,7 @@
 import logging
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
@@ -34,9 +34,9 @@ SET_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,
             vol.Optional("preset_mode"): cv.string,
-            vol.Optional("1"): vol.Any(vol.Coerce(float), None),
-            vol.Optional("2"): vol.Any(vol.Coerce(float), None),
-            vol.Optional("3"): vol.Any(vol.Coerce(float), None)
+            vol.Optional("A"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("B"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("C"): vol.Any(vol.Coerce(float), None)
         })
     ]),
     vol.Optional("day"): cv.string,
@@ -81,9 +81,9 @@ SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
             vol.Optional("fan_mode"): cv.string,
             vol.Optional("swing_mode"): cv.string,
             vol.Optional("preset_mode"): cv.string,
-            vol.Optional("1"): vol.Any(vol.Coerce(float), None),
-            vol.Optional("2"): vol.Any(vol.Coerce(float), None),
-            vol.Optional("3"): vol.Any(vol.Coerce(float), None)
+            vol.Optional("A"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("B"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("C"): vol.Any(vol.Coerce(float), None)
         })
     ]),
     vol.Optional("day"): cv.string,

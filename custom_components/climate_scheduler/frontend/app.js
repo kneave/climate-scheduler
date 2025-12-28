@@ -1712,17 +1712,22 @@ function createScheduleEditor() {
                                 <option value="none">None</option>
                             </select>
                         </div>
-                        <div class="setting-item">
-                            <label>Value A:</label>
-                            <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" />
-                        </div>
-                        <div class="setting-item">
-                            <label>Value B:</label>
-                            <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" />
-                        </div>
-                        <div class="setting-item">
-                            <label>Value C:</label>
-                            <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" />
+                        <div class="setting-item" style="grid-column: 1 / -1;">
+                            <label style="display: block; margin-bottom: 8px;">Custom Values:</label>
+                            <div style="display: flex; gap: 12px;">
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">A:</label>
+                                    <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">B:</label>
+                                    <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">C:</label>
+                                    <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-actions">
@@ -4075,42 +4080,49 @@ function handleNodeSettings(event) {
     if (currentGroup) {
         // For groups, aggregate capabilities from all entities in the group
         const groupData = allGroups[currentGroup];
-        if (!groupData || !groupData.entities) return;
+        if (!groupData) return;
         
-        const groupEntities = groupData.entities
+        const groupEntities = (groupData.entities || [])
             .map(id => climateEntities.find(e => e.entity_id === id))
             .filter(e => e);
         
-        if (groupEntities.length === 0) return;
-        
-        // Use first entity for basic attributes
-        entity = groupEntities[0];
-        
-        // Aggregate all unique modes from all entities
-        const hvacModesSet = new Set();
-        const fanModesSet = new Set();
-        const swingModesSet = new Set();
-        const presetModesSet = new Set();
-        
-        groupEntities.forEach(e => {
-            if (e.attributes.hvac_modes) {
-                e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
-            }
-            if (e.attributes.fan_modes) {
-                e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
-            }
-            if (e.attributes.swing_modes) {
-                e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
-            }
-            if (e.attributes.preset_modes) {
-                e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
-            }
-        });
-        
-        allHvacModes = Array.from(hvacModesSet);
-        allFanModes = Array.from(fanModesSet);
-        allSwingModes = Array.from(swingModesSet);
-        allPresetModes = Array.from(presetModesSet);
+        // For virtual groups (no entities), use empty mode arrays
+        if (groupEntities.length === 0) {
+            // Virtual schedule - no modes available
+            allHvacModes = [];
+            allFanModes = [];
+            allSwingModes = [];
+            allPresetModes = [];
+        } else {
+            // Use first entity for basic attributes
+            entity = groupEntities[0];
+            
+            // Aggregate all unique modes from all entities
+            const hvacModesSet = new Set();
+            const fanModesSet = new Set();
+            const swingModesSet = new Set();
+            const presetModesSet = new Set();
+            
+            groupEntities.forEach(e => {
+                if (e.attributes.hvac_modes) {
+                    e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
+                }
+                if (e.attributes.fan_modes) {
+                    e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
+                }
+                if (e.attributes.swing_modes) {
+                    e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
+                }
+                if (e.attributes.preset_modes) {
+                    e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
+                }
+            });
+            
+            allHvacModes = Array.from(hvacModesSet);
+            allFanModes = Array.from(fanModesSet);
+            allSwingModes = Array.from(swingModesSet);
+            allPresetModes = Array.from(presetModesSet);
+        }
     } else {
         // For individual entities
         entity = climateEntities.find(e => e.entity_id === currentEntityId);
