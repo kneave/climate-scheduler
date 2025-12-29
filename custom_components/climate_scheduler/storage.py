@@ -1,6 +1,7 @@
 """Storage management for Climate Scheduler."""
 import logging
 import copy
+import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime, time
 
@@ -65,6 +66,55 @@ class ScheduleStorage:
             self._data = {"groups": {}, "settings": {}, "advance_history": {}}
         else:
             self._data = data
+            changed_settings = False
+
+            # Collect nested settings layers (if any) by following repeated
+            # {"settings": {...}} wrappers. We'll choose the most-recent
+            # settings block based on the contained integration version
+            # (if present) so upgrades keep the latest settings values.
+            chosen_settings = None
+            if "settings" in self._data:
+                layers = []
+                s = self._data["settings"]
+                layers.append(s)
+                while isinstance(s, dict) and "settings" in s and isinstance(s["settings"], dict):
+                    s = s["settings"]
+                    layers.append(s)
+
+                def parse_version_string(ver: str):
+                    if not isinstance(ver, str):
+                        return ()
+                    # Extract numeric groups from version string, e.g. '1.14.0.13' -> (1,14,0,13)
+                    nums = re.findall(r"\d+", ver)
+                    return tuple(int(x) for x in nums) if nums else ()
+
+                best_idx = None
+                best_ver = ()
+                # Iterate layers and pick one with highest integration version
+                for idx, layer in enumerate(layers):
+                    ver = None
+                    v = layer.get("version")
+                    if isinstance(v, dict):
+                        ver = v.get("integration") or v.get("version")
+                    elif isinstance(v, str):
+                        ver = v
+
+                    parsed = parse_version_string(ver) if ver else ()
+                    if parsed and parsed > best_ver:
+                        best_ver = parsed
+                        best_idx = idx
+
+                # If we found a best by version choose it, otherwise use innermost
+                if best_idx is not None:
+                    chosen_settings = layers[best_idx]
+                else:
+                    chosen_settings = layers[-1]
+
+                if chosen_settings is not self._data["settings"]:
+                    _LOGGER.info("Selected settings from nested layers (kept latest version)")
+                    changed_settings = True
+
+                self._data["settings"] = chosen_settings
             # Ensure groups key exists for backwards compatibility
             if "groups" not in self._data:
                 self._data["groups"] = {}
@@ -97,6 +147,13 @@ class ScheduleStorage:
         if "create_derivative_sensors" not in settings:
             settings["create_derivative_sensors"] = True  # Default to enabled
         self._data["settings"] = settings
+        # Persist cleaned settings if we flattened/selected a different layer
+        if locals().get("changed_settings"):
+            try:
+                await self.async_save()
+                _LOGGER.info("Persisted cleaned settings to storage")
+            except Exception as e:
+                _LOGGER.error(f"Failed to persist cleaned settings: {e}")
         _LOGGER.debug(f"Loaded schedule data: {self._data}")
     
     async def _migrate_to_day_schedules(self) -> None:

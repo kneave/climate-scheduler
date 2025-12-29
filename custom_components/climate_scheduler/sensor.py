@@ -132,8 +132,21 @@ class ClimateSchedulerRateSensor(SensorEntity):
         if is_floor:
             # For floor sensors, include the floor sensor name in unique_id to avoid collisions
             floor_sensor_name = source_entity_id.split(".")[-1]
-            suffix = f"{floor_sensor_name.replace('_', ' ').title()} Rate"
-            unique_suffix = floor_sensor_name
+            # Strip any previously-created climate_scheduler prefix to avoid recursive names
+            if floor_sensor_name.startswith("climate_scheduler_"):
+                floor_sensor_name = floor_sensor_name[len("climate_scheduler_") :]
+            # Strip trailing _rate if present
+            if floor_sensor_name.endswith("_rate"):
+                floor_sensor_name = floor_sensor_name[: -len("_rate")]
+
+            # Prevent duplicated segments like "front_room_front_room_..."
+            if floor_sensor_name.startswith(f"{entity_name}_"):
+                floor_sensor_suffix = floor_sensor_name[len(entity_name) + 1 :]
+            else:
+                floor_sensor_suffix = floor_sensor_name
+
+            suffix = f"{floor_sensor_suffix.replace('_', ' ').title()} Rate"
+            unique_suffix = f"{floor_sensor_suffix}_rate"
         else:
             suffix = "Rate"
             unique_suffix = "rate"
