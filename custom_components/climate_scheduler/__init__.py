@@ -504,6 +504,199 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         )
         _LOGGER.info(f"Test event fired for group '{group_name}' with node at {active_node.get('time')}")
     
+    async def handle_cleanup_malformed_sensors(call: ServiceCall) -> dict:
+        """Handle cleanup_malformed_sensors service call - remove duplicate/malformed sensor entities."""
+        from homeassistant.helpers import entity_registry as er
+        
+        delete = call.data.get("delete", False)
+        
+        _LOGGER.info(f"Scanning for malformed Climate Scheduler sensors (delete={delete})")
+        
+        entity_registry = er.async_get(hass)
+        
+        # Get the config entry for this integration
+        config_entries = hass.config_entries.async_entries(DOMAIN)
+        if not config_entries:
+            _LOGGER.error("No config entry found for Climate Scheduler")
+            return {"entities": []}
+        
+        # Use the first config entry (there should only be one)
+        entry = config_entries[0]
+        
+        # Get all entities created by this integration
+        entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        
+        # Filter for sensor entities only
+        sensor_entities = [e for e in entities if e.domain == "sensor"]
+        
+        _LOGGER.debug(f"Found {len(sensor_entities)} sensor entities created by Climate Scheduler")
+        
+        # Build list of expected sensor entity IDs
+        expected_entity_ids = set()
+        
+        # 1. Always expected: coldest and warmest sensors
+        expected_entity_ids.add("sensor.climate_scheduler_coldest_entity")
+        expected_entity_ids.add("sensor.climate_scheduler_warmest_entity")
+        
+        # 2. Get all climate entities from groups
+        groups = await storage.async_get_groups()
+        all_climate_entities = set()
+        
+        for group_name, group_data in groups.items():
+            entities_list = group_data.get("entities", [])
+            all_climate_entities.update(entities_list)
+        
+        # 3. For each climate entity, build expected sensor names
+        settings = storage._data.get("settings", {})
+        create_derivative = settings.get("create_derivative_sensors", True)
+        
+        if create_derivative:
+            for climate_entity_id in all_climate_entities:
+                # Extract entity name (e.g., climate.bedroom -> bedroom)
+                if "." in climate_entity_id:
+                    entity_name = climate_entity_id.split(".", 1)[1]
+                    
+                    # Main rate sensor
+                    expected_entity_ids.add(f"sensor.climate_scheduler_{entity_name}_rate")
+                    
+                    # Check if this climate entity has a device with floor sensors
+                    entity_entry = entity_registry.async_get(climate_entity_id)
+                    if entity_entry and entity_entry.device_id:
+                        from homeassistant.helpers import device_registry as dr
+                        device_registry = dr.async_get(hass)
+                        device = device_registry.async_get(entity_entry.device_id)
+                        
+                        if device:
+                            # Find all sensor entities on same device
+                            device_sensors = er.async_entries_for_device(
+                                entity_registry,
+                                entity_entry.device_id,
+                                include_disabled_entities=False
+                            )
+                            
+                            for sensor in device_sensors:
+                                if sensor.domain == "sensor" and sensor.entity_id != climate_entity_id:
+                                    sensor_state = hass.states.get(sensor.entity_id)
+                                    if sensor_state:
+                                        # Check if it has temperature in attributes
+                                        attrs = sensor_state.attributes
+                                        if ("temperature" in str(sensor_state.state).lower() or 
+                                            attrs.get("device_class") == "temperature" or
+                                            attrs.get("unit_of_measurement") in ["°C", "°F"]):
+                                            
+                                            # This is a floor sensor - build expected name
+                                            floor_sensor_name = sensor.entity_id.split(".", 1)[1]
+                                            expected_entity_ids.add(
+                                                f"sensor.climate_scheduler_{entity_name}_{floor_sensor_name}_rate"
+                                            )
+        
+        _LOGGER.debug(f"Built list of {len(expected_entity_ids)} expected sensor entities")
+        
+        # Find entities that exist but are not expected
+        problematic_entities = []
+        
+        for entity in sensor_entities:
+            entity_id = entity.entity_id
+            
+            if entity_id not in expected_entity_ids:
+                # Additional validation: check if it starts with our prefix
+                if entity_id.startswith("sensor.climate_scheduler_"):
+                    problematic_entities.append({
+                        "entity_id": entity_id,
+                        "unique_id": entity.unique_id,
+                        "name": entity.name or entity.original_name,
+                        "reason": "Not in expected entity list"
+                    })
+        
+        if not problematic_entities:
+            _LOGGER.info("No problematic sensor entities found")
+            return {
+                "expected_entities": sorted(list(expected_entity_ids)),
+                "unexpected_entities": []
+            }
+        
+        _LOGGER.warning(f"Found {len(problematic_entities)} unexpected sensor entities")
+        
+        removed_entities = []
+        
+        if delete:
+            # Remove problematic entities
+            for entity_info in problematic_entities:
+                try:
+                    entity_registry.async_remove(entity_info["entity_id"])
+                    removed_entities.append(entity_info["entity_id"])
+                    _LOGGER.info(f"Removed unexpected entity: {entity_info['entity_id']}")
+                except Exception as e:
+                    _LOGGER.error(f"Failed to remove entity {entity_info['entity_id']}: {e}")
+        
+        # Return dictionary with expected and unexpected entity lists
+        return {
+            "expected_entities": sorted(list(expected_entity_ids)),
+            "unexpected_entities": [e["entity_id"] for e in problematic_entities]
+        }
+    
+    async def handle_recreate_all_sensors(call: ServiceCall) -> dict:
+        """Handle recreate_all_sensors service call - delete all sensor entities and recreate them."""
+        from homeassistant.helpers import entity_registry as er
+        
+        confirm = call.data.get("confirm", False)
+        if not confirm:
+            _LOGGER.error("recreate_all_sensors requires confirmation (set confirm=true)")
+            return {
+                "deleted_count": 0,
+                "message": "Operation requires confirmation. Set confirm=true to proceed."
+            }
+        
+        _LOGGER.info("Starting sensor recreation - deleting all Climate Scheduler sensors")
+        
+        entity_registry = er.async_get(hass)
+        
+        # Get the config entry for this integration
+        config_entries = hass.config_entries.async_entries(DOMAIN)
+        if not config_entries:
+            _LOGGER.error("No config entry found for Climate Scheduler")
+            return {
+                "deleted_count": 0,
+                "message": "No config entry found"
+            }
+        
+        entry = config_entries[0]
+        
+        # Get all sensor entities created by this integration
+        entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        sensor_entities = [e for e in entities if e.domain == "sensor"]
+        
+        _LOGGER.info(f"Found {len(sensor_entities)} sensor entities to delete")
+        
+        deleted_count = 0
+        errors = []
+        
+        for entity in sensor_entities:
+            try:
+                entity_registry.async_remove(entity.entity_id)
+                deleted_count += 1
+                _LOGGER.debug(f"Deleted sensor: {entity.entity_id}")
+            except Exception as e:
+                errors.append(f"{entity.entity_id}: {str(e)}")
+                _LOGGER.error(f"Failed to delete {entity.entity_id}: {e}")
+        
+        _LOGGER.info(f"Deleted {deleted_count} sensor entities, now reloading sensor platform")
+        
+        # Reload the sensor platform to recreate entities
+        try:
+            await hass.config_entries.async_reload(entry.entry_id)
+            message = f"Deleted {deleted_count} sensors and reloaded integration. Sensors will be recreated."
+        except Exception as e:
+            _LOGGER.error(f"Failed to reload integration: {e}")
+            message = f"Deleted {deleted_count} sensors but reload failed: {str(e)}"
+            errors.append(f"Reload error: {str(e)}")
+        
+        return {
+            "deleted_count": deleted_count,
+            "errors": errors,
+            "message": message
+        }
+    
     async def handle_get_advance_status(call: ServiceCall) -> dict:
         """Handle get_advance_status service call - get advance override status and history."""
         schedule_id = call.data["schedule_id"]
@@ -636,6 +829,8 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
     hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
     hass.services.async_register(DOMAIN, "test_fire_event", handle_test_fire_event, schema=TEST_FIRE_EVENT_SCHEMA)
+    hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=SCHEDULE_ID_SCHEMA, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=SCHEDULE_ID_SCHEMA)
     hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, schema=CREATE_PROFILE_SCHEMA)

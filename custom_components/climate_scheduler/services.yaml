@@ -283,6 +283,37 @@ test_fire_event:
       selector:
         text:
 
+cleanup_malformed_sensors:
+  name: Cleanup malformed sensors
+  description: Scan for unexpected Climate Scheduler sensor entities and optionally remove them. Returns a list of unexpected entity IDs found.
+  fields:
+    delete:
+      description: Whether to actually delete the unexpected entities (default is false for dry-run)
+      required: false
+      default: false
+      example: true
+      selector:
+        boolean:
+  response:
+    expected_entities: List of expected sensor entity IDs based on current configuration
+    unexpected_entities: List of unexpected entity IDs found (candidates for removal)
+
+recreate_all_sensors:
+  name: Recreate all sensors
+  description: Delete ALL Climate Scheduler sensor entities and reload the integration to recreate them cleanly. Requires confirmation.
+  fields:
+    confirm:
+      description: Must be set to true to confirm deletion of all sensors
+      required: true
+      default: false
+      example: true
+      selector:
+        boolean:
+  response:
+    deleted_count: Number of sensor entities deleted
+    errors: List of any errors encountered
+    message: Summary message
+
 clear_advance_history:
   name: Clear advance history
   description: Clear all advance history markers for a climate entity
