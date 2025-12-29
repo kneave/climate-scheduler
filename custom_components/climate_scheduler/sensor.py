@@ -155,8 +155,7 @@ class ClimateSchedulerRateSensor(SensorEntity):
         
         self._attr_name = f"Climate Scheduler {friendly_name} {suffix}"
         self._attr_unique_id = f"climate_scheduler_{entity_name}_{unique_suffix}"
-        # Explicitly set entity_id to prevent duplication issues
-        self.entity_id = f"sensor.climate_scheduler_{entity_name}_{unique_suffix}"
+        # Let Home Assistant manage the `entity_id` from the `unique_id`
         self._attr_device_class = None  # No standard device class for rate
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = "°C/h"
@@ -295,8 +294,7 @@ class ColdestEntitySensor(SensorEntity):
         
         self._attr_name = "Climate Scheduler Coldest Entity"
         self._attr_unique_id = "climate_scheduler_coldest_entity"
-        # Explicitly set entity_id to prevent duplication issues
-        self.entity_id = "sensor.climate_scheduler_coldest_entity"
+        # Let Home Assistant manage the `entity_id` from the `unique_id`
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -385,8 +383,7 @@ class WarmestEntitySensor(SensorEntity):
         
         self._attr_name = "Climate Scheduler Warmest Entity"
         self._attr_unique_id = "climate_scheduler_warmest_entity"
-        # Explicitly set entity_id to prevent duplication issues
-        self.entity_id = "sensor.climate_scheduler_warmest_entity"
+        # Let Home Assistant manage the `entity_id` from the `unique_id`
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS

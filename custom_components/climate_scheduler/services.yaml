@@ -1,0 +1,3 @@
+# Placeholder services file - integration registers services dynamically via Python.
+# Provide an empty mapping so Home Assistant's YAML loader doesn't return None.
+{}
