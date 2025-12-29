@@ -294,7 +294,9 @@ class TemperatureGraph {
         const text = this.tooltip.querySelector('.tooltip-text');
         // Get temperature unit from global scope
         const unit = (typeof temperatureUnit !== 'undefined') ? temperatureUnit : '°C';
-        text.textContent = `${time} | ${temp}${unit}`;
+        // Handle null temperature (no change) display
+        const tempDisplay = (temp === null || temp === undefined || temp === 'No Change') ? 'No Change' : `${temp}${unit}`;
+        text.textContent = `${time} | ${tempDisplay}`;
         
         // Position tooltip above the cursor/node
         const tooltipX = Math.max(50, Math.min(this.width - 50, x));
@@ -897,18 +899,28 @@ class TemperatureGraph {
         
         if (sortedNodes.length < 1) return;
         
+        // Filter nodes that are not marked as "no change"
+        const nodesWithTemp = sortedNodes.filter(node => !node.noChange);
+        
+        if (nodesWithTemp.length < 1) return; // No temperature nodes to draw
+        
         // Create path with step function (hold value until next node)
         let pathData = '';
         
         // Start from midnight with last node's temperature (wraps from previous day)
         const startX = this.timeToX("00:00");
-        const startTemp = sortedNodes[sortedNodes.length - 1].temp;
+        const startTemp = nodesWithTemp[nodesWithTemp.length - 1].temp;
         pathData = `M ${startX} ${this.tempToY(startTemp)}`;
         
-        // Draw steps for each node
+        // Draw steps for each node that has a temperature
         let currentTemp = startTemp;
         sortedNodes.forEach((node) => {
             const x = this.timeToX(node.time);
+            
+            // Skip nodes marked as "no change" - don't draw line to them
+            if (node.noChange) {
+                return;
+            }
             
             // Draw horizontal line at current temp to this node's x position
             pathData += ` L ${x} ${this.tempToY(currentTemp)}`;
@@ -934,10 +946,10 @@ class TemperatureGraph {
         
         g.appendChild(path);
         
-        // Draw wraparound indicator from last node to first node
-        if (sortedNodes.length > 1) {
-            const lastNode = sortedNodes[sortedNodes.length - 1];
-            const firstNode = sortedNodes[0];
+        // Draw wraparound indicator from last node to first node (only if both have temp)
+        if (nodesWithTemp.length > 1) {
+            const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+            const firstNode = nodesWithTemp[0];
             
             // Visual indicator showing the connection wraps around
             const wrapPath = this.createSVGElement('path', {
@@ -973,19 +985,35 @@ class TemperatureGraph {
             });
             touchTarget.classList.add('node-touch-target');
             
-            // Visible node
+            // Visible node - different style for "no change" nodes
             const isSelected = this.selectedNodeIndex === index;
+            const isNoChange = node.noChange === true;
+            const nodeColor = isNoChange ? (isSelected ? '#ff9800' : '#9e9e9e') : (isSelected ? '#4caf50' : '#03a9f4');
             const circle = this.createSVGElement('circle', {
                 cx: x,
                 cy: y,
                 r: this.nodeRadius,
-                fill: isSelected ? '#4caf50' : '#03a9f4',
+                fill: nodeColor,
                 stroke: '#fff',
                 'stroke-width': 2,
                 cursor: 'pointer',
                 'data-node-index': index
             });
             circle.classList.add('node');
+            
+            // Add a special marker for "no change" nodes (horizontal line through node)
+            if (isNoChange) {
+                const marker = this.createSVGElement('line', {
+                    x1: x - this.nodeRadius,
+                    y1: y,
+                    x2: x + this.nodeRadius,
+                    y2: y,
+                    stroke: '#fff',
+                    'stroke-width': 2,
+                    'pointer-events': 'none'
+                });
+                g.appendChild(marker);
+            }
             
             // Node label (hidden if this node is being dragged)
             const text = this.createSVGElement('text', {
@@ -998,7 +1026,7 @@ class TemperatureGraph {
                 'pointer-events': 'none',
                 'data-node-index': index
             });
-            text.textContent = `${node.temp}${this.temperatureUnit}`;
+            text.textContent = isNoChange ? 'No Change' : `${node.temp}${this.temperatureUnit}`;
             text.classList.add('node-label');
             
             // Hide label if this node is being dragged
@@ -1062,15 +1090,21 @@ class TemperatureGraph {
             
             // Start potential drag
             this.draggingNode = clickedNode;
+            
+            // Calculate drag offset
+            const nodeY = this.tempToY(node.temp);
+            
             this.dragOffset.x = point.x - this.timeToX(node.time);
-            this.dragOffset.y = point.y - this.tempToY(node.temp);
+            this.dragOffset.y = point.y - nodeY;
             
             // Show tooltip immediately
+            const isNoChange = node.noChange === true;
+            const displayTemp = isNoChange ? 'No Change' : node.temp;
             this.updateTooltip(
                 this.timeToX(node.time),
-                this.tempToY(node.temp),
+                nodeY,
                 node.time,
-                node.temp
+                displayTemp
             );
             
             // Render to hide the label
@@ -1203,9 +1237,11 @@ class TemperatureGraph {
         const snappedTime = this.snapToInterval(newTime);
         
         // Update node temperature (vertical movement)
+        const node = this.nodes[this.draggingNode];
         const newTemp = this.yToTemp(point.y - this.dragOffset.y);
         const clampedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, newTemp));
         const roundedTemp = Math.round(clampedTemp * 2) / 2; // Round to 0.5°C
+        this.nodes[this.draggingNode].temp = roundedTemp;
         
         // Check if another node already exists at this time
         const existingIndex = this.nodes.findIndex((n, i) => 
@@ -1217,19 +1253,20 @@ class TemperatureGraph {
             this.nodes[this.draggingNode].time = snappedTime;
         }
         
-        this.nodes[this.draggingNode].temp = roundedTemp;
-        
         // Update the settings panel if it's showing this node
         this.updateNodeSettingsIfVisible(this.draggingNode);
         
         // Show tooltip based on mode
         if (this.tooltipMode === 'cursor') {
             // Show cursor position (time and temperature being dragged to)
+            const isNoChange = this.nodes[this.draggingNode].noChange === true;
+            const displayTemp = isNoChange ? 'No Change' : this.nodes[this.draggingNode].temp;
+            const displayY = this.tempToY(this.nodes[this.draggingNode].temp);
             this.updateTooltip(
                 this.timeToX(this.nodes[this.draggingNode].time),
-                this.tempToY(roundedTemp),
+                displayY,
                 this.nodes[this.draggingNode].time,
-                roundedTemp
+                displayTemp
             );
         } else {
             // History mode - show time/temp at cursor position

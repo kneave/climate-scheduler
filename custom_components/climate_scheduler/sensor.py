@@ -33,58 +33,72 @@ async def async_setup_entry(
     from homeassistant.helpers import device_registry as dr, entity_registry as er
     
     storage = hass.data[DOMAIN]["storage"]
+    coordinator = hass.data[DOMAIN]["coordinator"]
     
     # Get settings to check if derivative sensors are enabled
     settings = storage._data.get("settings", {})
+    sensors = []
+    
+    # Always create coldest and warmest sensors
+    sensors.append(ColdestEntitySensor(hass, storage, coordinator))
+    sensors.append(WarmestEntitySensor(hass, storage, coordinator))
+    
     if not settings.get("create_derivative_sensors", True):
+        async_add_entities(sensors, True)
         return
     
     # Get registries
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     
-    # Create derivative sensors for all enabled entities
-    entities = storage._data.get("entities", {})
-    sensors = []
+    # Get all entities from groups (both single and multi-entity groups)
+    all_entity_ids = await storage.async_get_all_entities()
     
-    for entity_id, entity_data in entities.items():
-        if entity_data.get("enabled", True):
-            # Find the device for this climate entity
-            entity_entry = entity_registry.async_get(entity_id)
-            _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
+    for entity_id in all_entity_ids:
+        # Skip ignored entities
+        if await storage.async_is_ignored(entity_id):
+            continue
             
-            device_id = None
-            if entity_entry and entity_entry.device_id:
-                device_id = entity_entry.device_id
-                _LOGGER.debug(f"Found device {device_id} for {entity_id}")
+        # Skip disabled schedules
+        if not await storage.async_is_enabled(entity_id):
+            continue
+        
+        # Find the device for this climate entity
+        entity_entry = entity_registry.async_get(entity_id)
+        _LOGGER.debug(f"Entity entry for {entity_id}: {entity_entry}")
+        
+        device_id = None
+        if entity_entry and entity_entry.device_id:
+            device_id = entity_entry.device_id
+            _LOGGER.debug(f"Found device {device_id} for {entity_id}")
+        
+        # Create main temperature rate sensor
+        _LOGGER.debug(f"Creating derivative sensor for {entity_id}")
+        sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature", device_id))
+        
+        if device_id:
+            # Find all sensor entities on the same device
+            device_sensors = [
+                entry for entry in entity_registry.entities.values()
+                if entry.device_id == device_id 
+                and entry.domain == "sensor"
+                and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
+            ]
             
-            # Create main temperature rate sensor
-            _LOGGER.debug(f"Creating derivative sensor for {entity_id}")
-            sensors.append(ClimateSchedulerRateSensor(hass, entity_id, entity_id, "current_temperature", device_id))
+            _LOGGER.debug(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
             
-            if device_id:
-                # Find all sensor entities on the same device
-                device_sensors = [
-                    entry for entry in entity_registry.entities.values()
-                    if entry.device_id == device_id 
-                    and entry.domain == "sensor"
-                    and "floor" in entry.entity_id.lower()  # Look for "floor" in the entity_id
-                ]
-                
-                _LOGGER.debug(f"Found {len(device_sensors)} floor sensors for {entity_id}: {[s.entity_id for s in device_sensors]}")
-                
-                # Create derivative sensors for floor temperature sensors
-                for floor_sensor in device_sensors:
-                    _LOGGER.debug(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
-                    sensors.append(ClimateSchedulerRateSensor(
-                        hass, 
-                        entity_id,  # Associated climate entity
-                        floor_sensor.entity_id,  # Floor sensor to track
-                        "state",  # Use state instead of attribute
-                        device_id  # Link to same device
-                    ))
-            else:
-                _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
+            # Create derivative sensors for floor temperature sensors
+            for floor_sensor in device_sensors:
+                _LOGGER.debug(f"Creating floor derivative sensor for {entity_id} tracking {floor_sensor.entity_id}")
+                sensors.append(ClimateSchedulerRateSensor(
+                    hass, 
+                    entity_id,  # Associated climate entity
+                    floor_sensor.entity_id,  # Floor sensor to track
+                    "state",  # Use state instead of attribute
+                    device_id  # Link to same device
+                ))
+        else:
+            _LOGGER.warning(f"No device found for {entity_id}, skipping floor sensor detection")
     
     if sensors:
         async_add_entities(sensors, True)
@@ -114,13 +128,22 @@ class ClimateSchedulerRateSensor(SensorEntity):
         
         # Determine if this is a floor sensor (tracking a separate sensor entity)
         is_floor = source_entity_id != climate_entity_id
-        suffix = "Floor Rate" if is_floor else "Rate"
-        unique_suffix = "floor_rate" if is_floor else "rate"
+        
+        if is_floor:
+            # For floor sensors, include the floor sensor name in unique_id to avoid collisions
+            floor_sensor_name = source_entity_id.split(".")[-1]
+            suffix = f"{floor_sensor_name.replace('_', ' ').title()} Rate"
+            unique_suffix = floor_sensor_name
+        else:
+            suffix = "Rate"
+            unique_suffix = "rate"
         
         _LOGGER.debug(f"Creating sensor climate_scheduler_{entity_name}_{unique_suffix} with device_id: {device_id}")
         
         self._attr_name = f"Climate Scheduler {friendly_name} {suffix}"
         self._attr_unique_id = f"climate_scheduler_{entity_name}_{unique_suffix}"
+        # Explicitly set entity_id to prevent duplication issues
+        self.entity_id = f"sensor.climate_scheduler_{entity_name}_{unique_suffix}"
         self._attr_device_class = None  # No standard device class for rate
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = "°C/h"
@@ -240,4 +263,184 @@ class ClimateSchedulerRateSensor(SensorEntity):
             "temperature_attribute": self._temperature_attribute,
             "sample_count": len(self._samples),
             "time_window_minutes": 5,
+        }
+
+
+class ColdestEntitySensor(SensorEntity):
+    """Sensor that shows the coldest climate entity."""
+
+    def __init__(
+        self, 
+        hass: HomeAssistant,
+        storage,
+        coordinator
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._storage = storage
+        self._coordinator = coordinator
+        
+        self._attr_name = "Climate Scheduler Coldest Entity"
+        self._attr_unique_id = "climate_scheduler_coldest_entity"
+        # Explicitly set entity_id to prevent duplication issues
+        self.entity_id = "sensor.climate_scheduler_coldest_entity"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        self._attr_icon = "mdi:snowflake"
+        self._attr_native_value = None
+        self._coldest_entity_id = None
+        self._coldest_friendly_name = None
+        self._remove_listener = None
+    
+    async def async_added_to_hass(self) -> None:
+        """Register state listener when entity is added."""
+        # Listen to coordinator updates
+        self._remove_listener = self._coordinator.async_add_listener(self._handle_coordinator_update)
+        # Initial update
+        await self._async_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister listener when entity is removed."""
+        if self._remove_listener:
+            self._remove_listener()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.hass.async_create_task(self._async_update())
+
+    async def _async_update(self) -> None:
+        """Update the sensor value."""
+        # Get all entities from groups
+        all_entities = await self._storage.async_get_all_entities()
+        
+        coldest_temp = None
+        coldest_entity = None
+        coldest_name = None
+        
+        for entity_id in all_entities:
+            # Skip ignored entities
+            if await self._storage.async_is_ignored(entity_id):
+                continue
+            
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            
+            # Check if entity has current_temperature attribute
+            current_temp = state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue
+            
+            try:
+                temp = float(current_temp)
+                if coldest_temp is None or temp < coldest_temp:
+                    coldest_temp = temp
+                    coldest_entity = entity_id
+                    coldest_name = state.attributes.get("friendly_name", entity_id)
+            except (ValueError, TypeError):
+                continue
+        
+        self._attr_native_value = coldest_temp
+        self._coldest_entity_id = coldest_entity
+        self._coldest_friendly_name = coldest_name
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        return {
+            "entity_id": self._coldest_entity_id,
+            "friendly_name": self._coldest_friendly_name,
+        }
+
+
+class WarmestEntitySensor(SensorEntity):
+    """Sensor that shows the warmest climate entity."""
+
+    def __init__(
+        self, 
+        hass: HomeAssistant,
+        storage,
+        coordinator
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._storage = storage
+        self._coordinator = coordinator
+        
+        self._attr_name = "Climate Scheduler Warmest Entity"
+        self._attr_unique_id = "climate_scheduler_warmest_entity"
+        # Explicitly set entity_id to prevent duplication issues
+        self.entity_id = "sensor.climate_scheduler_warmest_entity"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        self._attr_icon = "mdi:fire"
+        self._attr_native_value = None
+        self._warmest_entity_id = None
+        self._warmest_friendly_name = None
+        self._remove_listener = None
+    
+    async def async_added_to_hass(self) -> None:
+        """Register state listener when entity is added."""
+        # Listen to coordinator updates
+        self._remove_listener = self._coordinator.async_add_listener(self._handle_coordinator_update)
+        # Initial update
+        await self._async_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister listener when entity is removed."""
+        if self._remove_listener:
+            self._remove_listener()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.hass.async_create_task(self._async_update())
+
+    async def _async_update(self) -> None:
+        """Update the sensor value."""
+        # Get all entities from groups
+        all_entities = await self._storage.async_get_all_entities()
+        
+        warmest_temp = None
+        warmest_entity = None
+        warmest_name = None
+        
+        for entity_id in all_entities:
+            # Skip ignored entities
+            if await self._storage.async_is_ignored(entity_id):
+                continue
+            
+            state = self.hass.states.get(entity_id)
+            if not state:
+                continue
+            
+            # Check if entity has current_temperature attribute
+            current_temp = state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue
+            
+            try:
+                temp = float(current_temp)
+                if warmest_temp is None or temp > warmest_temp:
+                    warmest_temp = temp
+                    warmest_entity = entity_id
+                    warmest_name = state.attributes.get("friendly_name", entity_id)
+            except (ValueError, TypeError):
+                continue
+        
+        self._attr_native_value = warmest_temp
+        self._warmest_entity_id = warmest_entity
+        self._warmest_friendly_name = warmest_name
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        return {
+            "entity_id": self._warmest_entity_id,
+            "friendly_name": self._warmest_friendly_name,
         }

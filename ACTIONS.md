@@ -6,7 +6,7 @@ This document describes all the services (actions) exposed by the Climate Schedu
 
 - [Schedule Management](#schedule-management)
 - [Profile Management](#profile-management)
-- [Group Management](#group-management)
+- [Entity Management](#entity-management)
 - [Schedule Control](#schedule-control)
 - [Advanced Features](#advanced-features)
 - [Settings Management](#settings-management)
@@ -20,7 +20,7 @@ This document describes all the services (actions) exposed by the Climate Schedu
 Configure temperature schedule for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to control (e.g., `climate.living_room`)
+- `schedule_id` (required): Schedule name (e.g., `Living Room`, `Upstairs`, `Bedrooms`)
 - `nodes` (required): List of schedule nodes with time and temperature (e.g., `[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]`)
 - `day` (optional): Day of week for this schedule - `all_days`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, `weekday`, `weekend` (default: `all_days`)
 - `schedule_mode` (optional): Schedule mode - `all_days`, `5/2`, `individual` (default: `all_days`)
@@ -29,7 +29,7 @@ Configure temperature schedule for a climate entity.
 ```yaml
 service: climate_scheduler.set_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
   nodes:
     - time: "06:00"
       temp: 21
@@ -48,13 +48,13 @@ data:
 Retrieve the current schedule for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to get schedule for
+- `schedule_id` (required): Climate entity ID to get schedule for
 
 **Example:**
 ```yaml
 service: climate_scheduler.get_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ### `climate_scheduler.clear_schedule`
@@ -62,13 +62,13 @@ data:
 Remove the schedule for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to clear schedule for
+- `schedule_id` (required): Climate entity ID to clear schedule for
 
 **Example:**
 ```yaml
 service: climate_scheduler.clear_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ### `climate_scheduler.enable_schedule`
@@ -76,13 +76,13 @@ data:
 Enable automatic scheduling for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to enable
+- `schedule_id` (required): Climate entity ID to enable
 
 **Example:**
 ```yaml
 service: climate_scheduler.enable_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ### `climate_scheduler.disable_schedule`
@@ -90,13 +90,13 @@ data:
 Disable automatic scheduling for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to disable
+- `schedule_id` (required): Climate entity ID to disable
 
 **Example:**
 ```yaml
 service: climate_scheduler.disable_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ---
@@ -107,30 +107,27 @@ Profiles allow you to create multiple schedule configurations and switch between
 
 ### `climate_scheduler.create_profile`
 
-Create a new schedule profile for an entity or group.
+Create a new schedule profile.
 
 **Parameters:**
-- `entity_id` (required): Climate entity ID or group name
+- `schedule_id` (required): Schedule name
 - `profile_name` (required): Name for the new profile
-- `is_group` (optional): Whether this is a group (true) or entity (false) (default: `false`)
 
 **Example:**
 ```yaml
 service: climate_scheduler.create_profile
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
   profile_name: Winter Schedule
-  is_group: false
 ```
 
 ### `climate_scheduler.set_active_profile`
 
-Switch to a different schedule profile for an entity or group. Use this in automations to change schedules based on conditions.
+Switch to a different schedule profile. Use this in automations to change schedules based on conditions.
 
 **Parameters:**
-- `entity_id` (required): Climate entity ID or group name
+- `schedule_id` (required): Schedule name
 - `profile_name` (required): Name of the profile to activate
-- `is_group` (optional): Whether this is a group (true) or entity (false) (default: `false`)
 
 **Example - Switch to winter schedule in autumn:**
 ```yaml
@@ -145,9 +142,8 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: climate.living_room
+          schedule_id: Living Room
           profile_name: Winter Schedule
-          is_group: false
 ```
 
 **Example - Vacation mode:**
@@ -161,77 +157,70 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: Bedrooms
+          schedule_id: Bedrooms
           profile_name: Vacation
-          is_group: true
 ```
 
 ### `climate_scheduler.rename_profile`
 
-Rename a schedule profile for an entity or group.
+Rename a schedule profile.
 
 **Parameters:**
-- `entity_id` (required): Climate entity ID or group name
+- `schedule_id` (required): Schedule name
 - `old_name` (required): Current name of the profile
 - `new_name` (required): New name for the profile
-- `is_group` (optional): Whether this is a group (true) or entity (false) (default: `false`)
 
 **Example:**
 ```yaml
 service: climate_scheduler.rename_profile
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
   old_name: Winter Schedule
   new_name: Cold Weather Schedule
-  is_group: false
 ```
 
 ### `climate_scheduler.delete_profile`
 
-Delete a schedule profile from an entity or group.
+Delete a schedule profile.
 
 **Parameters:**
-- `entity_id` (required): Climate entity ID or group name
+- `schedule_id` (required): Schedule name
 - `profile_name` (required): Name of the profile to delete
-- `is_group` (optional): Whether this is a group (true) or entity (false) (default: `false`)
 
 **Example:**
 ```yaml
 service: climate_scheduler.delete_profile
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
   profile_name: Old Schedule
-  is_group: false
 ```
 
 ### `climate_scheduler.get_profiles`
 
-Get list of all available profiles for an entity or group.
+Get list of all available profiles.
 
 **Parameters:**
-- `entity_id` (required): Climate entity ID or group name
-- `is_group` (optional): Whether this is a group (true) or entity (false) (default: `false`)
+- `schedule_id` (required): Schedule name
 
 **Example:**
 ```yaml
 service: climate_scheduler.get_profiles
 data:
-  entity_id: climate.living_room
-  is_group: false
+  schedule_id: Living Room
 ```
 
 ---
 
-## Group Management
+## Schedule Management
 
-Groups allow multiple climate entities to share the same schedule.
+All schedules in Climate Scheduler can control multiple climate entities.
 
 ### `climate_scheduler.create_group`
 
-Create a new group to share schedules between multiple thermostats.
+Create a new schedule.
 
 **Parameters:**
-- `group_name` (required): Name for the new group
+- `group_name` (required): Name for the new schedule
 
 **Example:**
 ```yaml
@@ -242,10 +231,10 @@ data:
 
 ### `climate_scheduler.delete_group`
 
-Delete a thermostat group.
+Delete a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group to delete
+- `group_name` (required): Name of the schedule to delete
 
 **Example:**
 ```yaml
@@ -256,10 +245,10 @@ data:
 
 ### `climate_scheduler.add_to_group`
 
-Add a climate entity to a group.
+Add a climate entity to a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group
+- `group_name` (required): Name of the schedule
 - `entity_id` (required): Climate entity to add
 
 **Example:**
@@ -272,10 +261,10 @@ data:
 
 ### `climate_scheduler.remove_from_group`
 
-Remove a climate entity from a group.
+Remove a climate entity from a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group
+- `group_name` (required): Name of the schedule
 - `entity_id` (required): Climate entity to remove
 
 **Example:**
@@ -288,10 +277,10 @@ data:
 
 ### `climate_scheduler.set_group_schedule`
 
-Set the schedule for all entities in a group.
+Set the schedule for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group
+- `group_name` (required): Name of the schedule
 - `nodes` (required): List of schedule nodes
 - `day` (optional): Day of week (default: `all_days`)
 - `schedule_mode` (optional): Schedule mode (default: `all_days`)
@@ -310,10 +299,10 @@ data:
 
 ### `climate_scheduler.enable_group`
 
-Enable scheduling for all entities in a group.
+Enable scheduling for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group
+- `group_name` (required): Name of the schedule
 
 **Example:**
 ```yaml
@@ -324,10 +313,10 @@ data:
 
 ### `climate_scheduler.disable_group`
 
-Disable scheduling for all entities in a group.
+Disable scheduling for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the group
+- `group_name` (required): Name of the schedule
 
 **Example:**
 ```yaml
@@ -345,13 +334,13 @@ data:
 Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to advance
+- `schedule_id` (required): Climate entity ID to advance
 
 **Example:**
 ```yaml
 service: climate_scheduler.advance_schedule
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 **Use case:** Press a button to skip ahead to nighttime temperature early.
@@ -375,13 +364,13 @@ data:
 Cancel an active advance override and return the climate entity to its current scheduled settings.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to cancel advance for
+- `schedule_id` (required): Climate entity ID to cancel advance for
 
 **Example:**
 ```yaml
 service: climate_scheduler.cancel_advance
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ### `climate_scheduler.get_advance_status`
@@ -389,13 +378,13 @@ data:
 Check if a climate entity has an active advance override.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to check
+- `schedule_id` (required): Climate entity ID to check
 
 **Example:**
 ```yaml
 service: climate_scheduler.get_advance_status
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ### `climate_scheduler.clear_advance_history`
@@ -403,13 +392,13 @@ data:
 Clear all advance history markers for a climate entity.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to clear history for
+- `schedule_id` (required): Climate entity ID to clear history for
 
 **Example:**
 ```yaml
 service: climate_scheduler.clear_advance_history
 data:
-  entity_id: climate.living_room
+  schedule_id: Living Room
 ```
 
 ---
@@ -421,14 +410,14 @@ data:
 Mark an entity as ignored (not monitored) or un-ignore it.
 
 **Parameters:**
-- `entity_id` (required): Climate entity to set ignored status for
+- `schedule_id` (required): Climate entity ID to set ignored status for
 - `ignored` (required): Whether to ignore this entity (true) or monitor it (false)
 
 **Example:**
 ```yaml
 service: climate_scheduler.set_ignored
 data:
-  entity_id: climate.guest_room
+  schedule_id: Guest Room
   ignored: true
 ```
 
@@ -484,7 +473,7 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: climate.living_room
+          schedule_id: Living Room
           profile_name: Summer
           
   - alias: "Winter Heating Schedule"
@@ -497,7 +486,7 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: climate.living_room
+          schedule_id: Living Room
           profile_name: Winter
 ```
 
@@ -514,9 +503,8 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: All Zones
+          schedule_id: All Zones
           profile_name: Away
-          is_group: true
 ```
 
 ### Weekend vs Weekday profiles
@@ -535,7 +523,7 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: climate.living_room
+          schedule_id: Living Room
           profile_name: Weekend
           
   - alias: "Switch to Weekday Profile"
@@ -553,7 +541,7 @@ automation:
     action:
       - service: climate_scheduler.set_active_profile
         data:
-          entity_id: climate.living_room
+          schedule_id: Living Room
           profile_name: Weekday
 ```
 
@@ -570,5 +558,5 @@ automation:
     action:
       - service: climate_scheduler.advance_schedule
         data:
-          entity_id: climate.bedroom
+          schedule_id: Bedroom
 ```

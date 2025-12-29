@@ -23,8 +23,12 @@
 
 
 
-## [1.11.0.3b] - 2025-12-21
-### Added
-- Integrated the frontend and backend once again
 
-## [1.11.0.2b] - 2025-12-21
+
+
+
+## [1.14.0.2b] - 2025-12-29
+### Changed
+- detection and handling of climate entities with no settable temperature
+
+## [1.14.0.1b] - 2025-12-28
