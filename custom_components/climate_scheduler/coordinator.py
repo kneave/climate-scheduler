@@ -195,8 +195,12 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         blocking=True,
                     )
         else:
-            # Set temperature (only if not NO_CHANGE)
-            if clamped_temp is not None:
+            # Check if this is a preset-only entity
+            current_temperature = state.attributes.get("current_temperature")
+            is_preset_only = current_temperature is None
+            
+            # Set temperature (only if not NO_CHANGE and entity supports temperature)
+            if clamped_temp is not None and not is_preset_only:
                 _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
                 try:
                     await self.hass.services.async_call(
@@ -213,6 +217,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         "success": False,
                         "error": f"Failed to set temperature: {str(exc)}"
                     }
+            elif clamped_temp is not None and is_preset_only:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
             else:
                 _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
             
@@ -646,6 +652,12 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 current_target = state.attributes.get("temperature")
                 _LOGGER.info(f"{entity_id} current target: {current_target}°C")
                 
+                # Check if this is a preset-only entity (no current_temperature sensor)
+                current_temperature = state.attributes.get("current_temperature")
+                is_preset_only = current_temperature is None
+                if is_preset_only:
+                    _LOGGER.info(f"{entity_id} is preset-only (no current_temperature), will skip temperature changes")
+                
                 # Get entity capabilities
                 supported_features = state.attributes.get("supported_features", 0)
                 hvac_modes = state.attributes.get("hvac_modes", [])
@@ -683,8 +695,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             )
                 else:
                     # Update to new node temperature (already clamped in signature)
-                    # Only set temperature if not NO_CHANGE
-                    if clamped_temp is not None:
+                    # Only set temperature if not NO_CHANGE and entity supports temperature
+                    if clamped_temp is not None and not is_preset_only:
                         _LOGGER.info(
                             f"Updating {entity_id} to new node: temp={clamped_temp}°C"
                         )
@@ -713,6 +725,8 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             }
                             # Skip further actions for this entity
                             continue
+                    elif clamped_temp is not None and is_preset_only:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
                     else:
                         _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
                     

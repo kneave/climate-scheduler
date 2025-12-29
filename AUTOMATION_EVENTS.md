@@ -36,6 +36,20 @@ When a node has "no change" temperature:
 - Only HVAC mode, fan mode, swing mode, and preset mode will be applied
 - The thermostat's current temperature setpoint remains unchanged
 
+### Preset-Only Climate Entities
+
+Some climate entities (like certain thermostat models) are controlled purely via preset modes and do not support temperature setpoints. These entities have a `null` `current_temperature` attribute in Home Assistant.
+
+The system **automatically detects** preset-only entities and skips setting temperatures for them while still applying mode changes. This allows mixed groups with both regular and preset-only entities:
+
+For preset-only entities:
+- Temperature setpoints are automatically skipped when applying schedules
+- Mode changes (HVAC, fan, swing, preset) are applied normally
+- You can still set temperature values on nodes (for other entities in the group)
+- Events fire with the node's temperature value even though it's not applied to preset-only entities
+
+This means you can have a single group with both regular thermostats and preset-only thermostats - the schedule will set temperatures on the ones that support it and only control modes on the preset-only ones.
+
 ## Custom Node Values
 
 Each node can store three optional numerical values (fields `A`, `B`, and `C`) that are passed through to the event. These can be used to pass custom parameters to your automations, such as:

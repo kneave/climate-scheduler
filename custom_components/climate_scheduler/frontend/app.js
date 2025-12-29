@@ -680,6 +680,12 @@ async function editGroupSchedule(groupName, day = null) {
                 instructionsContainer.before(settingsPanel);
             }
             
+            // Check if any entities in the group are preset-only and show notice if needed
+            const presetOnlyNotice = createPresetOnlyNotice(groupData.entities, groupName);
+            if (presetOnlyNotice) {
+                instructionsContainer.before(presetOnlyNotice);
+            }
+            
             // Insert group members table after instructions
             const groupTable = createGroupMembersTable(groupData.entities);
             if (groupTable) {
@@ -1140,6 +1146,96 @@ async function loadProfiles(container, targetId, isGroup) {
     } catch (error) {
         console.error('Failed to load profiles:', error);
     }
+}
+
+// Create preset-only notice for groups with entities that don't support temperature
+function createPresetOnlyNotice(entityIds, groupName) {
+    if (!entityIds || entityIds.length === 0) {
+        return null; // Virtual groups don't need this notice
+    }
+    
+    // Check if any entities are preset-only (null current_temperature)
+    const presetOnlyEntities = entityIds.filter(entityId => {
+        const entity = climateEntities.find(e => e.entity_id === entityId);
+        return entity && entity.attributes && entity.attributes.current_temperature === null;
+    });
+    
+    if (presetOnlyEntities.length === 0) {
+        return null; // No preset-only entities
+    }
+    
+    // Check if this notice has been dismissed for this group (session storage)
+    const dismissKey = `preset-notice-dismissed-${groupName}`;
+    if (sessionStorage.getItem(dismissKey) === 'true') {
+        return null;
+    }
+    
+    // Create notice banner
+    const notice = document.createElement('div');
+    notice.className = 'preset-only-notice';
+    notice.style.cssText = `
+        background: var(--warning-color, #ff9800);
+        color: white;
+        padding: 12px 16px;
+        margin: 8px 0;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        line-height: 1.4;
+    `;
+    
+    const message = document.createElement('div');
+    message.style.flex = '1';
+    
+    const count = presetOnlyEntities.length;
+    const entityWord = count === 1 ? 'entity' : 'entities';
+    const hasWord = count === 1 ? 'has' : 'have';
+    
+    message.innerHTML = `
+        <strong>⚠️ Preset-Only ${count === 1 ? 'Entity' : 'Entities'} Detected</strong><br>
+        ${count} ${entityWord} in this group ${hasWord} no temperature sensor and will only receive mode changes (HVAC, fan, swing, preset).
+    `;
+    
+    const dismissBtn = document.createElement('button');
+    dismissBtn.textContent = '✕';
+    dismissBtn.style.cssText = `
+        background: transparent;
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0 8px;
+        margin-left: 16px;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    `;
+    dismissBtn.title = 'Dismiss this notice';
+    
+    dismissBtn.addEventListener('mouseenter', () => {
+        dismissBtn.style.opacity = '1';
+    });
+    dismissBtn.addEventListener('mouseleave', () => {
+        dismissBtn.style.opacity = '0.8';
+    });
+    
+    dismissBtn.addEventListener('click', () => {
+        sessionStorage.setItem(dismissKey, 'true');
+        notice.style.transition = 'opacity 0.3s, max-height 0.3s';
+        notice.style.opacity = '0';
+        notice.style.maxHeight = '0';
+        notice.style.padding = '0 16px';
+        notice.style.margin = '0';
+        setTimeout(() => {
+            notice.remove();
+        }, 300);
+    });
+    
+    notice.appendChild(message);
+    notice.appendChild(dismissBtn);
+    
+    return notice;
 }
 
 // Create group members table element
