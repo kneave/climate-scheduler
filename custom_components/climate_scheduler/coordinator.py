@@ -16,6 +16,37 @@ _LOGGER = logging.getLogger(__name__)
 class HeatingSchedulerCoordinator(DataUpdateCoordinator):
     """Coordinator to manage heating schedule updates."""
 
+    async def async_get_advance_status(self, entity_id: str) -> dict:
+        """Return advance override status for a climate entity."""
+        # Check if the entity has an active override (advance)
+        is_advanced = False
+        advance_time = None
+        original_node = None
+        advanced_node = None
+
+        # If the entity is in override_until and the time is in the future, it's advanced
+        now = datetime.now()
+        if entity_id in self.override_until:
+            until = self.override_until[entity_id]
+            if until > now:
+                is_advanced = True
+                advance_time = until.isoformat()
+
+        # Try to get advance history for this entity
+        history = self.advance_history.get(entity_id, [])
+        if history:
+            last = history[-1]
+            original_node = last.get("original_node")
+            advanced_node = last.get("advanced_node")
+
+        return {
+            "entity_id": entity_id,
+            "is_advanced": is_advanced,
+            "advance_time": advance_time,
+            "original_node": original_node,
+            "advanced_node": advanced_node
+        }
+
     def __init__(
         self,
         hass: HomeAssistant,
