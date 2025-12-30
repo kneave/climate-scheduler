@@ -405,6 +405,14 @@ class HomeAssistantAPI {
     }
     
     async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+        // Guard: ensure a valid groupName is provided before calling HA service.
+        if (!groupName) {
+            const msg = 'setGroupSchedule called without a valid groupName';
+            console.error(msg, groupName, nodes, day, scheduleMode);
+            // Throw so callers can handle the error rather than sending null to HA
+            throw new Error(msg);
+        }
+
         const serviceData = {
             group_name: groupName,
             nodes: nodes
