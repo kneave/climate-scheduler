@@ -1,3 +1,414 @@
-# Placeholder services file - integration registers services dynamically via Python.
-# Provide an empty mapping so Home Assistant's YAML loader doesn't return None.
-{}
+# Static service definitions for Climate Scheduler.
+# These provide UI documentation and selectors. The services are still
+# registered dynamically in Python; keep this file up-to-date when fields
+# or selectors change.
+
+recreate_all_sensors:
+  name: Recreate all sensors
+  description: >-
+    Delete ALL Climate Scheduler sensor entities and reload the integration to
+    recreate them cleanly. Requires confirmation.
+  fields:
+    confirm:
+      description: Must be set to true to confirm deletion of all sensors
+      example: true
+      required: true
+      selector:
+        boolean: {}
+
+cleanup_malformed_sensors:
+  name: Cleanup malformed sensors
+  description: >-
+    Scan for unexpected Climate Scheduler sensor entities and optionally remove
+    them. Returns expected and unexpected sensor entity lists.
+  fields:
+    delete:
+      description: Whether to actually delete the unexpected entities (default
+        is false for dry-run)
+      required: false
+      example: true
+      selector:
+        boolean: {}
+
+set_schedule:
+  name: Set climate schedule
+  description: Configure temperature schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      example: your_entity_or_group_id
+      selector:
+        text: {}
+    nodes:
+      description: >-
+        List of schedule nodes with time and temperature (JSON string).
+      required: true
+      example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
+    day:
+      description: Day of week for this schedule (all_days, mon, tue, wed, thu,
+        fri, sat, sun, weekday, weekend)
+      required: false
+      default: all_days
+      selector:
+        text: {}
+    schedule_mode:
+      description: Schedule mode (all_days, 5/2, individual)
+      required: false
+      default: all_days
+      selector:
+        text: {}
+
+get_schedule:
+  name: Get climate schedule
+  description: Retrieve the current schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+clear_schedule:
+  name: Clear climate schedule
+  description: Clear the schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+enable_schedule:
+  name: Enable schedule
+  description: Enable the schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+disable_schedule:
+  name: Disable schedule
+  description: Disable the schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+set_ignored:
+  name: Set ignored status
+  description: Mark a schedule target as ignored or not
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    ignored:
+      description: True to ignore, False to un-ignore
+      required: true
+      selector:
+        boolean: {}
+
+sync_all:
+  name: Sync all
+  description: Force immediate sync of all thermostats managed by Climate Scheduler
+  fields: {}
+
+create_group:
+  name: Create group
+  description: Create a new Climate Scheduler group
+  fields:
+    group_name:
+      description: New group name
+      required: true
+      selector:
+        text: {}
+
+delete_group:
+  name: Delete group
+  description: Delete an existing group
+  fields:
+    group_name:
+      description: Group name to delete
+      required: true
+      selector:
+        text: {}
+
+rename_group:
+  name: Rename group
+  description: Rename an existing group
+  fields:
+    old_name:
+      description: Existing group name
+      required: true
+      selector:
+        text: {}
+    new_name:
+      description: New group name
+      required: true
+      selector:
+        text: {}
+
+add_to_group:
+  name: Add entity to group
+  description: Add a climate entity to a group
+  fields:
+    group_name:
+      description: Target group name
+      required: true
+      selector:
+        text: {}
+    entity_id:
+      description: Climate entity id to add
+      required: true
+      selector:
+        entity:
+          domain: climate
+
+remove_from_group:
+  name: Remove entity from group
+  description: Remove a climate entity from a group
+  fields:
+    group_name:
+      description: Target group name
+      required: true
+      selector:
+        text: {}
+    entity_id:
+      description: Climate entity id to remove
+      required: true
+      selector:
+        entity:
+          domain: climate
+
+get_groups:
+  name: Get groups
+  description: Return stored groups data
+  fields: {}
+
+list_groups:
+  name: List groups
+  description: Return a simple list of group names
+  fields: {}
+
+list_profiles:
+  name: List profiles
+  description: Return a list of profiles across all groups
+  fields: {}
+
+set_group_schedule:
+  name: Set group schedule
+  description: Set schedule for a whole group
+  fields:
+    group_name:
+      description: Target group name
+      required: true
+      selector:
+        text: {}
+    nodes:
+      description: JSON string of schedule nodes
+      required: true
+      selector:
+        text: {}
+    day:
+      description: Day identifier
+      required: false
+      selector:
+        text: {}
+    schedule_mode:
+      description: Schedule mode
+      required: false
+      selector:
+        text: {}
+
+enable_group:
+  name: Enable group
+  description: Enable a group's schedule
+  fields:
+    group_name:
+      description: Group name
+      required: true
+      selector:
+        text: {}
+
+disable_group:
+  name: Disable group
+  description: Disable a group's schedule
+  fields:
+    group_name:
+      description: Group name
+      required: true
+      selector:
+        text: {}
+
+get_settings:
+  name: Get settings
+  description: Retrieve current integration settings and version info
+  fields: {}
+
+save_settings:
+  name: Save settings
+  description: Save integration settings (JSON string)
+  fields:
+    settings:
+      description: Settings JSON string
+      required: true
+      selector:
+        text: {}
+
+reload_integration:
+  name: Reload integration
+  description: Reload the Climate Scheduler integration
+  fields: {}
+
+advance_schedule:
+  name: Advance schedule
+  description: Temporarily advance a schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+advance_group:
+  name: Advance group
+  description: Advance schedule for a group
+  fields:
+    group_name:
+      description: Group name
+      required: true
+      selector:
+        text: {}
+
+cancel_advance:
+  name: Cancel advance
+  description: Cancel an advanced schedule for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+get_advance_status:
+  name: Get advance status
+  description: Get current advance status for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+clear_advance_history:
+  name: Clear advance history
+  description: Clear the advance history for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+create_profile:
+  name: Create profile
+  description: Create a profile for a schedule
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    profile_name:
+      description: New profile name
+      required: true
+      selector:
+        text: {}
+
+delete_profile:
+  name: Delete profile
+  description: Delete a profile from a schedule
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    profile_name:
+      description: Profile name to delete
+      required: true
+      selector:
+        text: {}
+
+rename_profile:
+  name: Rename profile
+  description: Rename a profile
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    old_name:
+      description: Existing profile name
+      required: true
+      selector:
+        text: {}
+    new_name:
+      description: New profile name
+      required: true
+      selector:
+        text: {}
+
+set_active_profile:
+  name: Set active profile
+  description: Set the active profile for a schedule
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    profile_name:
+      description: Profile name to set active
+      required: true
+      selector:
+        text: {}
+
+get_profiles:
+  name: Get profiles
+  description: Get profiles for a schedule
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+
+cleanup_derivative_sensors:
+  name: Cleanup derivative sensors
+  description: Remove derivative sensors based on auto-creation setting
+  fields:
+    confirm_delete_all:
+      description: Confirm deletion of all derivative sensors
+      required: false
+      default: false
+      example: false
+      selector:
+        boolean: {}
+
+factory_reset:
+  name: Factory reset
+  description: Reset all stored data
+  fields:
+    confirm:
+      description: Must be set to true to confirm factory reset
+      required: true
+      selector:
+        boolean: {}

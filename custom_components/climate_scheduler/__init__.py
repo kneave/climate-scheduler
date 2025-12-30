@@ -16,6 +16,8 @@ from aiohttp import web
 from .const import DOMAIN, UPDATE_INTERVAL_SECONDS
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
+# Expose dynamic service descriptions for Home Assistant UI
+from .services import async_get_services  # noqa: E402,F401
 
 _LOGGER = logging.getLogger(__name__)
 

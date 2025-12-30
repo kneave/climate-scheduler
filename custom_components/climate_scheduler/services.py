@@ -75,7 +75,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Set climate schedule",
             "description": "Configure temperature schedule for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to control",
                     "required": True,
                     "example": "climate.living_room",
@@ -107,7 +107,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Get climate schedule",
             "description": "Retrieve the current schedule for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to get schedule for",
                     "required": True,
                     "example": "climate.living_room",
@@ -120,7 +120,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Clear climate schedule",
             "description": "Remove the schedule for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to clear schedule for",
                     "required": True,
                     "example": "climate.living_room",
@@ -133,7 +133,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Enable climate schedule",
             "description": "Enable automatic scheduling for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to enable",
                     "required": True,
                     "example": "climate.living_room",
@@ -146,7 +146,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Disable climate schedule",
             "description": "Disable automatic scheduling for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to disable",
                     "required": True,
                     "example": "climate.living_room",
@@ -332,7 +332,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Set entity ignored status",
             "description": "Mark an entity as ignored (not monitored) or un-ignore it",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to set ignored status for",
                     "required": True,
                     "example": "climate.living_room",
@@ -356,7 +356,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Advance to next scheduled node",
             "description": "Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to advance to next scheduled node",
                     "required": True,
                     "example": "climate.living_room",
@@ -382,7 +382,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Cancel advance override",
             "description": "Cancel an active advance override and return the climate entity to its current scheduled settings",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to cancel advance for",
                     "required": True,
                     "example": "climate.living_room",
@@ -395,7 +395,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Clear advance history",
             "description": "Clear all advance history markers for a climate entity",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to clear history for",
                     "required": True,
                     "example": "climate.living_room",
@@ -408,7 +408,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Get advance status",
             "description": "Check if a climate entity has an active advance override",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity to check",
                     "required": True,
                     "example": "climate.living_room",
@@ -421,7 +421,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Create schedule profile",
             "description": "Create a new schedule profile for an entity or group",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity ID or group name to create profile for",
                     "required": True,
                     "example": "climate.living_room",
@@ -447,7 +447,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Delete schedule profile",
             "description": "Delete a schedule profile from an entity or group",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity ID or group name to delete profile from",
                     "required": True,
                     "example": "climate.living_room",
@@ -473,7 +473,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Rename schedule profile",
             "description": "Rename a schedule profile for an entity or group",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity ID or group name",
                     "required": True,
                     "example": "climate.living_room",
@@ -505,7 +505,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Set active schedule profile",
             "description": "Switch to a different schedule profile for an entity or group",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity ID or group name",
                     "required": True,
                     "example": "climate.living_room",
@@ -531,7 +531,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Get schedule profiles",
             "description": "Get list of all available profiles for an entity or group",
             "fields": {
-                "entity_id": {
+                "schedule_id": {
                     "description": "Climate entity ID or group name",
                     "required": True,
                     "example": "climate.living_room",
@@ -584,6 +584,50 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
 
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up all services for the Climate Scheduler integration."""
+
+    # Define voluptuous schemas for services (used for validation)
+    service_schemas: dict[str, vol.Schema] = {
+        "recreate_all_sensors": vol.Schema({vol.Required("confirm"): cv.boolean}),
+        "cleanup_malformed_sensors": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
+        "set_schedule": vol.Schema({
+            vol.Required("schedule_id"): cv.string,
+            vol.Required("nodes"): cv.string,
+            vol.Optional("day", default="all_days"): cv.string,
+            vol.Optional("schedule_mode", default="all_days"): cv.string,
+        }),
+        "get_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "clear_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "enable_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "disable_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "set_ignored": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("ignored"): cv.boolean}),
+        "sync_all": vol.Schema({}),
+        "create_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "delete_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "rename_group": vol.Schema({vol.Required("old_name"): cv.string, vol.Required("new_name"): cv.string}),
+        "add_to_group": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("entity_id"): cv.string}),
+        "remove_from_group": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("entity_id"): cv.string}),
+        "get_groups": vol.Schema({}),
+        "list_groups": vol.Schema({}),
+        "list_profiles": vol.Schema({}),
+        "set_group_schedule": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("nodes"): cv.string, vol.Optional("day"): cv.string, vol.Optional("schedule_mode"): cv.string}),
+        "enable_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "disable_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "get_settings": vol.Schema({}),
+        "save_settings": vol.Schema({vol.Required("settings"): cv.string}),
+        "reload_integration": vol.Schema({}),
+        "advance_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "advance_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "cancel_advance": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "get_advance_status": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "clear_advance_history": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "create_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
+        "delete_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
+        "rename_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("old_name"): cv.string, vol.Required("new_name"): cv.string}),
+        "set_active_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
+        "get_profiles": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
+        "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
+    }
 
     async def handle_recreate_all_sensors(call: ServiceCall) -> dict:
         """Handle recreate_all_sensors service call."""
@@ -1145,40 +1189,40 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Factory reset completed successfully")
     
     # Register all services (schemas come from async_get_services() dynamically)
-    hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule)
-    hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule)
-    hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule)
-    hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule)
-    hass.services.async_register(DOMAIN, "set_ignored", handle_set_ignored)
-    hass.services.async_register(DOMAIN, "sync_all", handle_sync_all)
-    hass.services.async_register(DOMAIN, "create_group", handle_create_group)
-    hass.services.async_register(DOMAIN, "delete_group", handle_delete_group)
-    hass.services.async_register(DOMAIN, "rename_group", handle_rename_group)
-    hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group)
-    hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group)
-    hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "list_groups", handle_list_groups, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "list_profiles", handle_list_profiles, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule)
-    hass.services.async_register(DOMAIN, "enable_group", handle_enable_group)
-    hass.services.async_register(DOMAIN, "disable_group", handle_disable_group)
-    hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "save_settings", handle_save_settings)
-    hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
-    hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule)
-    hass.services.async_register(DOMAIN, "advance_group", handle_advance_group)
-    hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance)
-    hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history)
-    hass.services.async_register(DOMAIN, "create_profile", handle_create_profile)
-    hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile)
-    hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile)
-    hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile)
-    hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset)
+    hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, service_schemas.get("recreate_all_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, service_schemas.get("cleanup_malformed_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, service_schemas.get("set_schedule"))
+    hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, service_schemas.get("get_schedule"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, service_schemas.get("clear_schedule"))
+    hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule, service_schemas.get("enable_schedule"))
+    hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule, service_schemas.get("disable_schedule"))
+    hass.services.async_register(DOMAIN, "set_ignored", handle_set_ignored, service_schemas.get("set_ignored"))
+    hass.services.async_register(DOMAIN, "sync_all", handle_sync_all, service_schemas.get("sync_all"))
+    hass.services.async_register(DOMAIN, "create_group", handle_create_group, service_schemas.get("create_group"))
+    hass.services.async_register(DOMAIN, "delete_group", handle_delete_group, service_schemas.get("delete_group"))
+    hass.services.async_register(DOMAIN, "rename_group", handle_rename_group, service_schemas.get("rename_group"))
+    hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group, service_schemas.get("add_to_group"))
+    hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, service_schemas.get("remove_from_group"))
+    hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, service_schemas.get("get_groups"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "list_groups", handle_list_groups, service_schemas.get("list_groups"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "list_profiles", handle_list_profiles, service_schemas.get("list_profiles"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, service_schemas.get("set_group_schedule"))
+    hass.services.async_register(DOMAIN, "enable_group", handle_enable_group, service_schemas.get("enable_group"))
+    hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, service_schemas.get("disable_group"))
+    hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, service_schemas.get("get_settings"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, service_schemas.get("save_settings"))
+    hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration, service_schemas.get("reload_integration"))
+    hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule, service_schemas.get("advance_schedule"))
+    hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, service_schemas.get("advance_group"))
+    hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, service_schemas.get("cancel_advance"))
+    hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, service_schemas.get("get_advance_status"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, service_schemas.get("clear_advance_history"))
+    hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, service_schemas.get("create_profile"))
+    hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile, service_schemas.get("delete_profile"))
+    hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, service_schemas.get("rename_profile"))
+    hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, service_schemas.get("set_active_profile"))
+    hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, service_schemas.get("get_profiles"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, service_schemas.get("cleanup_derivative_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     
     _LOGGER.info("All Climate Scheduler services registered with dynamic selectors")

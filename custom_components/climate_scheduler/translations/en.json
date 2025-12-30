@@ -11,23 +11,23 @@
   "services": {
     "set_schedule": {
       "name": "Set climate schedule",
-      "description": "Configure temperature schedule for a climate entity"
+      "description": "Configure temperature schedule for a schedule target"
     },
     "get_schedule": {
       "name": "Get climate schedule",
-      "description": "Retrieve the current schedule for a climate entity"
+      "description": "Retrieve the current schedule for a schedule target"
     },
     "clear_schedule": {
       "name": "Clear climate schedule",
-      "description": "Remove the schedule for a climate entity"
+      "description": "Clear the schedule for a schedule target"
     },
     "enable_schedule": {
       "name": "Enable climate schedule",
-      "description": "Enable automatic scheduling for a climate entity"
+      "description": "Enable the schedule for a schedule target"
     },
     "disable_schedule": {
       "name": "Disable climate schedule",
-      "description": "Disable automatic scheduling for a climate entity"
+      "description": "Disable the schedule for a schedule target"
     },
     "create_group": {
       "name": "Create thermostat group",
@@ -76,6 +76,67 @@
     "reload_integration": {
       "name": "Reload integration (Dev)",
       "description": "Reload the Climate Scheduler integration (development only)"
+    }
+    ,
+    "recreate_all_sensors": {
+      "name": "Recreate all sensors",
+      "description": "Delete and recreate all derivative sensors"
+    },
+    "cleanup_malformed_sensors": {
+      "name": "Cleanup malformed sensors",
+      "description": "Scan for unexpected derivative sensors and optionally remove them"
+    },
+    "set_ignored": {
+      "name": "Set ignored",
+      "description": "Mark a schedule target as ignored or not"
+    },
+    "advance_schedule": {
+      "name": "Advance schedule",
+      "description": "Temporarily advance a schedule for a schedule target"
+    },
+    "advance_group": {
+      "name": "Advance group",
+      "description": "Temporarily advance schedules for a group"
+    },
+    "cancel_advance": {
+      "name": "Cancel advance",
+      "description": "Cancel an advanced schedule action for a schedule target"
+    },
+    "get_advance_status": {
+      "name": "Get advance status",
+      "description": "Get current advance status for a schedule target"
+    },
+    "clear_advance_history": {
+      "name": "Clear advance history",
+      "description": "Clear stored advance history for a schedule target"
+    },
+    "create_profile": {
+      "name": "Create profile",
+      "description": "Create a profile for a schedule"
+    },
+    "delete_profile": {
+      "name": "Delete profile",
+      "description": "Delete a profile from a schedule"
+    },
+    "rename_profile": {
+      "name": "Rename profile",
+      "description": "Rename a profile"
+    },
+    "set_active_profile": {
+      "name": "Set active profile",
+      "description": "Set the active profile for a schedule"
+    },
+    "get_profiles": {
+      "name": "Get profiles",
+      "description": "Get profiles for a schedule"
+    },
+    "cleanup_derivative_sensors": {
+      "name": "Cleanup derivative sensors",
+      "description": "Remove derivative sensors based on the auto-creation setting"
+    },
+    "factory_reset": {
+      "name": "Factory reset",
+      "description": "Reset all Climate Scheduler data to a fresh state (destructive)"
     }
   }
 }
