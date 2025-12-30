@@ -591,7 +591,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "cleanup_malformed_sensors": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
         "set_schedule": vol.Schema({
             vol.Required("schedule_id"): cv.string,
-            vol.Required("nodes"): cv.string,
+            # Accept either a JSON string (legacy) or a structured list/object from the UI
+            vol.Required("nodes"): vol.Any(cv.string, list, dict),
             vol.Optional("day", default="all_days"): cv.string,
             vol.Optional("schedule_mode", default="all_days"): cv.string,
         }),
@@ -609,7 +610,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "get_groups": vol.Schema({}),
         "list_groups": vol.Schema({}),
         "list_profiles": vol.Schema({}),
-        "set_group_schedule": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("nodes"): cv.string, vol.Optional("day"): cv.string, vol.Optional("schedule_mode"): cv.string}),
+        "set_group_schedule": vol.Schema({
+            vol.Required("group_name"): cv.string,
+            vol.Required("nodes"): vol.Any(cv.string, list, dict),
+            vol.Optional("day"): cv.string,
+            vol.Optional("schedule_mode"): cv.string
+        }),
         "enable_group": vol.Schema({vol.Required("group_name"): cv.string}),
         "disable_group": vol.Schema({vol.Required("group_name"): cv.string}),
         "get_settings": vol.Schema({}),
