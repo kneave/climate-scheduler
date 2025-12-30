@@ -78,6 +78,11 @@
       "description": "Reload the Climate Scheduler integration (development only)"
     }
     ,
+    "reregister_card": {
+      "name": "Reregister custom card",
+      "description": "Remove any existing frontend resource matching the given URL and create a fresh resource entry"
+    }
+    ,
     "recreate_all_sensors": {
       "name": "Recreate all sensors",
       "description": "Delete and recreate all derivative sensors"

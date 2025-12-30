@@ -90,11 +90,10 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         _LOGGER.warning("Failed to read manifest version: %s", e)
         frontend_version = f"u{int(time.time())}"
     
-    # Check if we've already registered this version
-    registered_version = hass.data[DOMAIN].get("frontend_registered_version")
-    if registered_version == frontend_version:
-        _LOGGER.debug("Frontend already registered with version %s", frontend_version)
-        return
+    # Always attempt to (re)register frontend resources on startup/update.
+    # We intentionally do not short-circuit when the stored version matches
+    # the current one, because we want to remove any existing resource
+    # entries and recreate them during install/update/reboot.
 
     # Register static path for frontend files
     frontend_path = Path(__file__).parent / "frontend"
@@ -105,10 +104,11 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
     # Register the static path using the correct HA API
     should_cache = False
 
+    # Expose at /<domain>/static so integrations can reliably reference it
     await hass.http.async_register_static_paths([
-        StaticPathConfig(f"/local/{DOMAIN}", str(frontend_path), should_cache)
+        StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
     ])
-    _LOGGER.info("Registered frontend static path: %s -> %s", f"/local/{DOMAIN}", frontend_path)
+    _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
 
     # Register Lovelace resource
     try:
@@ -145,14 +145,16 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             await resources.async_load()
 
         # Build URL with version for cache busting
-        base_url = f"/local/{DOMAIN}/climate-scheduler-card.js"
+        # Use the integration-hosted static path we just registered
+        base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
         url = f"{base_url}?v={frontend_version}"
         
         # Check for old standalone card installations and remove them
         old_card_patterns = [
-            "/hacsfiles/climate-scheduler-card/",
-            "/local/community/climate-scheduler-card/",
-            "climate-scheduler-card.js"
+            "/hacsfiles/climate-scheduler/",
+            "/local/community/climate-scheduler/",
+            "climate-scheduler-card.js",
+            f"/{DOMAIN}/static/"
         ]
         
         existing_entry = None
@@ -172,23 +174,22 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                 await resources.async_delete_item(entry["id"])
                 removed_old = True
 
+        # If there's an existing bundled registration, remove it first so
+        # we always create a fresh entry (ensures consistent behavior on
+        # install/update/reboot and avoids stale IDs or metadata).
         if existing_entry:
-            # Always update to ensure latest version
-            existing_url = existing_entry["url"]
-            existing_version = existing_url.split("?v=")[1] if "?v=" in existing_url else "unknown"
-            
-            if existing_entry["url"] != url:
-                _LOGGER.info("Updating bundled frontend card from version %s to %s", existing_version, frontend_version)
-                await resources.async_update_item(existing_entry["id"], {"url": url})
-            else:
-                _LOGGER.debug("Bundled frontend card already registered with current version %s", frontend_version)
+            try:
+                _LOGGER.info("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
+                await resources.async_delete_item(existing_entry["id"])
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to remove existing bundled frontend resource, will attempt to (re)create it")
+
+        # Create a new resource entry for the bundled card
+        await resources.async_create_item({"res_type": "module", "url": url})
+        if removed_old:
+            _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
         else:
-            # Register the bundled card
-            await resources.async_create_item({"res_type": "module", "url": url})
-            if removed_old:
-                _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
-            else:
-                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+            _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
 
     except Exception as err:
         _LOGGER.error("Failed to auto-register frontend card: %s", err)

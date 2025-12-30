@@ -37,9 +37,10 @@ set_schedule:
     schedule_id:
       description: Schedule ID
       required: true
-      example: your_entity_or_group_id
+      example: climate.living_room
       selector:
-        text: {}
+        entity:
+          domain: climate
     nodes:
       description: >-
         List of schedule nodes with time and temperature (JSON string).
@@ -59,6 +60,7 @@ set_schedule:
       selector:
         text: {}
 
+
 get_schedule:
   name: Get climate schedule
   description: Retrieve the current schedule for a schedule target
@@ -67,7 +69,8 @@ get_schedule:
       description: Schedule ID
       required: true
       selector:
-        text: {}
+        entity:
+          domain: climate
 
 clear_schedule:
   name: Clear climate schedule
@@ -77,7 +80,8 @@ clear_schedule:
       description: Schedule ID
       required: true
       selector:
-        text: {}
+        entity:
+          domain: climate
 
 enable_schedule:
   name: Enable schedule
@@ -266,6 +270,23 @@ reload_integration:
   description: Reload the Climate Scheduler integration
   fields: {}
 
+reregister_card:
+  name: Reregister custom card
+  description: Remove any existing frontend resource matching `resource_url` and create a new resource entry
+  fields:
+    resource_url:
+      description: URL of the custom card resource to register
+      required: true
+      example: /climate_scheduler/static/climate-scheduler-card.js
+      selector:
+        text: {}
+    resource_type:
+      description: Resource type (e.g. `module` or `js`)
+      required: false
+      default: module
+      selector:
+        text: {}
+
 advance_schedule:
   name: Advance schedule
   description: Temporarily advance a schedule for a schedule target
@@ -291,7 +312,7 @@ cancel_advance:
   description: Cancel an advanced schedule for a schedule target
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id)
       required: true
       selector:
         text: {}
@@ -301,7 +322,7 @@ get_advance_status:
   description: Get current advance status for a schedule target
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id)
       required: true
       selector:
         text: {}
@@ -311,7 +332,7 @@ clear_advance_history:
   description: Clear the advance history for a schedule target
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id)
       required: true
       selector:
         text: {}
@@ -321,7 +342,7 @@ create_profile:
   description: Create a profile for a schedule
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id or group id)
       required: true
       selector:
         text: {}
@@ -336,7 +357,7 @@ delete_profile:
   description: Delete a profile from a schedule
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id or group id)
       required: true
       selector:
         text: {}
@@ -351,7 +372,7 @@ rename_profile:
   description: Rename a profile
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id or group id)
       required: true
       selector:
         text: {}
@@ -371,7 +392,7 @@ set_active_profile:
   description: Set the active profile for a schedule
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id or group id)
       required: true
       selector:
         text: {}
@@ -386,7 +407,7 @@ get_profiles:
   description: Get profiles for a schedule
   fields:
     schedule_id:
-      description: Schedule ID
+      description: Schedule ID (entity id or group id)
       required: true
       selector:
         text: {}

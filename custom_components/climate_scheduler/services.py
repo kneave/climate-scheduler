@@ -627,6 +627,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "get_profiles": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
         "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
+        "reregister_card": vol.Schema({
+            vol.Required("resource_url"): cv.string,
+            vol.Optional("resource_type", default="module"): cv.string,
+        }),
     }
 
     async def handle_recreate_all_sensors(call: ServiceCall) -> dict:
@@ -1187,6 +1191,80 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await coordinator.async_request_refresh()
         
         _LOGGER.info("Factory reset completed successfully")
+
+    async def handle_reregister_card(call: ServiceCall) -> dict:
+        """Handle reregister_card service call.
+
+        Deletes any existing frontend resource entries matching the provided
+        `resource_url` and appends a fresh resource entry with the given
+        `resource_type`.
+        """
+        resource_url = call.data.get("resource_url")
+        resource_type = call.data.get("resource_type", "module")
+
+        if not resource_url:
+            raise ValueError("'resource_url' is required")
+
+        # Use the Lovelace resources API to manage frontend resources.
+        lovelace = hass.data.get("lovelace")
+        if lovelace is None:
+            raise RuntimeError("Lovelace resources helper not available; cannot reregister resource via API")
+
+        # Determine resources helper (API varies by HA version)
+        try:
+            from homeassistant.const import __version__ as ha_version
+            version_parts = [int(x) for x in ha_version.split(".")[:2]]
+            version_number = version_parts[0] * 1000 + version_parts[1]
+        except Exception:
+            version_number = 0
+
+        if version_number >= 2025002 and hasattr(lovelace, "resources"):
+            resources = lovelace.resources
+        else:
+            # Older HA versions expose resources differently
+            resources = getattr(lovelace, "get", lambda name: None)("resources") if hasattr(lovelace, "get") else None
+
+        if resources is None:
+            raise RuntimeError("Lovelace resources API not available; cannot reregister resource")
+
+        # Ensure resources are loaded and available
+        if not getattr(resources, "loaded", True):
+            await resources.async_load()
+
+        # Normalize incoming url (compare base without query)
+        base_url = resource_url.split("?")[0]
+
+        removed = []
+        existing_entry = None
+
+        for entry in list(resources.async_items()):
+            entry_url = entry.get("url")
+            if not entry_url:
+                continue
+            entry_base = entry_url.split("?")[0]
+            if entry_base == base_url:
+                existing_entry = entry
+                continue
+            # remove exact matches of provided url
+            if entry_url == resource_url:
+                removed.append(entry)
+                await resources.async_delete_item(entry["id"])
+
+        url = resource_url
+        added = None
+        if existing_entry:
+            # update existing item to new url
+            await resources.async_update_item(existing_entry["id"], {"url": url})
+            added = {"id": existing_entry["id"], "url": url}
+            _LOGGER.info("Updated existing Lovelace resource to %s", url)
+        else:
+            # create new resource item
+            item = {"res_type": resource_type, "url": url}
+            await resources.async_create_item(item)
+            added = item
+            _LOGGER.info("Created new Lovelace resource %s", url)
+
+        return {"removed": [r.get("url") for r in removed], "added": added, "message": f"Reregistered resource {url}"}
     
     # Register all services (schemas come from async_get_services() dynamically)
     hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, service_schemas.get("recreate_all_sensors"), supports_response=SupportsResponse.ONLY)
@@ -1224,5 +1302,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, service_schemas.get("get_profiles"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, service_schemas.get("cleanup_derivative_sensors"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
+    hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
     
     _LOGGER.info("All Climate Scheduler services registered with dynamic selectors")
