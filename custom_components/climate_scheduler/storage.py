@@ -69,52 +69,71 @@ class ScheduleStorage:
             changed_settings = False
 
             # Collect nested settings layers (if any) by following repeated
-            # {"settings": {...}} wrappers. We'll choose the most-recent
-            # settings block based on the contained integration version
-            # (if present) so upgrades keep the latest settings values.
-            chosen_settings = None
-            if "settings" in self._data:
-                layers = []
-                s = self._data["settings"]
-                layers.append(s)
-                while isinstance(s, dict) and "settings" in s and isinstance(s["settings"], dict):
-                    s = s["settings"]
-                    layers.append(s)
+            # {"settings": {...}} wrappers.
+            #
+            # This repository has had a settings-shape mismatch where the UI
+            # sometimes treated {settings: {...}, version: {...}} as the actual
+            # settings dict. That can lead to recursive nesting like:
+            #   data.settings.settings.settings...
+            #
+            # On load we:
+            # - gather all layers
+            # - select the layer with the newest parsed integration version
+            # - flatten to a single dict (dropping nested "settings" and "version")
+            # - backfill any missing keys from other layers (to avoid losing
+            #   settings that only exist in older layers).
+            if "settings" in self._data and isinstance(self._data.get("settings"), dict):
+                layers: List[Dict[str, Any]] = []
+                s: Any = self._data["settings"]
 
-                def parse_version_string(ver: str):
+                while isinstance(s, dict):
+                    layers.append(s)
+                    if "settings" in s and isinstance(s.get("settings"), dict):
+                        s = s["settings"]
+                    else:
+                        break
+
+                if len(layers) > 1:
+                    changed_settings = True
+
+                def parse_version_string(ver: Any) -> tuple:
                     if not isinstance(ver, str):
                         return ()
                     # Extract numeric groups from version string, e.g. '1.14.0.13' -> (1,14,0,13)
                     nums = re.findall(r"\d+", ver)
                     return tuple(int(x) for x in nums) if nums else ()
 
-                best_idx = None
-                best_ver = ()
-                # Iterate layers and pick one with highest integration version
-                for idx, layer in enumerate(layers):
-                    ver = None
+                def layer_version(layer: Dict[str, Any]) -> tuple:
                     v = layer.get("version")
                     if isinstance(v, dict):
-                        ver = v.get("integration") or v.get("version")
-                    elif isinstance(v, str):
-                        ver = v
+                        return parse_version_string(v.get("integration") or v.get("version"))
+                    return parse_version_string(v)
 
-                    parsed = parse_version_string(ver) if ver else ()
+                best_layer = layers[-1]  # default: innermost
+                best_ver = ()
+                for layer in layers:
+                    parsed = layer_version(layer)
                     if parsed and parsed > best_ver:
                         best_ver = parsed
-                        best_idx = idx
+                        best_layer = layer
 
-                # If we found a best by version choose it, otherwise use innermost
-                if best_idx is not None:
-                    chosen_settings = layers[best_idx]
-                else:
-                    chosen_settings = layers[-1]
+                # Start with the newest layer as the source of truth.
+                cleaned_settings: Dict[str, Any] = {
+                    k: v
+                    for k, v in best_layer.items()
+                    if k not in {"settings", "version", "performance_tracking"}
+                }
 
-                if chosen_settings is not self._data["settings"]:
-                    _LOGGER.info("Selected settings from nested layers (kept latest version)")
-                    changed_settings = True
+                # Backfill missing keys from any layer (newest doesn't always
+                # mean it contains all fields if the nesting was corrupted).
+                for layer in reversed(layers):  # inner -> outer
+                    for k, v in layer.items():
+                        if k in {"settings", "version", "performance_tracking"}:
+                            continue
+                        if k not in cleaned_settings:
+                            cleaned_settings[k] = v
 
-                self._data["settings"] = chosen_settings
+                self._data["settings"] = cleaned_settings
             # Ensure groups key exists for backwards compatibility
             if "groups" not in self._data:
                 self._data["groups"] = {}
@@ -132,6 +151,11 @@ class ScheduleStorage:
             await self._migrate_entities_to_groups()
         # Ensure min/max temp defaults are present in settings
         settings = self._data.get("settings", {})
+        # Drop legacy/unreferenced settings keys that may have been persisted
+        # due to older settings payload shape mismatches.
+        if isinstance(settings, dict) and "performance_tracking" in settings:
+            del settings["performance_tracking"]
+            changed_settings = True
         if "min_temp" not in settings:
             # Set default based on temperature unit
             if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
@@ -147,7 +171,7 @@ class ScheduleStorage:
         if "create_derivative_sensors" not in settings:
             settings["create_derivative_sensors"] = True  # Default to enabled
         self._data["settings"] = settings
-        # Persist cleaned settings if we flattened/selected a different layer
+        # Persist cleaned settings if we flattened/cleaned nested layers
         if locals().get("changed_settings"):
             try:
                 await self.async_save()

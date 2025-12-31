@@ -1046,6 +1046,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         settings_json = call.data["settings"]
         import json
         settings = json.loads(settings_json)
+
+        # Defensive: older/broken clients may send the full get_settings payload
+        # (e.g. {"settings": {...}, "version": {...}}). Storage expects the inner settings dict.
+        if isinstance(settings, dict) and isinstance(settings.get("settings"), dict) and settings.get("version") is not None:
+            settings = settings["settings"]
+
         await storage.async_save_settings(settings)
         _LOGGER.info("Settings saved")
     

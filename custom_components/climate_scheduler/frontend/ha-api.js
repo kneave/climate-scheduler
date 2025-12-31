@@ -488,7 +488,25 @@ class HomeAssistantAPI {
     async getSettings() {
         try {
             const result = await this.callService('climate_scheduler', 'get_settings', {}, true);
-            return result?.response || result || {};
+
+            // Normalize across execution modes:
+            // - In custom panel mode, callService(..., true) returns the service response directly.
+            // - In raw websocket mode, callService may return { response: <service_response> }.
+            const payload = result?.response ?? result ?? {};
+
+            // Service response includes version metadata, but app.js expects the raw settings dict.
+            // If the response shape is { settings: {...}, version: {...} }, return settings.
+            if (
+                payload &&
+                typeof payload === 'object' &&
+                payload.version &&
+                payload.settings &&
+                typeof payload.settings === 'object'
+            ) {
+                return payload.settings;
+            }
+
+            return payload;
         } catch (error) {
             console.error('Failed to get settings:', error);
             return {};
