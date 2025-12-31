@@ -1037,7 +1037,7 @@ async function setupProfileHandlers(container, groupData) {
     }
     
     // Load and populate profiles
-    await loadProfiles(container, currentGroup, true);
+    await loadProfiles(container, currentGroup);
     
     // Profile dropdown change handler (no automatic loading)
     const profileDropdown = container.querySelector('#profile-dropdown');
@@ -1098,7 +1098,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.createProfile(currentGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to create profile:', error);
@@ -1121,7 +1121,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to rename profile:', error);
@@ -1143,7 +1143,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.deleteProfile(currentGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to delete profile:', error);
@@ -1154,7 +1154,7 @@ async function setupProfileHandlers(container, groupData) {
 }
 
 // Load and populate profiles dropdown
-async function loadProfiles(container, targetId, isGroup) {
+async function loadProfiles(container, targetId) {
     try {
         const result = await haAPI.getProfiles(targetId);
         const profiles = result.profiles || {};

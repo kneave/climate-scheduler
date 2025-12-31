@@ -1047,79 +1047,82 @@ class ScheduleStorage:
     # Profile Management Methods
     
     async def async_create_profile(self, target_id: str, profile_name: str) -> None:
-        """Create a new schedule profile for a group."""
+        """Create a new schedule profile for a group.
+
+        Profiles are stored under the `groups` top-level key.
+        """
         target_key = "groups"
-        
+
         if target_id not in self._data.get(target_key, {}):
             raise ValueError(f"Group '{target_id}' does not exist")
-        
+
         target_data = self._data[target_key][target_id]
-        
+
         # Initialize profiles if not present
         if "profiles" not in target_data:
             target_data["profiles"] = {}
-        
+
         if profile_name in target_data["profiles"]:
             raise ValueError(f"Profile '{profile_name}' already exists")
-        
+
         # Create new profile with current active schedule as template
         current_mode = target_data.get("schedule_mode", "all_days")
         current_schedules = copy.deepcopy(target_data.get("schedules", {"all_days": []}))
-        
+
         target_data["profiles"][profile_name] = {
             "schedule_mode": current_mode,
             "schedules": current_schedules
         }
-        
+
         await self.async_save()
-        _LOGGER.info(f"Created profile '{profile_name}' for {'group' if is_group else 'entity'} '{target_id}'")
+        _LOGGER.info(f"Created profile '{profile_name}' for group '{target_id}'")
     
-    async def async_delete_profile(self, target_id: str, profile_name: str, is_group: bool = False) -> None:
-        """Delete a schedule profile."""
-        target_key = "groups" if is_group else "entities"
-        
+    async def async_delete_profile(self, target_id: str, profile_name: str) -> None:
+        """Delete a schedule profile from a group."""
+        target_key = "groups"
+
         if target_id not in self._data.get(target_key, {}):
-            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
-        
+            raise ValueError(f"Group '{target_id}' does not exist")
+
         target_data = self._data[target_key][target_id]
-        
+
         if profile_name not in target_data.get("profiles", {}):
             raise ValueError(f"Profile '{profile_name}' does not exist")
-        
+
         # Don't allow deleting the active profile or the last profile
         if profile_name == target_data.get("active_profile"):
             raise ValueError(f"Cannot delete the active profile. Switch to another profile first.")
-        
+
         if len(target_data.get("profiles", {})) <= 1:
             raise ValueError(f"Cannot delete the last profile")
-        
+
         del target_data["profiles"][profile_name]
-        
+
         await self.async_save()
-        _LOGGER.info(f"Deleted profile '{profile_name}' from {'group' if is_group else 'entity'} '{target_id}'")
+        _LOGGER.info(f"Deleted profile '{profile_name}' from group '{target_id}'")
     
-    async def async_rename_profile(self, target_id: str, old_name: str, new_name: str, is_group: bool = False) -> None:
-        """Rename a schedule profile."""
-        target_key = "groups" if is_group else "entities"
-        
+    async def async_rename_profile(self, target_id: str, old_name: str, new_name: str) -> None:
+        """Rename a schedule profile for a group."""
+        target_key = "groups"
+
         if target_id not in self._data.get(target_key, {}):
-            raise ValueError(f"{'Group' if is_group else 'Entity'} '{target_id}' does not exist")
-        
+            raise ValueError(f"Group '{target_id}' does not exist")
+
         target_data = self._data[target_key][target_id]
-        
+
         if old_name not in target_data.get("profiles", {}):
             raise ValueError(f"Profile '{old_name}' does not exist")
-        
+
         if new_name in target_data.get("profiles", {}):
             raise ValueError(f"Profile '{new_name}' already exists")
-        
+
         # Rename the profile
         target_data["profiles"][new_name] = target_data["profiles"].pop(old_name)
-        
+
         # Update active profile name if needed
         if target_data.get("active_profile") == old_name:
             target_data["active_profile"] = new_name
-        
+
         await self.async_save()
         _LOGGER.info(f"Renamed profile from '{old_name}' to '{new_name}' for group '{target_id}'")
     

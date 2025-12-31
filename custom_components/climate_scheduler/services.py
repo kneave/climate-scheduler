@@ -433,13 +433,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "example": "Winter Schedule",
                     "selector": {"text": {}},
                 },
-                "is_group": {
-                    "description": "Whether this is a group (true) or entity (false)",
-                    "required": False,
-                    "default": False,
-                    "example": False,
-                    "selector": {"boolean": {}},
-                },
+                
             },
         },
         
@@ -459,13 +453,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "example": "Winter Schedule",
                     "selector": {"select": {"options": profile_options}},
                 },
-                "is_group": {
-                    "description": "Whether this is a group (true) or entity (false)",
-                    "required": False,
-                    "default": False,
-                    "example": False,
-                    "selector": {"boolean": {}},
-                },
+                
             },
         },
         
@@ -491,13 +479,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "example": "Cold Weather Schedule",
                     "selector": {"text": {}},
                 },
-                "is_group": {
-                    "description": "Whether this is a group (true) or entity (false)",
-                    "required": False,
-                    "default": False,
-                    "example": False,
-                    "selector": {"boolean": {}},
-                },
+                
             },
         },
         
@@ -517,13 +499,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "example": "Winter Schedule",
                     "selector": {"select": {"options": profile_options}},
                 },
-                "is_group": {
-                    "description": "Whether this is a group (true) or entity (false)",
-                    "required": False,
-                    "default": False,
-                    "example": False,
-                    "selector": {"boolean": {}},
-                },
+                
             },
         },
         
@@ -537,13 +513,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "example": "climate.living_room",
                     "selector": {"text": {}},
                 },
-                "is_group": {
-                    "description": "Whether this is a group (true) or entity (false)",
-                    "required": False,
-                    "default": False,
-                    "example": False,
-                    "selector": {"boolean": {}},
-                },
+                
             },
         },
         
@@ -626,11 +596,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "cancel_advance": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "get_advance_status": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "clear_advance_history": vol.Schema({vol.Required("schedule_id"): cv.string}),
-        "create_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
+        
         "delete_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "rename_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("old_name"): cv.string, vol.Required("new_name"): cv.string}),
         "set_active_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "get_profiles": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "create_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
         "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
         "reregister_card": vol.Schema({
@@ -1140,7 +1111,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle create_profile service call."""
         target_id = call.data["schedule_id"]
         profile_name = call.data["profile_name"]
-        
         try:
             await storage.async_create_profile(target_id, profile_name)
             _LOGGER.info(f"Created profile '{profile_name}' for schedule '{target_id}'")
@@ -1152,7 +1122,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle delete_profile service call."""
         target_id = call.data["schedule_id"]
         profile_name = call.data["profile_name"]
-        
         try:
             await storage.async_delete_profile(target_id, profile_name)
             _LOGGER.info(f"Deleted profile '{profile_name}' from schedule '{target_id}'")
@@ -1165,7 +1134,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         target_id = call.data["schedule_id"]
         old_name = call.data["old_name"]
         new_name = call.data["new_name"]
-        
         try:
             await storage.async_rename_profile(target_id, old_name, new_name)
             _LOGGER.info(f"Renamed profile '{old_name}' to '{new_name}' for schedule '{target_id}'")
@@ -1177,7 +1145,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle set_active_profile service call."""
         target_id = call.data["schedule_id"]
         profile_name = call.data["profile_name"]
-        
         try:
             await storage.async_set_active_profile(target_id, profile_name)
             _LOGGER.info(f"Set active profile to '{profile_name}' for schedule '{target_id}'")

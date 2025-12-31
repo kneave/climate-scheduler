@@ -518,11 +518,10 @@ class HomeAssistantAPI {
     }
     
     // Profile management methods
-    async createProfile(scheduleId, profileName, isGroup = false) {
+    async createProfile(scheduleId, profileName) {
         return await this.callService('climate_scheduler', 'create_profile', {
             schedule_id: scheduleId,
-            profile_name: profileName,
-            is_group: isGroup
+            profile_name: profileName
         });
     }
     
