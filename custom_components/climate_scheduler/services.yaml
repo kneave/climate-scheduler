@@ -1,387 +1,420 @@
+# Static service definitions for Climate Scheduler.
+# These provide UI documentation and selectors. The services are still
+# registered dynamically in Python; keep this file up-to-date when fields
+# or selectors change.
+
+recreate_all_sensors:
+  name: Recreate all sensors
+  description: >-
+    Delete ALL Climate Scheduler sensor entities and reload the integration to
+    recreate them cleanly. Requires confirmation.
+  fields:
+    confirm:
+      description: Must be set to true to confirm deletion of all sensors
+      example: true
+      required: true
+      selector:
+        boolean: {}
+
+cleanup_malformed_sensors:
+  name: Cleanup malformed sensors
+  description: >-
+    Scan for unexpected Climate Scheduler sensor entities and optionally remove
+    them. Returns expected and unexpected sensor entity lists.
+  fields:
+    delete:
+      description: Whether to actually delete the unexpected entities (default
+        is false for dry-run)
+      required: false
+      example: true
+      selector:
+        boolean: {}
+
 set_schedule:
   name: Set climate schedule
-  description: Configure temperature schedule for a climate entity
+  description: Configure temperature schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to control
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
+      example: climate.living_room
       selector:
-        text:
+        entity:
+          domain: climate
     nodes:
-      description: List of schedule nodes with time and temperature
+      description: >-
+        List of schedule nodes with time and temperature (JSON string).
       required: true
       example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
     day:
-      description: Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)
+      description: Day of week for this schedule (all_days, mon, tue, wed, thu,
+        fri, sat, sun, weekday, weekend)
       required: false
-      default: "all_days"
-      example: "mon"
+      default: all_days
       selector:
-        text:
+        text: {}
     schedule_mode:
       description: Schedule mode (all_days, 5/2, individual)
       required: false
-      default: "all_days"
-      example: "individual"
+      default: all_days
       selector:
-        text:
+        text: {}
+
 
 get_schedule:
   name: Get climate schedule
-  description: Retrieve the current schedule for a climate entity
+  description: Retrieve the current schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to get schedule for
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        entity:
+          domain: climate
 
 clear_schedule:
   name: Clear climate schedule
-  description: Remove the schedule for a climate entity
+  description: Clear the schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to clear schedule for
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        entity:
+          domain: climate
 
 enable_schedule:
-  name: Enable climate schedule
-  description: Enable automatic scheduling for a climate entity
+  name: Enable schedule
+  description: Enable the schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to enable
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        text: {}
 
 disable_schedule:
-  name: Disable climate schedule
-  description: Disable automatic scheduling for a climate entity
+  name: Disable schedule
+  description: Disable the schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to disable
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        text: {}
+
+set_ignored:
+  name: Set ignored status
+  description: Mark a schedule target as ignored or not
+  fields:
+    schedule_id:
+      description: Schedule ID
+      required: true
+      selector:
+        text: {}
+    ignored:
+      description: True to ignore, False to un-ignore
+      required: true
+      selector:
+        boolean: {}
+
+sync_all:
+  name: Sync all
+  description: Force immediate sync of all thermostats managed by Climate Scheduler
+  fields: {}
 
 create_group:
-  name: Create thermostat group
-  description: Create a new group to share schedules between multiple thermostats
+  name: Create group
+  description: Create a new Climate Scheduler group
   fields:
     group_name:
-      description: Name for the new group
+      description: New group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
 
 delete_group:
-  name: Delete thermostat group
-  description: Delete a thermostat group
+  name: Delete group
+  description: Delete an existing group
   fields:
     group_name:
-      description: Name of the group to delete
+      description: Group name to delete
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
 
 rename_group:
-  name: Rename thermostat group
-  description: Rename a thermostat group
+  name: Rename group
+  description: Rename an existing group
   fields:
     old_name:
-      description: Current name of the group
+      description: Existing group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
     new_name:
-      description: New name for the group
+      description: New group name
       required: true
-      example: "Upstairs Bedrooms"
       selector:
-        text:
+        text: {}
 
 add_to_group:
-  name: Add thermostat to group
+  name: Add entity to group
   description: Add a climate entity to a group
   fields:
     group_name:
-      description: Name of the group
+      description: Target group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
     entity_id:
-      description: Climate entity to add to the group
+      description: Climate entity id to add
       required: true
-      example: "climate.bedroom_1"
       selector:
         entity:
           domain: climate
 
 remove_from_group:
-  name: Remove thermostat from group
+  name: Remove entity from group
   description: Remove a climate entity from a group
   fields:
     group_name:
-      description: Name of the group
+      description: Target group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
     entity_id:
-      description: Climate entity to remove from the group
+      description: Climate entity id to remove
       required: true
-      example: "climate.bedroom_1"
       selector:
         entity:
           domain: climate
 
 get_groups:
-  name: Get all groups
-  description: Retrieve all thermostat groups
+  name: Get groups
+  description: Return stored groups data
+  fields: {}
+
+list_groups:
+  name: List groups
+  description: Return a simple list of group names
+  fields: {}
+
+list_profiles:
+  name: List profiles
+  description: Return a list of profiles across all groups
+  fields: {}
 
 set_group_schedule:
   name: Set group schedule
-  description: Set schedule for all thermostats in a group
+  description: Set schedule for a whole group
   fields:
     group_name:
-      description: Name of the group
+      description: Target group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
     nodes:
-      description: List of schedule nodes with time and temperature
+      description: JSON string of schedule nodes
       required: true
-      example: '[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]'
+      selector:
+        text: {}
     day:
-      description: Day of week for this schedule (all_days, mon, tue, wed, thu, fri, sat, sun, weekday, weekend)
+      description: Day identifier
       required: false
-      default: "all_days"
-      example: "mon"
       selector:
-        text:
+        text: {}
     schedule_mode:
-      description: Schedule mode (all_days, 5/2, individual)
+      description: Schedule mode
       required: false
-      default: "all_days"
-      example: "individual"
       selector:
-        text:
-
-sync_all:
-  name: Sync all thermostats
-  description: Force synchronization of all enabled thermostats with their schedules
+        text: {}
 
 enable_group:
-  name: Enable group schedule
-  description: Enable automatic scheduling for all thermostats in a group
+  name: Enable group
+  description: Enable a group's schedule
   fields:
     group_name:
-      description: Name of the group to enable
+      description: Group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
 
 disable_group:
-  name: Disable group schedule
-  description: Disable automatic scheduling for all thermostats in a group
+  name: Disable group
+  description: Disable a group's schedule
   fields:
     group_name:
-      description: Name of the group to disable
+      description: Group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
 
 get_settings:
   name: Get settings
-  description: Retrieve global integration settings (min/max temp, default schedule, etc.)
+  description: Retrieve current integration settings and version info
+  fields: {}
 
 save_settings:
   name: Save settings
-  description: Save global integration settings
+  description: Save integration settings (JSON string)
   fields:
     settings:
-      description: Settings object with min_temp, max_temp, defaultSchedule, tooltipMode, etc.
+      description: Settings JSON string
       required: true
-      example: '{"min_temp": 10, "max_temp": 30}'
-
-set_ignored:
-  name: Set entity ignored status
-  description: Mark an entity as ignored (not monitored) or un-ignore it
-  fields:
-    schedule_id:
-      description: Climate entity ID to set ignored status for
-      required: true
-      example: "climate.living_room"
       selector:
-        text:
-    ignored:
-      description: Whether to ignore this entity (true) or monitor it (false)
-      required: true
-      example: true
-      selector:
-        boolean:
+        text: {}
 
 reload_integration:
-  name: Reload integration (Dev)
-  description: Reload the Climate Scheduler integration (development only)
+  name: Reload integration
+  description: Reload the Climate Scheduler integration
+  fields: {}
+
+reregister_card:
+  name: Reregister custom card
+  description: Remove any existing frontend resource matching `resource_url` and create a new resource entry
+  fields:
+    resource_url:
+      description: URL of the custom card resource to register
+      required: true
+      example: /climate_scheduler/static/climate-scheduler-card.js
+      selector:
+        text: {}
+    resource_type:
+      description: Resource type (e.g. `module` or `js`)
+      required: false
+      default: module
+      selector:
+        text: {}
 
 advance_schedule:
-  name: Advance to next scheduled node
-  description: Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet
+  name: Advance schedule
+  description: Temporarily advance a schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to advance to next scheduled node
+      description: Schedule ID
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        text: {}
 
 advance_group:
-  name: Advance group to next scheduled node
-  description: Manually advance all climate entities in a group to their next scheduled temperature and settings, even if the scheduled time hasn't arrived yet
+  name: Advance group
+  description: Advance schedule for a group
   fields:
     group_name:
-      description: Name of the group to advance
+      description: Group name
       required: true
-      example: "Bedrooms"
       selector:
-        text:
+        text: {}
 
 cancel_advance:
-  name: Cancel advance override
-  description: Cancel an active advance override and return the climate entity to its current scheduled settings
+  name: Cancel advance
+  description: Cancel an advanced schedule for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to cancel advance for
+      description: Schedule ID (entity id)
       required: true
-      example: "climate.living_room"
       selector:
-        text:
+        text: {}
+
+get_advance_status:
+  name: Get advance status
+  description: Get current advance status for a schedule target
+  fields:
+    schedule_id:
+      description: Schedule ID (entity id)
+      required: true
+      selector:
+        text: {}
 
 clear_advance_history:
   name: Clear advance history
-  description: Clear all advance history markers for a climate entity
+  description: Clear the advance history for a schedule target
   fields:
     schedule_id:
-      description: Climate entity ID to clear history for
+      description: Schedule ID (entity id)
       required: true
-      example: "climate.living_room"
       selector:
-        text:
-
-get_override_status:
-  name: Get override status
-  description: Check if a climate entity has an active advance override
-  fields:
-    schedule_id:
-      description: Climate entity ID to check
-      required: true
-      example: "climate.living_room"
-      selector:
-        text:
+        text: {}
 
 create_profile:
-  name: Create schedule profile
-  description: Create a new schedule profile
+  name: Create profile
+  description: Create a profile for a schedule
   fields:
     schedule_id:
-      description: Schedule name to create profile for
+      description: Schedule ID (entity id or group id)
       required: true
-      example: "living_room"
       selector:
-        text:
+        text: {}
     profile_name:
-      description: Name for the new profile
+      description: New profile name
       required: true
-      example: "Winter Schedule"
       selector:
-        text:
+        text: {}
 
 delete_profile:
-  name: Delete schedule profile
-  description: Delete a schedule profile
+  name: Delete profile
+  description: Delete a profile from a schedule
   fields:
     schedule_id:
-      description: Schedule name to delete profile from
+      description: Schedule ID (entity id or group id)
       required: true
-      example: "living_room"
       selector:
-        text:
+        text: {}
     profile_name:
-      description: Name of the profile to delete
+      description: Profile name to delete
       required: true
-      example: "Winter Schedule"
       selector:
-        text:
+        text: {}
 
 rename_profile:
-  name: Rename schedule profile
-  description: Rename a schedule profile
+  name: Rename profile
+  description: Rename a profile
   fields:
     schedule_id:
-      description: Schedule name to rename profile for
+      description: Schedule ID (entity id or group id)
       required: true
-      example: "living_room"
       selector:
-        text:
+        text: {}
     old_name:
-      description: Current name of the profile
+      description: Existing profile name
       required: true
-      example: "Winter Schedule"
       selector:
-        text:
+        text: {}
     new_name:
-      description: New name for the profile
+      description: New profile name
       required: true
-      example: "Cold Weather Schedule"
       selector:
-        text:
+        text: {}
 
 set_active_profile:
-  name: Set active schedule profile
-  description: Switch to a different schedule profile
+  name: Set active profile
+  description: Set the active profile for a schedule
   fields:
     schedule_id:
-      description: Schedule name
+      description: Schedule ID (entity id or group id)
       required: true
-      example: "living_room"
       selector:
-        text:
+        text: {}
     profile_name:
-      description: Name of the profile to activate
+      description: Profile name to set active
       required: true
-      example: "Winter Schedule"
       selector:
-        text:
+        text: {}
 
 get_profiles:
-  name: Get schedule profiles
-  description: Get list of all available profiles
+  name: Get profiles
+  description: Get profiles for a schedule
   fields:
     schedule_id:
-      description: Schedule name
+      description: Schedule ID (entity id or group id)
       required: true
-      example: "living_room"
       selector:
-        text:
+        text: {}
 
 cleanup_derivative_sensors:
   name: Cleanup derivative sensors
-  description: Remove orphaned derivative sensors for entities that no longer exist
+  description: Remove derivative sensors based on auto-creation setting
   fields:
     confirm_delete_all:
       description: Confirm deletion of all derivative sensors
@@ -389,15 +422,14 @@ cleanup_derivative_sensors:
       default: false
       example: false
       selector:
-        boolean:
+        boolean: {}
 
 factory_reset:
-  name: Factory Reset
-  description: Reset all Climate Scheduler data to freshly installed state. WARNING - This will delete all schedules, groups, profiles, and settings permanently.
+  name: Factory reset
+  description: Reset all stored data
   fields:
     confirm:
-      description: Must be set to true to confirm the factory reset
+      description: Must be set to true to confirm factory reset
       required: true
-      example: true
       selector:
-        boolean:
+        boolean: {}

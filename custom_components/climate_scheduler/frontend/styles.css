@@ -275,6 +275,13 @@ climate-scheduler-panel {
     gap: 8px;
 }
 
+.group-enable-toggle {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary-color);
+    margin-right: 4px;
+}
+
 .group-actions button {
     background: none;
     border: none;

@@ -75,20 +75,20 @@ class ClimateSchedulerCard extends HTMLElement {
 
     // Load panel module
     try {
-      // Determine base path - try bundled integration path first, fallback to standalone
+      // Determine base path - try integration-hosted static path first, fallback to standalone
       const scriptUrl = import.meta.url;
-      let basePath = '/local/climate_scheduler'; // Bundled with integration
-      
-      // Check if we're using the bundled version by testing if .version exists
+      // Integration registers frontend at /<domain>/static
+      let basePath = '/climate_scheduler/static';
+
+      // Flag visible to outer scope so error handlers can reference it
+      // Only accept the integration-hosted static path; do not fallback.
       let isBundled = false;
-      try {
-        const testResponse = await fetch(`${basePath}/.version`);
-        if (testResponse.ok) {
-          isBundled = true;
-        }
-      } catch (e) {
-        // Bundled path not available, use standalone
-        basePath = '/local/community/climate-scheduler-card';
+      const testResponse = await fetch(`${basePath}/.version`);
+      if (testResponse.ok) {
+        isBundled = true;
+      } else {
+        // Explicitly fail if the integration static path is not present
+        throw new Error('Integration frontend not found at /climate_scheduler/static');
       }
       
       const hacstag = new URL(scriptUrl).searchParams.get('hacstag');
@@ -128,9 +128,7 @@ class ClimateSchedulerCard extends HTMLElement {
       this._container.innerHTML = `
         <div style="padding: 16px; color: red;">
           Failed to load panel module: ${e.message}<br>
-          ${isBundled ? 
-            'Make sure the integration is properly installed.' : 
-            'Make sure the card is properly installed in /config/www/community/climate-scheduler-card/'}
+          Make sure the Climate Scheduler integration is installed and the frontend is available at /climate_scheduler/static
         </div>
       `;
       return;

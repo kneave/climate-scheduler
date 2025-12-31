@@ -323,6 +323,12 @@ class HomeAssistantAPI {
         });
     }
     
+    async testFireEvent(groupName) {
+        return await this.callService('climate_scheduler', 'test_fire_event', {
+            group_name: groupName
+        });
+    }
+    
     async cancelAdvance(entityId) {
         return await this.callService('climate_scheduler', 'cancel_advance', {
             schedule_id: entityId
@@ -399,6 +405,14 @@ class HomeAssistantAPI {
     }
     
     async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+        // Guard: ensure a valid groupName is provided before calling HA service.
+        if (!groupName) {
+            const msg = 'setGroupSchedule called without a valid groupName';
+            console.error(msg, groupName, nodes, day, scheduleMode);
+            // Throw so callers can handle the error rather than sending null to HA
+            throw new Error(msg);
+        }
+
         const serviceData = {
             group_name: groupName,
             nodes: nodes
@@ -504,11 +518,10 @@ class HomeAssistantAPI {
     }
     
     // Profile management methods
-    async createProfile(scheduleId, profileName, isGroup = false) {
+    async createProfile(scheduleId, profileName) {
         return await this.callService('climate_scheduler', 'create_profile', {
             schedule_id: scheduleId,
-            profile_name: profileName,
-            is_group: isGroup
+            profile_name: profileName
         });
     }
     

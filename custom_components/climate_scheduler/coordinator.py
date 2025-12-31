@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
 
-from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP
+from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,6 +15,37 @@ _LOGGER = logging.getLogger(__name__)
 
 class HeatingSchedulerCoordinator(DataUpdateCoordinator):
     """Coordinator to manage heating schedule updates."""
+
+    async def async_get_advance_status(self, entity_id: str) -> dict:
+        """Return advance override status for a climate entity."""
+        # Check if the entity has an active override (advance)
+        is_advanced = False
+        advance_time = None
+        original_node = None
+        advanced_node = None
+
+        # If the entity is in override_until and the time is in the future, it's advanced
+        now = datetime.now()
+        if entity_id in self.override_until:
+            until = self.override_until[entity_id]
+            if until > now:
+                is_advanced = True
+                advance_time = until.isoformat()
+
+        # Try to get advance history for this entity
+        history = self.advance_history.get(entity_id, [])
+        if history:
+            last = history[-1]
+            original_node = last.get("original_node")
+            advanced_node = last.get("advanced_node")
+
+        return {
+            "entity_id": entity_id,
+            "is_advanced": is_advanced,
+            "advance_time": advance_time,
+            "original_node": original_node,
+            "advanced_node": advanced_node
+        }
 
     def __init__(
         self,
@@ -138,9 +169,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         
         _LOGGER.info(f"{entity_id} next node: {next_node}")
         
-        # Clamp target temp
-        target_temp = next_node["temp"]
-        clamped_temp = max(min_temp, min(max_temp, target_temp))
+        # Clamp target temp (or use None for no change)
+        target_temp = next_node.get("temp")
+        is_no_change = next_node.get("noChange", False)
+        if is_no_change:
+            clamped_temp = None
+            _LOGGER.info(f"{entity_id} temp set to NO_CHANGE - will not modify temperature")
+        else:
+            clamped_temp = max(min_temp, min(max_temp, target_temp)) if target_temp is not None else None
         
         # Create node signature
         node_signature = {
@@ -190,23 +226,32 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         blocking=True,
                     )
         else:
-            # Set temperature
-            _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": entity_id,
-                        ATTR_TEMPERATURE: clamped_temp,
-                    },
-                    blocking=True,
-                )
-            except Exception as exc:
-                return {
-                    "success": False,
-                    "error": f"Failed to set temperature: {str(exc)}"
-                }
+            # Check if this is a preset-only entity
+            current_temperature = state.attributes.get("current_temperature")
+            is_preset_only = current_temperature is None
+            
+            # Set temperature (only if not NO_CHANGE and entity supports temperature)
+            if clamped_temp is not None and not is_preset_only:
+                _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {
+                            "entity_id": entity_id,
+                            ATTR_TEMPERATURE: clamped_temp,
+                        },
+                        blocking=True,
+                    )
+                except Exception as exc:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set temperature: {str(exc)}"
+                    }
+            elif clamped_temp is not None and is_preset_only:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+            else:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
             
             # Apply HVAC mode
             if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
@@ -243,6 +288,29 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
                     blocking=True,
                 )
+        
+        # Fire event for manual advance
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_node_activated",
+            {
+                "entity_id": entity_id,
+                "group_name": group_name,
+                "node": {
+                    "time": next_node.get("time"),
+                    "temp": clamped_temp,
+                    "hvac_mode": next_node.get("hvac_mode"),
+                    "fan_mode": next_node.get("fan_mode"),
+                    "swing_mode": next_node.get("swing_mode"),
+                    "preset_mode": next_node.get("preset_mode"),
+                    "A": next_node.get("A"),
+                    "B": next_node.get("B"),
+                    "C": next_node.get("C"),
+                },
+                "day": current_day,
+                "trigger_type": "manual_advance",
+            }
+        )
+        _LOGGER.info(f"Fired node_activated event for {entity_id} (manual_advance)")
         
         return {
             "success": True,
@@ -421,12 +489,19 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Get group schedule for current day
                 group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
                 if group_schedule and "nodes" in group_schedule:
-                    # Map all entities in this group to this schedule
-                    for entity_id in group_data.get("entities", []):
-                        entity_group_schedules[entity_id] = (group_name, group_schedule)
-                        is_single = group_data.get("_is_single_entity_group", False)
-                        group_type = "single-entity" if is_single else "multi-entity"
-                        _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
+                    entities_list = group_data.get("entities", [])
+                    
+                    if len(entities_list) == 0:
+                        # Virtual group with no entities - track separately for event-only processing
+                        entity_group_schedules[f"_virtual_{group_name}"] = (group_name, group_schedule, True)
+                        _LOGGER.info(f"Virtual group '{group_name}' will fire events only (no entities)")
+                    else:
+                        # Map all entities in this group to this schedule
+                        for entity_id in entities_list:
+                            entity_group_schedules[entity_id] = (group_name, group_schedule, False)
+                            is_single = group_data.get("_is_single_entity_group", False)
+                            group_type = "single-entity" if is_single else "multi-entity"
+                            _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
             
             # Save storage if any groups were migrated
             if groups_migrated:
@@ -438,7 +513,79 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             results = {}
             
             # Process all entities that have group schedules (both single and multi-entity groups)
-            for entity_id, (group_name, schedule_data) in entity_group_schedules.items():
+            for entity_id, (group_name, schedule_data, is_virtual) in entity_group_schedules.items():
+                # Handle virtual groups (no entities, events only)
+                if is_virtual:
+                    _LOGGER.info(f"Processing virtual group: '{group_name}'")
+                    
+                    nodes = schedule_data["nodes"]
+                    active_node = self.storage.get_active_node(nodes, current_time)
+                    if not active_node:
+                        _LOGGER.debug(f"No active node for virtual group '{group_name}'")
+                        continue
+                    
+                    # Create signature for virtual group tracking
+                    virtual_key = f"_virtual_{group_name}"
+                    node_signature = {
+                        "time": active_node.get("time"),
+                        "temp": active_node.get("temp"),
+                        "hvac_mode": active_node.get("hvac_mode"),
+                        "fan_mode": active_node.get("fan_mode"),
+                        "swing_mode": active_node.get("swing_mode"),
+                        "preset_mode": active_node.get("preset_mode"),
+                        "A": active_node.get("A"),
+                        "B": active_node.get("B"),
+                        "C": active_node.get("C"),
+                    }
+                    
+                    # Check if we've transitioned to a new node
+                    last_node = self.last_node_states.get(virtual_key)
+                    if last_node == node_signature:
+                        _LOGGER.debug(f"Virtual group '{group_name}' still on same node, skipping")
+                        results[virtual_key] = {
+                            "updated": False,
+                            "reason": "same_node"
+                        }
+                        continue
+                    
+                    # Node has changed, fire event
+                    self.last_node_states[virtual_key] = node_signature
+                    
+                    self.hass.bus.async_fire(
+                        f"{DOMAIN}_node_activated",
+                        {
+                            "entity_id": None,  # No entity for virtual groups
+                            "group_name": group_name,
+                            "node": {
+                                "time": active_node.get("time"),
+                                "temp": active_node.get("temp"),
+                                "hvac_mode": active_node.get("hvac_mode"),
+                                "fan_mode": active_node.get("fan_mode"),
+                                "swing_mode": active_node.get("swing_mode"),
+                                "preset_mode": active_node.get("preset_mode"),
+                                "A": active_node.get("A"),
+                                "B": active_node.get("B"),
+                                "C": active_node.get("C"),
+                            },
+                            "previous_node": last_node,
+                            "day": current_day,
+                            "trigger_type": "scheduled",
+                        }
+                    )
+                    _LOGGER.info(f"Fired node_activated event for virtual group '{group_name}' (scheduled)")
+                    
+                    results[virtual_key] = {
+                        "updated": True,
+                        "virtual": True
+                    }
+                    continue
+                
+                # Check if entity exists in Home Assistant first
+                state = self.hass.states.get(entity_id)
+                if state is None:
+                    _LOGGER.debug(f"Entity {entity_id} not found in Home Assistant, skipping (may have been removed or renamed)")
+                    continue
+                
                 _LOGGER.info(f"Processing entity: {entity_id} from group '{group_name}'")
                 
                 # Check if entity has an active advance override
@@ -485,18 +632,25 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(f"No active node for {entity_id}")
                     continue
                     
-                target_temp = active_node["temp"]
+                target_temp = active_node.get("temp")
                 _LOGGER.info(f"{entity_id} active node: {active_node}")
                 
                 # Clamp target temp to global min/max BEFORE creating signature
                 # This prevents infinite update loops where unclamped signature differs from clamped output
-                clamped_temp = target_temp
-                if target_temp < min_temp:
-                    clamped_temp = min_temp
-                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
-                elif target_temp > max_temp:
-                    clamped_temp = max_temp
-                    _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                # Handle NO_CHANGE temperature (noChange flag)
+                is_no_change = active_node.get("noChange", False)
+                if is_no_change:
+                    clamped_temp = None
+                    _LOGGER.info(f"{entity_id} temp set to NO_CHANGE - will not modify temperature")
+                else:
+                    clamped_temp = target_temp
+                    if target_temp is not None:
+                        if target_temp < min_temp:
+                            clamped_temp = min_temp
+                            _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
+                        elif target_temp > max_temp:
+                            clamped_temp = max_temp
+                            _LOGGER.debug(f"Clamping {entity_id} target {target_temp} -> {clamped_temp}")
                 
                 # Create a state signature for the node using CLAMPED temp + modes
                 node_signature = {
@@ -523,16 +677,17 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 _LOGGER.info(f"{entity_id} node changed: {last_node} -> {node_signature}")
                 self.last_node_states[entity_id] = node_signature
                 
-                # Get current state
-                state = self.hass.states.get(entity_id)
-                if state is None:
-                    _LOGGER.warning(f"Entity {entity_id} not found")
-                    continue
-                
+                # Re-get current state (we checked it exists earlier)
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
                 # Get current target temperature
                 current_target = state.attributes.get("temperature")
                 _LOGGER.info(f"{entity_id} current target: {current_target}°C")
+                
+                # Check if this is a preset-only entity (no current_temperature sensor)
+                current_temperature = state.attributes.get("current_temperature")
+                is_preset_only = current_temperature is None
+                if is_preset_only:
+                    _LOGGER.info(f"{entity_id} is preset-only (no current_temperature), will skip temperature changes")
                 
                 # Get entity capabilities
                 supported_features = state.attributes.get("supported_features", 0)
@@ -571,34 +726,40 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             )
                 else:
                     # Update to new node temperature (already clamped in signature)
-                    _LOGGER.info(
-                        f"Updating {entity_id} to new node: temp={clamped_temp}°C"
-                    )
-
-                    # Build service data
-                    service_data = {
-                        "entity_id": entity_id,
-                        ATTR_TEMPERATURE: clamped_temp,
-                    }
-
-                    # Call climate service to set temperature (handle per-entity errors)
-                    try:
-                        await self.hass.services.async_call(
-                            "climate",
-                            "set_temperature",
-                            service_data,
-                            blocking=True,
+                    # Only set temperature if not NO_CHANGE and entity supports temperature
+                    if clamped_temp is not None and not is_preset_only:
+                        _LOGGER.info(
+                            f"Updating {entity_id} to new node: temp={clamped_temp}°C"
                         )
-                    except Exception as exc:
-                        _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
-                        results[entity_id] = {
-                            "updated": False,
-                            "target_temp": target_temp,
-                            "applied_temp": None,
-                            "error": str(exc),
+
+                        # Build service data
+                        service_data = {
+                            "entity_id": entity_id,
+                            ATTR_TEMPERATURE: clamped_temp,
                         }
-                        # Skip further actions for this entity
-                        continue
+
+                        # Call climate service to set temperature (handle per-entity errors)
+                        try:
+                            await self.hass.services.async_call(
+                                "climate",
+                                "set_temperature",
+                                service_data,
+                                blocking=True,
+                            )
+                        except Exception as exc:
+                            _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
+                            results[entity_id] = {
+                                "updated": False,
+                                "target_temp": target_temp,
+                                "applied_temp": None,
+                                "error": str(exc),
+                            }
+                            # Skip further actions for this entity
+                            continue
+                    elif clamped_temp is not None and is_preset_only:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+                    else:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
                     
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
@@ -659,6 +820,30 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     )
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
+                
+                # Fire event for scheduled node activation
+                self.hass.bus.async_fire(
+                    f"{DOMAIN}_node_activated",
+                    {
+                        "entity_id": entity_id,
+                        "group_name": group_name,
+                        "node": {
+                            "time": active_node.get("time"),
+                            "temp": clamped_temp,
+                            "hvac_mode": active_node.get("hvac_mode"),
+                            "fan_mode": active_node.get("fan_mode"),
+                            "swing_mode": active_node.get("swing_mode"),
+                            "preset_mode": active_node.get("preset_mode"),
+                            "A": active_node.get("A"),
+                            "B": active_node.get("B"),
+                            "C": active_node.get("C"),
+                        },
+                        "previous_node": last_node,
+                        "day": current_day,
+                        "trigger_type": "scheduled",
+                    }
+                )
+                _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled)")
                 
                 results[entity_id] = {
                     "updated": True,

@@ -29,13 +29,13 @@
 #>
 
 param(
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$Version,
     
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [switch]$DryRun,
     
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [switch]$SkipGitHub
 )
 
@@ -55,7 +55,8 @@ if (-not $currentBranch) {
 $isPreRelease = $currentBranch -eq "develop"
 if ($isPreRelease) {
     Write-Host "`nDetected branch: $currentBranch (will create pre-release)" -ForegroundColor Yellow
-} else {
+}
+else {
     Write-Host "`nDetected branch: $currentBranch" -ForegroundColor Cyan
 }
 
@@ -96,16 +97,19 @@ if (-not $hasGhCli -and -not $SkipGitHub) {
                 Write-Host "GitHub CLI installed successfully!" -ForegroundColor Green
                 Write-Host "Please close and reopen your terminal, then run this script again.`n" -ForegroundColor Yellow
                 exit 0
-            } else {
+            }
+            else {
                 Write-Host "Installation failed. Please install manually from: https://cli.github.com/" -ForegroundColor Red
                 Write-Host "Then close and reopen your terminal.`n" -ForegroundColor Yellow
                 $SkipGitHub = $true
             }
-        } else {
+        }
+        else {
             Write-Host "winget not found. Please install GitHub CLI manually from: https://cli.github.com/" -ForegroundColor Yellow
             $SkipGitHub = $true
         }
-    } else {
+    }
+    else {
         Write-Host "Skipping GitHub release creation. You can create it manually later.`n" -ForegroundColor Gray
         $SkipGitHub = $true
     }
@@ -117,7 +121,8 @@ if ($latestTag) {
     # Remove 'v' prefix if present for consistent handling
     $latestTag = $latestTag.TrimStart('v')
     Write-Host "Latest git tag: $latestTag" -ForegroundColor Cyan
-} else {
+}
+else {
     Write-Host "No existing tags found." -ForegroundColor Yellow
     $latestTag = "0.0.0.0"
 }
@@ -143,7 +148,8 @@ if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)(?:b)?(?:\.(\d+))?(?:b)?$') {
         if ($hasBeta -and $build -gt 0) {
             $suggestedPreReleaseBuild = "$major.$minor.$patch.$($build + 1)"
         }
-    } else {
+    }
+    else {
         # Main branch: use 3-part versions (major.minor.patch)
         $suggestedPatch = "$major.$minor.$($patch + 1)"
         $suggestedMinor = "$major.$($minor + 1).0"
@@ -235,7 +241,8 @@ if (-not $Version) {
             if ($suggestedPreReleaseBuild) {
                 $Version = $suggestedPreReleaseBuild
                 Write-Host "Selected: $Version (pre-release build)" -ForegroundColor Green
-            } else {
+            }
+            else {
                 $Version = $suggestedPatch
                 Write-Host "Selected: $Version (patch)" -ForegroundColor Green
             }
@@ -259,7 +266,8 @@ if (-not $Version) {
         { $_ -eq $customOption.ToString() } {
             if ($isPreRelease) {
                 $Version = Read-Host "Enter custom version number (format: major.minor.patch.build)"
-            } else {
+            }
+            else {
                 $Version = Read-Host "Enter custom version number (format: major.minor.patch)"
             }
         }
@@ -279,7 +287,8 @@ if (-not $Version) {
             if ($choice -match $versionPattern) {
                 $Version = $choice
                 Write-Host "Selected: $Version (custom)" -ForegroundColor Green
-            } else {
+            }
+            else {
                 Write-Error "Invalid choice. Please run again and select $validChoices or enter a valid version number (format: $formatExample)."
                 exit 1
             }
@@ -294,7 +303,8 @@ if ($isPreRelease) {
         Write-Error "Invalid version format for develop branch. Use format: major.minor.patch.build (e.g., 1.0.5.1)"
         exit 1
     }
-} else {
+}
+else {
     # Main branch: require 3-part version (major.minor.patch)
     if ($Version -notmatch '^\d+\.\d+\.\d+$') {
         Write-Error "Invalid version format for main branch. Use format: major.minor.patch (e.g., 1.0.5)"
@@ -350,7 +360,7 @@ $fullVersion = $Version
 if ($isPreRelease) {
     $versionSuffix = "b"
     $fullVersion = "$Version$versionSuffix"
-    Write-Host "\nPre-release detected:" -ForegroundColor Yellow
+    Write-Host "`nPre-release detected:" -ForegroundColor Yellow
     Write-Host "  manifest.json version: $Version (numeric only, required by Home Assistant)" -ForegroundColor Cyan
     Write-Host "  Git tag version: $fullVersion (with beta suffix)" -ForegroundColor Cyan
 }
@@ -366,7 +376,7 @@ if ($status) {
     }
 }
 
-Write-Host "\n=== Creating Release v$fullVersion ===" -ForegroundColor Cyan
+Write-Host "`n=== Creating Release v$fullVersion ===" -ForegroundColor Cyan
 
 # Get commit messages since last tag
 $commitMessages = @()
@@ -385,6 +395,64 @@ if ($latestTag -ne "0.0.0") {
 # Collect changelog information
 Write-Host "`n--- Changelog Entry ---" -ForegroundColor Yellow
 
+# Helper: extract changelog section for a given version
+function Get-ChangelogForVersion {
+    param(
+        [string]$VersionString
+    )
+
+    $path = "CHANGELOG.md"
+    if (-not (Test-Path $path)) { return $null }
+
+    $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $null }
+
+    # Robust extraction: find the starting heading and slice until the next '## [' or EOF
+    $search1 = "## [$VersionString]"
+    $search2 = "## [v$VersionString]"
+
+    $startIdx = $content.IndexOf($search2)
+    if ($startIdx -lt 0) { $startIdx = $content.IndexOf($search1) }
+    if ($startIdx -lt 0) { return $null }
+
+    $rest = $content.Substring($startIdx)
+    # look for next heading marker starting on a new line
+    $nextMarker = "`n## ["
+    $nextIdx = $rest.IndexOf($nextMarker)
+    if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
+    return $section.Trim()
+}
+ 
+
+# If CHANGELOG.md already contains a section for this version, offer to use it
+$changelogPath = "CHANGELOG.md"
+$usePreparedNotes = $false
+$preparedNotes = $null
+if (Test-Path $changelogPath) {
+    # Use the helper to robustly extract the full changelog section for this version
+    $preparedNotes = Get-ChangelogForVersion $fullVersion
+    if ($preparedNotes) {
+        Write-Host "`nFound existing changelog entry for v$fullVersion in $changelogPath." -ForegroundColor Cyan
+        $allLines = [regex]::Split($preparedNotes, "\r?\n")
+        $maxPreview = 30
+        $preview = $allLines | Select-Object -First $maxPreview
+        Write-Host "Preview:" -ForegroundColor Gray
+        foreach ($line in $preview) { Write-Host "  $line" -ForegroundColor DarkGray }
+        if ($allLines.Count -gt $maxPreview) { Write-Host "  ... (truncated, showing first $maxPreview lines)" -ForegroundColor DarkGray }
+        Write-Host ""
+        $useResp = Read-Host "Use this changelog entry for the release? (Y/n)"
+        if ([string]::IsNullOrWhiteSpace($useResp) -or $useResp -in @('Y', 'y')) {
+            $usePreparedNotes = $true
+            $changelogContent = $preparedNotes
+            Write-Host "Using changelog entry from $changelogPath." -ForegroundColor Green
+            Write-Host "`nFull changelog section that will be used:" -ForegroundColor Gray
+            Write-Host "----------------------------------------" -ForegroundColor DarkGray
+            Write-Host $changelogContent -ForegroundColor DarkGray
+            Write-Host "----------------------------------------`n" -ForegroundColor DarkGray
+        }
+    }
+}
+
 if ($commitMessages.Count -gt 0) {
     Write-Host "`nCommits since $latestTag`:" -ForegroundColor Cyan
     for ($i = 0; $i -lt $commitMessages.Count; $i++) {
@@ -392,70 +460,68 @@ if ($commitMessages.Count -gt 0) {
     }
     Write-Host "`nYou can reference commits by number (e.g., '0' to use first commit message)"
     Write-Host "Or type your own entries. Enter blank line when done.`n"
-} else {
+}
+else {
     Write-Host "No commits found since last tag."
     Write-Host "Describe the changes in this release (enter each item, blank line when done):`n"
 }
 
 $changelogEntries = @{}
 $categoryPrompts = @{
-    "Added" = "New features (e.g., 'Undo functionality' or '0 2' for commits 0 and 2)"
+    "Added"   = "New features (e.g., 'Undo functionality' or '0 2' for commits 0 and 2)"
     "Changed" = "Changes to existing functionality"
-    "Fixed" = "Bug fixes (e.g., '1 3' for commits 1 and 3, or custom text)"
+    "Fixed"   = "Bug fixes (e.g., '1 3' for commits 1 and 3, or custom text)"
     "Removed" = "Removed features"
 }
 
-foreach ($category in $categoryPrompts.Keys | Sort-Object) {
-    Write-Host "`n$category - $($categoryPrompts[$category])" -ForegroundColor Cyan
-    while ($true) {
-        $entry = Read-Host "  - "
-        if ([string]::IsNullOrWhiteSpace($entry)) {
-            break
-        }
-        
-        # Check if entry contains multiple commit numbers (space or comma-delimited)
-        $tokens = $entry -split '[,\s]+' | Where-Object { $_ }
-        $hasCommitRefs = $false
-        
-        foreach ($token in $tokens) {
-            if ($token -match '^\d+$' -and [int]$token -lt $commitMessages.Count) {
-                $commitText = $commitMessages[[int]$token]
-                Write-Host "    Using [$token]: $commitText" -ForegroundColor Gray
-                
-                if (-not $changelogEntries.ContainsKey($category)) {
-                    $changelogEntries[$category] = @()
+if (-not $usePreparedNotes) {
+    foreach ($category in $categoryPrompts.Keys | Sort-Object) {
+        Write-Host "`n$category - $($categoryPrompts[$category])" -ForegroundColor Cyan
+        while ($true) {
+            $entry = Read-Host "  - "
+            if ([string]::IsNullOrWhiteSpace($entry)) { break }
+
+            # Check if entry contains multiple commit numbers (space or comma-delimited)
+            $tokens = $entry -split '[,\s]+' | Where-Object { $_ }
+            $hasCommitRefs = $false
+
+            foreach ($token in $tokens) {
+                if ($token -match '^\d+$' -and [int]$token -lt $commitMessages.Count) {
+                    $commitText = $commitMessages[[int]$token]
+                    Write-Host "    Using [$token]: $commitText" -ForegroundColor Gray
+
+                    if (-not $changelogEntries.ContainsKey($category)) { $changelogEntries[$category] = @() }
+                    $changelogEntries[$category] += $commitText
+                    $hasCommitRefs = $true
                 }
-                $changelogEntries[$category] += $commitText
-                $hasCommitRefs = $true
             }
-        }
-        
-        # If no commit refs were found, treat entire entry as custom text
-        if (-not $hasCommitRefs) {
-            if (-not $changelogEntries.ContainsKey($category)) {
-                $changelogEntries[$category] = @()
+
+            # If no commit refs were found, treat entire entry as custom text
+            if (-not $hasCommitRefs) {
+                if (-not $changelogEntries.ContainsKey($category)) { $changelogEntries[$category] = @() }
+                $changelogEntries[$category] += $entry
             }
-            $changelogEntries[$category] += $entry
         }
     }
-}
 
-# Generate changelog content
-$date = Get-Date -Format "yyyy-MM-dd"
-$changelogContent = @"
+    # Generate changelog content
+    $date = Get-Date -Format "yyyy-MM-dd"
+    $changelogContent = @"
 
 ## [$fullVersion] - $date
 
 "@
 
-foreach ($category in @("Added", "Changed", "Fixed", "Removed")) {
-    if ($changelogEntries[$category] -and $changelogEntries[$category].Count -gt 0) {
-        $changelogContent += "### $category`n"
-        foreach ($entry in $changelogEntries[$category]) {
-            $changelogContent += "- $entry`n"
+    foreach ($category in @("Added", "Changed", "Fixed", "Removed")) {
+        if ($changelogEntries[$category] -and $changelogEntries[$category].Count -gt 0) {
+            $changelogContent += "### $category`n"
+            foreach ($entry in $changelogEntries[$category]) { $changelogContent += "- $entry`n" }
+            $changelogContent += "`n"
         }
-        $changelogContent += "`n"
     }
+}
+else {
+    # Using prepared notes extracted from CHANGELOG.md; $changelogContent already set
 }
 
 # Update or create CHANGELOG.md
@@ -468,14 +534,16 @@ if (Test-Path $changelogPath) {
         if (-not $DryRun) {
             Set-Content $changelogPath $newChangelog
         }
-    } else {
+    }
+    else {
         # No proper header, prepend to file
         if (-not $DryRun) {
             Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
         }
     }
     Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
-} else {
+}
+else {
     # Create new CHANGELOG.md
     $header = @"
 # Changelog
@@ -495,14 +563,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 # Update manifest.json only if version changed
 # Always use numeric-only version for manifest.json (Home Assistant requirement)
 if ($Version -ne $currentVersion) {
-    Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
     if (-not $DryRun) {
         $manifest.version = $Version
         $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
     }
     Write-Host "Version: $currentVersion -> $Version" -ForegroundColor Green
-} else {
-    Write-Host "\nVersion unchanged: $Version" -ForegroundColor Yellow
+}
+else {
+    Write-Host "`nVersion unchanged: $Version" -ForegroundColor Yellow
 }
 
 # Commit the version change
@@ -518,13 +587,14 @@ if (-not $DryRun) {
         Write-Error "Failed to commit changes"
         exit 1
     }
-} else {
+}
+else {
     Write-Host "Files to commit: manifest.json, CHANGELOG.md" -ForegroundColor Cyan
     Write-Host "Commit message: 'Release v$fullVersion'" -ForegroundColor Cyan
 }
 
 # Create and push tag
-Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$fullVersion..." -ForegroundColor Yellow
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$fullVersion..." -ForegroundColor Yellow
 if (-not $DryRun) {
     git tag -a "v$fullVersion" -m "Release v$fullVersion"
 
@@ -550,69 +620,116 @@ if (-not $DryRun) {
         Write-Error "Failed to push tag"
         exit 1
     }
-} else {
+}
+else {
     Write-Host "Would push to: origin $currentBranch" -ForegroundColor Cyan
     Write-Host "Would push tag: v$fullVersion" -ForegroundColor Cyan
 }
 
-Write-Host "\n=== $(if ($DryRun) { 'DRY RUN: Release v' + $fullVersion + ' Summary' } else { 'Release v' + $fullVersion + ' Created Successfully' }) ===" -ForegroundColor Green
-Write-Host "\nChangelog preview:" -ForegroundColor Cyan
-Write-Host $changelogContent
+Write-Host "`n=== $(if ($DryRun) { 'DRY RUN: Release v' + $fullVersion + ' Summary' } else { 'Release v' + $fullVersion + ' Created Successfully' }) ===" -ForegroundColor Green
+Write-Host "`nChangelog preview:" -ForegroundColor Cyan
+$finalNotesToShow = $null
+if (Get-Variable -Name releaseNotes -Scope Script -ErrorAction SilentlyContinue) { $finalNotesToShow = $script:releaseNotes }
+if (-not $finalNotesToShow -and (Get-Variable -Name changelogContent -Scope Script -ErrorAction SilentlyContinue)) { $finalNotesToShow = $script:changelogContent }
+if ($finalNotesToShow) { Write-Host $finalNotesToShow } else { Write-Host "(no changelog content available)" -ForegroundColor Yellow }
 
 # Create GitHub release
+function Get-ChangelogForVersion {
+    param(
+        [string]$VersionString
+    )
+
+    $path = "CHANGELOG.md"
+    if (-not (Test-Path $path)) { return $null }
+
+    $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $null }
+
+    # Robust extraction: find the starting heading and slice until the next '## [' or EOF
+    $search1 = "## [$VersionString]"
+    $search2 = "## [v$VersionString]"
+
+    $startIdx = $content.IndexOf($search2)
+    if ($startIdx -lt 0) { $startIdx = $content.IndexOf($search1) }
+    if ($startIdx -lt 0) { return $null }
+
+    $rest = $content.Substring($startIdx)
+    # look for next heading marker starting on a new line
+    $nextMarker = "`n## ["
+    $nextIdx = $rest.IndexOf($nextMarker)
+    if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
+    return $section.Trim()
+}
+
 if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
-    Write-Host "\n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) GitHub release..." -ForegroundColor Yellow
-    
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) GitHub release..." -ForegroundColor Yellow
+
     # Prompt for release title (optional)
-    Write-Host "\nRelease title (press Enter for 'v$fullVersion'):" -ForegroundColor Cyan
+    Write-Host "`nRelease title (press Enter for 'v$fullVersion'):" -ForegroundColor Cyan
     $releaseTitle = Read-Host "  "
     if ([string]::IsNullOrWhiteSpace($releaseTitle)) {
         $releaseTitle = "v$fullVersion"
     }
-    
-    # Save changelog to temporary file for release notes
+
+    # Prefer extracting a prepared section from CHANGELOG.md for this version
+    $preparedNotes = Get-ChangelogForVersion $fullVersion
+
+    if ($preparedNotes) {
+        Write-Host "Using release notes extracted from CHANGELOG.md for v$fullVersion" -ForegroundColor Green
+        $releaseNotes = $preparedNotes
+    }
+    else {
+        # Fall back to interactive / auto-generated changelog content
+        $releaseNotes = $changelogContent
+    }
+
+    # Save release notes to temporary file for gh
     $tempChangelogFile = [System.IO.Path]::GetTempFileName()
-    $changelogContent | Set-Content $tempChangelogFile -Encoding UTF8
-    
+    $releaseNotes | Set-Content $tempChangelogFile -Encoding UTF8
+
     try {
         $releaseArgs = @(
             "v$fullVersion",
             "--title", $releaseTitle,
             "--notes-file", $tempChangelogFile
         )
-        
+
         # Add prerelease flag if on develop branch
         if ($isPreRelease) {
             $releaseArgs += "--prerelease"
             Write-Host "Creating as pre-release..." -ForegroundColor Yellow
         }
-        
+
         gh release create @releaseArgs
-        
+
         if ($LASTEXITCODE -eq 0) {
             $releaseType = if ($isPreRelease) { "pre-release" } else { "release" }
-            Write-Host "\nGitHub $releaseType created successfully!" -ForegroundColor Green
+            Write-Host "`nGitHub $releaseType created successfully!" -ForegroundColor Green
             Write-Host "View at: https://github.com/kneave/climate-scheduler/releases/tag/v$fullVersion" -ForegroundColor Cyan
-        } else {
+        }
+        else {
             Write-Host "`nFailed to create GitHub release. You can create it manually at:" -ForegroundColor Yellow
             Write-Host "https://github.com/kneave/climate-scheduler/releases/new?tag=v$fullVersion" -ForegroundColor Cyan
         }
-    } finally {
+    }
+    finally {
         Remove-Item $tempChangelogFile -ErrorAction SilentlyContinue
     }
 }
 
 if ($DryRun) {
-    Write-Host "\n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
-    Write-Host "Run without -DryRun to perform the actual release.\n" -ForegroundColor Yellow
-} elseif ($SkipGitHub -or -not $hasGhCli) {
-    Write-Host "\nNext steps:" -ForegroundColor Cyan
+    Write-Host "`n*** DRY RUN COMPLETE - No changes were made ***" -ForegroundColor Magenta
+    Write-Host "Run without -DryRun to perform the actual release." -ForegroundColor Yellow
+}
+elseif ($SkipGitHub -or -not $hasGhCli) {
+    Write-Host "`nNext steps:" -ForegroundColor Cyan
     Write-Host "  1. Go to https://github.com/kneave/climate-scheduler/releases/new"
     Write-Host "  2. Select tag: v$fullVersion"
     Write-Host "  3. Set title (e.g., 'v$fullVersion' or 'v$fullVersion - Description')"
     Write-Host "  4. Copy the changelog content above into the release notes"
     Write-Host "  5. Click 'Publish release'"
     Write-Host "`nHACS will automatically detect the new release within 24 hours.`n"
-} else {
+}
+else {
     Write-Host "`nHACS will automatically detect the new release within 24 hours.`n" -ForegroundColor Cyan
 }
