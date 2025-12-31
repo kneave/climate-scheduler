@@ -487,6 +487,49 @@ function createGroupContainer(groupName, groupData) {
     actions.className = 'group-actions';
     actions.style.cssText = 'display: flex; gap: 4px; align-items: center;';
     
+    // Enable/disable toggle - reuse the styled toggle switch from settings
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'toggle-switch';
+    toggleLabel.title = 'Enable schedule';
+
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.checked = groupData.enabled !== false;
+
+    const sliderSpan = document.createElement('span');
+    sliderSpan.className = 'slider';
+
+    // Handle toggle changes
+    toggleInput.addEventListener('click', async (e) => {
+        e.stopPropagation();
+    });
+    toggleInput.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const newState = toggleInput.checked;
+        toggleInput.disabled = true;
+        try {
+            if (newState) {
+                await haAPI.enableGroup(groupName);
+                showToast(`Enabled scheduling for ${groupName}`, 'success');
+            } else {
+                await haAPI.disableGroup(groupName);
+                showToast(`Disabled scheduling for ${groupName}`, 'info');
+            }
+            await loadGroups();
+        } catch (error) {
+            console.error('Failed to toggle group enabled state:', error);
+            showToast('Failed to update enabled state: ' + (error.message || error), 'error');
+            // Revert
+            toggleInput.checked = !newState;
+        } finally {
+            toggleInput.disabled = false;
+        }
+    });
+
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(sliderSpan);
+    actions.appendChild(toggleLabel);
+    
     const renameBtn = document.createElement('button');
     renameBtn.textContent = '✎';
     renameBtn.className = 'btn-icon';
