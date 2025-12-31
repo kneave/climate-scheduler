@@ -131,26 +131,26 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         
         "enable_schedule": {
             "name": "Enable climate schedule",
-            "description": "Enable automatic scheduling for a climate entity",
+            "description": "Enable automatic scheduling for a climate entity or group",
             "fields": {
                 "schedule_id": {
-                    "description": "Climate entity to enable",
+                    "description": "Climate entity ID (e.g. climate.living_room) or group name to enable",
                     "required": True,
                     "example": "climate.living_room",
-                    "selector": {"entity": {"domain": "climate"}},
+                    "selector": {"text": {}},
                 }
             },
         },
         
         "disable_schedule": {
             "name": "Disable climate schedule",
-            "description": "Disable automatic scheduling for a climate entity",
+            "description": "Disable automatic scheduling for a climate entity or group",
             "fields": {
                 "schedule_id": {
-                    "description": "Climate entity to disable",
+                    "description": "Climate entity ID (e.g. climate.living_room) or group name to disable",
                     "required": True,
                     "example": "climate.living_room",
-                    "selector": {"entity": {"domain": "climate"}},
+                    "selector": {"text": {}},
                 }
             },
         },
@@ -859,23 +859,62 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await storage.async_clear_schedule(entity_id)
         await coordinator.async_request_refresh()
     
-    async def handle_enable_schedule(call: ServiceCall) -> None:
-        """Handle enable_schedule service call."""
-        entity_id = call.data["schedule_id"]
-        await storage.async_enable_schedule(entity_id)
-        
-        # Force immediate update
-        if entity_id in coordinator.last_node_states:
-            del coordinator.last_node_states[entity_id]
-        
+    async def _enable_target(target_id: str) -> None:
+        """Enable scheduling for either a single entity or a group name.
+
+        If `target_id` is a group name, enable scheduling for all entities
+        in that group by invoking storage.async_set_enabled for each entity.
+        Otherwise treat `target_id` as an entity id and enable its group.
+        """
+        # Check if target is a group name
+        group = await storage.async_get_group(target_id)
+        if group is not None:
+            # It's a group name - enable all member entities via storage
+            entities = group.get("entities", [])
+            for entity_id in entities:
+                await storage.async_set_enabled(entity_id, True)
+                if entity_id in coordinator.last_node_states:
+                    del coordinator.last_node_states[entity_id]
+            # Force a single refresh after enabling group members
+            await coordinator.async_request_refresh()
+            _LOGGER.info(f"Enabled schedule for group '{target_id}' (via member enable)")
+            return
+
+        # Not a group - treat as entity id
+        await storage.async_set_enabled(target_id, True)
+        if target_id in coordinator.last_node_states:
+            del coordinator.last_node_states[target_id]
         await coordinator.async_request_refresh()
-        _LOGGER.info(f"Enabled schedule for {entity_id}")
-    
+        _LOGGER.info(f"Enabled schedule for {target_id}")
+
+    async def _disable_target(target_id: str) -> None:
+        """Disable scheduling for either a single entity or a group name.
+
+        If `target_id` is a group name, disable scheduling for all entities
+        in that group by invoking storage.async_set_enabled for each entity.
+        Otherwise treat `target_id` as an entity id and disable its group.
+        """
+        group = await storage.async_get_group(target_id)
+        if group is not None:
+            entities = group.get("entities", [])
+            for entity_id in entities:
+                await storage.async_set_enabled(entity_id, False)
+            _LOGGER.info(f"Disabled schedule for group '{target_id}' (via member disable)")
+            return
+
+        # Not a group - treat as entity id
+        await storage.async_set_enabled(target_id, False)
+        _LOGGER.info(f"Disabled schedule for {target_id}")
+
+    async def handle_enable_schedule(call: ServiceCall) -> None:
+        """Handle enable_schedule service call (supports entity or group)."""
+        target = call.data["schedule_id"]
+        await _enable_target(target)
+
     async def handle_disable_schedule(call: ServiceCall) -> None:
-        """Handle disable_schedule service call."""
-        entity_id = call.data["schedule_id"]
-        await storage.async_disable_schedule(entity_id)
-        _LOGGER.info(f"Disabled schedule for {entity_id}")
+        """Handle disable_schedule service call (supports entity or group)."""
+        target = call.data["schedule_id"]
+        await _disable_target(target)
     
     async def handle_sync_all(call: ServiceCall) -> None:
         """Handle sync_all service call."""
@@ -989,17 +1028,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle enable_group service call."""
         group_name = call.data["group_name"]
         try:
-            await storage.async_enable_group(group_name)
-            _LOGGER.info(f"Enabled group '{group_name}'")
-            
-            # Force immediate update for all entities in the group
-            group_data = await storage.async_get_groups()
-            if group_name in group_data and "entities" in group_data[group_name]:
-                for entity_id in group_data[group_name]["entities"]:
-                    if entity_id in coordinator.last_node_states:
-                        del coordinator.last_node_states[entity_id]
-                
-                await coordinator.async_request_refresh()
+            # Delegate to single-entity enable logic so group behaviour
+            # is consistent and backwards-compatible.
+            await _enable_target(group_name)
         except ValueError as err:
             _LOGGER.error(f"Error enabling group: {err}")
             raise
@@ -1008,8 +1039,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle disable_group service call."""
         group_name = call.data["group_name"]
         try:
-            await storage.async_disable_group(group_name)
-            _LOGGER.info(f"Disabled group '{group_name}'")
+            # Delegate to single-entity disable logic so group behaviour
+            # reuses the same implementation.
+            await _disable_target(group_name)
         except ValueError as err:
             _LOGGER.error(f"Error disabling group: {err}")
             raise
