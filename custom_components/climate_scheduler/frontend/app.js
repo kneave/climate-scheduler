@@ -1336,18 +1336,18 @@ function createGroupMembersTable(entityIds) {
                 // Update current temp
                 const currentCell = row.children[1];
                 const currentTemp = entity.attributes?.current_temperature;
-                currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
-                
+                currentCell.textContent = (Number.isFinite(currentTemp)) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+
                 // Update target temp
                 const targetCell = row.children[2];
                 const targetTemp = entity.attributes?.temperature;
-                targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
-                
+                targetCell.textContent = (Number.isFinite(targetTemp)) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+
                 // Update scheduled temp
                 const scheduledCell = row.children[3];
                 if (groupSchedule.length > 0) {
                     const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-                    scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
+                    scheduledCell.textContent = (Number.isFinite(scheduledTemp)) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
                 } else {
                     scheduledCell.textContent = '--';
                 }
@@ -1390,16 +1390,16 @@ function createGroupMembersTable(entityIds) {
         
         const currentCell = document.createElement('span');
         const currentTemp = entity.attributes?.current_temperature;
-        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
-        
+        currentCell.textContent = (Number.isFinite(currentTemp)) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+
         const targetCell = document.createElement('span');
         const targetTemp = entity.attributes?.temperature;
-        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
-        
+        targetCell.textContent = (Number.isFinite(targetTemp)) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+
         const scheduledCell = document.createElement('span');
         if (groupSchedule.length > 0) {
             const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
+            scheduledCell.textContent = (Number.isFinite(scheduledTemp)) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -3471,7 +3471,7 @@ function updateScheduledTemp() {
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
-        scheduledTempEl.textContent = (temp !== null && temp !== undefined) ? `${temp.toFixed(1)}${temperatureUnit}` : 'No Change';
+        scheduledTempEl.textContent = (Number.isFinite(temp)) ? `${temp.toFixed(1)}${temperatureUnit}` : 'No Change';
     } else {
         scheduledTempEl.textContent = '--';
     }
@@ -3522,10 +3522,8 @@ function updateEntityStatus(entity) {
     const currentTemp = entity.attributes.current_temperature;
     const targetTemp = entity.attributes.temperature;
     
-    currentTempEl.textContent = 
-        (currentTemp !== undefined && currentTemp !== null) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
-    targetTempEl.textContent = 
-        (targetTemp !== undefined && targetTemp !== null) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+    currentTempEl.textContent = (Number.isFinite(currentTemp)) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+    targetTempEl.textContent = (Number.isFinite(targetTemp)) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
     
     // Update HVAC mode if available
     const hvacModeEl = getDocumentRoot().querySelector('#current-hvac-mode');
@@ -3616,14 +3614,16 @@ function updateEntityCard(entityId, entityState) {
     
     // Update current temperature
     const currentTempEl = card.querySelector('.current-temp');
-    if (currentTempEl && entityState.attributes.current_temperature !== undefined) {
-        currentTempEl.textContent = `${entityState.attributes.current_temperature.toFixed(1)}${temperatureUnit}`;
+    if (currentTempEl) {
+        const ct = entityState.attributes.current_temperature;
+        currentTempEl.textContent = Number.isFinite(ct) ? `${ct.toFixed(1)}${temperatureUnit}` : '--';
     }
-    
+
     // Update target temperature
     const targetTempEl = card.querySelector('.target-temp');
-    if (targetTempEl && entityState.attributes.temperature !== undefined) {
-        targetTempEl.textContent = `${entityState.attributes.temperature.toFixed(1)}${temperatureUnit}`;
+    if (targetTempEl) {
+        const tt = entityState.attributes.temperature;
+        targetTempEl.textContent = Number.isFinite(tt) ? `${tt.toFixed(1)}${temperatureUnit}` : '--';
     }
 }
 
@@ -3638,12 +3638,12 @@ function updateGroupMemberRow(entityId, entityState) {
     
     if (currentCell) {
         const currentTemp = entityState.attributes?.current_temperature;
-        currentCell.textContent = currentTemp !== undefined ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
+        currentCell.textContent = (Number.isFinite(currentTemp)) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
     }
-    
+
     if (targetCell) {
         const targetTemp = entityState.attributes?.temperature;
-        targetCell.textContent = targetTemp !== undefined ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
+        targetCell.textContent = (Number.isFinite(targetTemp)) ? `${targetTemp.toFixed(1)}${temperatureUnit}` : '--';
     }
     
     // Update scheduled temp if we're viewing a group
@@ -3654,7 +3654,7 @@ function updateGroupMemberRow(entityId, entityState) {
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
-            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
+            scheduledCell.textContent = (Number.isFinite(scheduledTemp)) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -3677,7 +3677,7 @@ function updateAllGroupMemberScheduledTemps() {
         if (scheduledCell) {
             if (nodes.length > 0) {
                 const scheduledTemp = interpolateTemperature(nodes, currentTime);
-                scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
+                scheduledCell.textContent = (Number.isFinite(scheduledTemp)) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
             } else {
                 scheduledCell.textContent = '--';
             }
