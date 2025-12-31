@@ -487,6 +487,49 @@ function createGroupContainer(groupName, groupData) {
     actions.className = 'group-actions';
     actions.style.cssText = 'display: flex; gap: 4px; align-items: center;';
     
+    // Enable/disable toggle - reuse the styled toggle switch from settings
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'toggle-switch';
+    toggleLabel.title = 'Enable schedule';
+
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.checked = groupData.enabled !== false;
+
+    const sliderSpan = document.createElement('span');
+    sliderSpan.className = 'slider';
+
+    // Handle toggle changes
+    toggleInput.addEventListener('click', async (e) => {
+        e.stopPropagation();
+    });
+    toggleInput.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const newState = toggleInput.checked;
+        toggleInput.disabled = true;
+        try {
+            if (newState) {
+                await haAPI.enableGroup(groupName);
+                showToast(`Enabled scheduling for ${groupName}`, 'success');
+            } else {
+                await haAPI.disableGroup(groupName);
+                showToast(`Disabled scheduling for ${groupName}`, 'info');
+            }
+            await loadGroups();
+        } catch (error) {
+            console.error('Failed to toggle group enabled state:', error);
+            showToast('Failed to update enabled state: ' + (error.message || error), 'error');
+            // Revert
+            toggleInput.checked = !newState;
+        } finally {
+            toggleInput.disabled = false;
+        }
+    });
+
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(sliderSpan);
+    actions.appendChild(toggleLabel);
+    
     const renameBtn = document.createElement('button');
     renameBtn.textContent = '✎';
     renameBtn.className = 'btn-icon';
@@ -642,6 +685,34 @@ async function editGroupSchedule(groupName, day = null) {
         // Attach graph event listeners (permanent listeners)
         svgElement.addEventListener('nodeSettings', handleNodeSettings);
         
+        // Handle node updates during dragging
+        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
+            const { nodeIndex, node } = event.detail;
+            const panel = editor.querySelector('#node-settings-panel');
+            
+            // Only update if this node's panel is currently showing
+            if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
+                const tempInput = panel.querySelector('#node-temp-input');
+                const tempNoChange = panel.querySelector('#temp-no-change');
+                const tempUpBtn = panel.querySelector('#temp-up');
+                const tempDownBtn = panel.querySelector('#temp-down');
+                const timeInput = panel.querySelector('#node-time-input');
+                
+                // Update time
+                if (timeInput) timeInput.value = node.time;
+                
+                // Update temperature and checkbox state
+                const isNoChange = node.noChange === true;
+                if (tempNoChange) tempNoChange.checked = isNoChange;
+                if (tempInput) {
+                    tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
+                    tempInput.disabled = isNoChange;
+                }
+                if (tempUpBtn) tempUpBtn.disabled = isNoChange;
+                if (tempDownBtn) tempDownBtn.disabled = isNoChange;
+            }
+        });
+        
         // Create and insert settings panel after the graph container but before instructions
         const graphContainer = svgElement.closest('.graph-container') || svgElement.parentElement;
         const instructionsContainer = editor.querySelector('.instructions-container');
@@ -650,6 +721,12 @@ async function editGroupSchedule(groupName, day = null) {
             const settingsPanel = createSettingsPanel(groupData, editor);
             if (settingsPanel) {
                 instructionsContainer.before(settingsPanel);
+            }
+            
+            // Check if any entities in the group are preset-only and show notice if needed
+            const presetOnlyNotice = createPresetOnlyNotice(groupData.entities, groupName);
+            if (presetOnlyNotice) {
+                instructionsContainer.before(presetOnlyNotice);
             }
             
             // Insert group members table after instructions
@@ -680,6 +757,14 @@ async function editGroupSchedule(groupName, day = null) {
     } else {
         //
     }
+    
+    // Migrate old nodes that have temp=null to use noChange property
+    nodes = nodes.map(node => {
+        if ((node.temp === null || node.temp === undefined) && !node.hasOwnProperty('noChange')) {
+            return { ...node, noChange: true, temp: 20 }; // Default position at 20°C
+        }
+        return node;
+    });
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
     
@@ -755,6 +840,7 @@ function createSettingsPanel(groupData, editor) {
             <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
             <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
             <button id="advance-schedule-btn" class="btn-secondary-outline schedule-btn" title="Advance to next scheduled node">Advance</button>
+            <button id="test-fire-event-btn" class="btn-secondary-outline schedule-btn" title="Test fire event with current active node">🧪 Test Event</button>
             <button id="clear-advance-history-btn" class="btn-secondary-outline schedule-btn" title="Clear advance history markers">Clear Advance History</button>`;
     
     // Only show unmonitor button for single-entity groups
@@ -951,7 +1037,7 @@ async function setupProfileHandlers(container, groupData) {
     }
     
     // Load and populate profiles
-    await loadProfiles(container, currentGroup, true);
+    await loadProfiles(container, currentGroup);
     
     // Profile dropdown change handler (no automatic loading)
     const profileDropdown = container.querySelector('#profile-dropdown');
@@ -1012,7 +1098,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.createProfile(currentGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to create profile:', error);
@@ -1035,7 +1121,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to rename profile:', error);
@@ -1057,7 +1143,7 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.deleteProfile(currentGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
-                await loadProfiles(container, currentGroup, true);
+                await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to delete profile:', error);
@@ -1068,7 +1154,7 @@ async function setupProfileHandlers(container, groupData) {
 }
 
 // Load and populate profiles dropdown
-async function loadProfiles(container, targetId, isGroup) {
+async function loadProfiles(container, targetId) {
     try {
         const result = await haAPI.getProfiles(targetId);
         const profiles = result.profiles || {};
@@ -1105,9 +1191,109 @@ async function loadProfiles(container, targetId, isGroup) {
     }
 }
 
+// Create preset-only notice for groups with entities that don't support temperature
+function createPresetOnlyNotice(entityIds, groupName) {
+    if (!entityIds || entityIds.length === 0) {
+        return null; // Virtual groups don't need this notice
+    }
+    
+    // Check if any entities are preset-only (null current_temperature)
+    const presetOnlyEntities = entityIds.filter(entityId => {
+        const entity = climateEntities.find(e => e.entity_id === entityId);
+        return entity && entity.attributes && entity.attributes.current_temperature === null;
+    });
+    
+    if (presetOnlyEntities.length === 0) {
+        return null; // No preset-only entities
+    }
+    
+    // Check if this notice has been dismissed for this group (session storage)
+    const dismissKey = `preset-notice-dismissed-${groupName}`;
+    if (sessionStorage.getItem(dismissKey) === 'true') {
+        return null;
+    }
+    
+    // Create notice banner
+    const notice = document.createElement('div');
+    notice.className = 'preset-only-notice';
+    notice.style.cssText = `
+        background: var(--warning-color, #ff9800);
+        color: white;
+        padding: 12px 16px;
+        margin: 8px 0;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        line-height: 1.4;
+    `;
+    
+    const message = document.createElement('div');
+    message.style.flex = '1';
+    
+    const count = presetOnlyEntities.length;
+    const entityWord = count === 1 ? 'entity' : 'entities';
+    const hasWord = count === 1 ? 'has' : 'have';
+    
+    message.innerHTML = `
+        <strong>⚠️ Preset-Only ${count === 1 ? 'Entity' : 'Entities'} Detected</strong><br>
+        ${count} ${entityWord} in this group ${hasWord} no temperature sensor and will only receive mode changes (HVAC, fan, swing, preset).
+    `;
+    
+    const dismissBtn = document.createElement('button');
+    dismissBtn.textContent = '✕';
+    dismissBtn.style.cssText = `
+        background: transparent;
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0 8px;
+        margin-left: 16px;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    `;
+    dismissBtn.title = 'Dismiss this notice';
+    
+    dismissBtn.addEventListener('mouseenter', () => {
+        dismissBtn.style.opacity = '1';
+    });
+    dismissBtn.addEventListener('mouseleave', () => {
+        dismissBtn.style.opacity = '0.8';
+    });
+    
+    dismissBtn.addEventListener('click', () => {
+        sessionStorage.setItem(dismissKey, 'true');
+        notice.style.transition = 'opacity 0.3s, max-height 0.3s';
+        notice.style.opacity = '0';
+        notice.style.maxHeight = '0';
+        notice.style.padding = '0 16px';
+        notice.style.margin = '0';
+        setTimeout(() => {
+            notice.remove();
+        }, 300);
+    });
+    
+    notice.appendChild(message);
+    notice.appendChild(dismissBtn);
+    
+    return notice;
+}
+
 // Create group members table element
 function createGroupMembersTable(entityIds) {
-    if (!entityIds || entityIds.length === 0) return null;
+    if (!entityIds || entityIds.length === 0) {
+        // Return a message for virtual groups (no entities)
+        const container = document.createElement('div');
+        container.className = 'group-members-container';
+        container.innerHTML = `
+            <div style="padding: 16px; text-align: center; color: var(--secondary-text-color); font-style: italic;">
+                Virtual Schedule (No Entities) - Events Only
+            </div>
+        `;
+        return container;
+    }
     
     // Create container wrapper
     const container = document.createElement('div');
@@ -1161,7 +1347,7 @@ function createGroupMembersTable(entityIds) {
                 const scheduledCell = row.children[3];
                 if (groupSchedule.length > 0) {
                     const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-                    scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+                    scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
                 } else {
                     scheduledCell.textContent = '--';
                 }
@@ -1213,7 +1399,7 @@ function createGroupMembersTable(entityIds) {
         const scheduledCell = document.createElement('span');
         if (groupSchedule.length > 0) {
             const scheduledTemp = interpolateTemperature(groupSchedule, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -1635,6 +1821,12 @@ function createScheduleEditor() {
                                 <button class="spinner-btn" id="temp-up" title="+0.5°">▲</button>
                             </div>
                         </div>
+                        <div class="setting-item" style="padding-left: 20px;">
+                            <label style="display: flex; align-items: center; cursor: pointer;">
+                                <input type="checkbox" id="temp-no-change" style="margin-right: 8px; cursor: pointer;" />
+                                <span>No Change</span>
+                            </label>
+                        </div>
                         <div class="setting-item">
                             <label>HVAC Mode:</label>
                             <select id="node-hvac-mode" disabled title="Coming soon">
@@ -1658,6 +1850,23 @@ function createScheduleEditor() {
                             <select id="node-preset-mode" disabled title="Coming soon">
                                 <option value="none">None</option>
                             </select>
+                        </div>
+                        <div class="setting-item" style="grid-column: 1 / -1;">
+                            <label style="display: block; margin-bottom: 8px;">Custom Values:</label>
+                            <div style="display: flex; gap: 12px;">
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">A:</label>
+                                    <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">B:</label>
+                                    <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">C:</label>
+                                    <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-actions">
@@ -1863,6 +2072,25 @@ function attachEditorEventListeners(editorElement) {
         };
     }
     
+    // Test fire event button
+    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
+    if (testFireBtn) {
+        testFireBtn.onclick = async () => {
+            if (!currentGroup) return;
+            
+            testFireBtn.disabled = true;
+            try {
+                await haAPI.testFireEvent(currentGroup);
+                showToast(`Test event fired for group '${currentGroup}'`, 'success');
+            } catch (error) {
+                console.error('Failed to test fire event:', error);
+                showToast('Failed to fire test event: ' + error.message, 'error');
+            } finally {
+                testFireBtn.disabled = false;
+            }
+        };
+    }
+    
     // Clear advance history button
     const clearHistoryBtn = editorElement.querySelector('#clear-advance-history-btn');
     if (clearHistoryBtn) {
@@ -1990,10 +2218,16 @@ function attachEditorEventListeners(editorElement) {
         }
         
         // Update temperature
-        if (tempInput && tempInput.value) {
-            const temp = parseFloat(tempInput.value);
-            if (!isNaN(temp)) {
-                node.temp = temp;
+        const tempNoChange = editorElement.querySelector('#temp-no-change');
+        if (tempNoChange && tempNoChange.checked) {
+            node.noChange = true;
+        } else {
+            node.noChange = false;
+            if (tempInput && tempInput.value) {
+                const temp = parseFloat(tempInput.value);
+                if (!isNaN(temp)) {
+                    node.temp = temp;
+                }
             }
         }
         
@@ -2068,6 +2302,10 @@ function attachEditorEventListeners(editorElement) {
             const node = graph.nodes[nodeIndex];
             if (!node) return;
             
+            // Check if no-change is enabled
+            const tempNoChange = editorElement.querySelector('#temp-no-change');
+            if (tempNoChange && tempNoChange.checked) return;
+            
             // Increment based on temperature unit (0.5°C or 1°F)
             const increment = temperatureUnit === '°F' ? 1 : 0.5;
             node.temp = Math.round((node.temp + increment) * 10) / 10;
@@ -2086,6 +2324,10 @@ function attachEditorEventListeners(editorElement) {
             
             const node = graph.nodes[nodeIndex];
             if (!node) return;
+            
+            // Check if no-change is enabled
+            const tempNoChange = editorElement.querySelector('#temp-no-change');
+            if (tempNoChange && tempNoChange.checked) return;
             
             // Decrement based on temperature unit (0.5°C or 1°F)
             const increment = temperatureUnit === '°F' ? 1 : 0.5;
@@ -2108,6 +2350,40 @@ function attachEditorEventListeners(editorElement) {
                 panel.style.display = 'none';
                 saveSchedule();
             }
+        };
+    }
+    
+    // Handle no-change checkbox
+    const tempNoChange = editorElement.querySelector('#temp-no-change');
+    if (tempNoChange) {
+        tempNoChange.onchange = () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            if (tempNoChange.checked) {
+                // Set to no change
+                node.noChange = true;
+                tempInput.disabled = true;
+                tempUpBtn.disabled = true;
+                tempDownBtn.disabled = true;
+            } else {
+                // Restore to normal temperature node
+                node.noChange = false;
+                if (node.temp === null || node.temp === undefined) {
+                    node.temp = 20; // Default temp
+                }
+                tempInput.value = node.temp;
+                tempInput.disabled = false;
+                tempUpBtn.disabled = false;
+                tempDownBtn.disabled = false;
+            }
+            
+            graph.render();
+            saveSchedule();
         };
     }
     
@@ -2165,15 +2441,40 @@ function attachEditorEventListeners(editorElement) {
             }
         }
         
+        // Update value fields
+        const valueAInput = editorElement.querySelector('#node-value-A');
+        const valueBInput = editorElement.querySelector('#node-value-B');
+        const valueCInput = editorElement.querySelector('#node-value-C');
+        
+        if (valueAInput) {
+            const val = valueAInput.value.trim();
+            node['A'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (valueBInput) {
+            const val = valueBInput.value.trim();
+            node['B'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (valueCInput) {
+            const val = valueCInput.value.trim();
+            node['C'] = val !== '' ? parseFloat(val) : null;
+        }
+        
         // This will trigger save and force immediate update
         graph.notifyChange(true);
     };
     
-    // Attach change listeners to all dropdowns
+    // Attach change listeners to all dropdowns and value inputs
     if (hvacModeSelect) hvacModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (fanModeSelect) fanModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (swingModeSelect) swingModeSelect.addEventListener('change', autoSaveNodeSettings);
     if (presetModeSelect) presetModeSelect.addEventListener('change', autoSaveNodeSettings);
+    
+    const valueAInput = editorElement.querySelector('#node-value-A');
+    const valueBInput = editorElement.querySelector('#node-value-B');
+    const valueCInput = editorElement.querySelector('#node-value-C');
+    if (valueAInput) valueAInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueBInput) valueBInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueCInput) valueCInput.addEventListener('change', autoSaveNodeSettings);
     
     // Schedule mode radio buttons
     const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
@@ -3170,7 +3471,7 @@ function updateScheduledTemp() {
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
-        scheduledTempEl.textContent = `${temp.toFixed(1)}${temperatureUnit}`;
+        scheduledTempEl.textContent = (temp !== null && temp !== undefined) ? `${temp.toFixed(1)}${temperatureUnit}` : 'No Change';
     } else {
         scheduledTempEl.textContent = '--';
     }
@@ -3353,7 +3654,7 @@ function updateGroupMemberRow(entityId, entityState) {
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
-            scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+            scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
         } else {
             scheduledCell.textContent = '--';
         }
@@ -3376,7 +3677,7 @@ function updateAllGroupMemberScheduledTemps() {
         if (scheduledCell) {
             if (nodes.length > 0) {
                 const scheduledTemp = interpolateTemperature(nodes, currentTime);
-                scheduledCell.textContent = `${scheduledTemp.toFixed(1)}${temperatureUnit}`;
+                scheduledCell.textContent = (scheduledTemp !== null && scheduledTemp !== undefined) ? `${scheduledTemp.toFixed(1)}${temperatureUnit}` : 'No Change';
             } else {
                 scheduledCell.textContent = '--';
             }
@@ -3918,42 +4219,49 @@ function handleNodeSettings(event) {
     if (currentGroup) {
         // For groups, aggregate capabilities from all entities in the group
         const groupData = allGroups[currentGroup];
-        if (!groupData || !groupData.entities) return;
+        if (!groupData) return;
         
-        const groupEntities = groupData.entities
+        const groupEntities = (groupData.entities || [])
             .map(id => climateEntities.find(e => e.entity_id === id))
             .filter(e => e);
         
-        if (groupEntities.length === 0) return;
-        
-        // Use first entity for basic attributes
-        entity = groupEntities[0];
-        
-        // Aggregate all unique modes from all entities
-        const hvacModesSet = new Set();
-        const fanModesSet = new Set();
-        const swingModesSet = new Set();
-        const presetModesSet = new Set();
-        
-        groupEntities.forEach(e => {
-            if (e.attributes.hvac_modes) {
-                e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
-            }
-            if (e.attributes.fan_modes) {
-                e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
-            }
-            if (e.attributes.swing_modes) {
-                e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
-            }
-            if (e.attributes.preset_modes) {
-                e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
-            }
-        });
-        
-        allHvacModes = Array.from(hvacModesSet);
-        allFanModes = Array.from(fanModesSet);
-        allSwingModes = Array.from(swingModesSet);
-        allPresetModes = Array.from(presetModesSet);
+        // For virtual groups (no entities), use empty mode arrays
+        if (groupEntities.length === 0) {
+            // Virtual schedule - no modes available
+            allHvacModes = [];
+            allFanModes = [];
+            allSwingModes = [];
+            allPresetModes = [];
+        } else {
+            // Use first entity for basic attributes
+            entity = groupEntities[0];
+            
+            // Aggregate all unique modes from all entities
+            const hvacModesSet = new Set();
+            const fanModesSet = new Set();
+            const swingModesSet = new Set();
+            const presetModesSet = new Set();
+            
+            groupEntities.forEach(e => {
+                if (e.attributes.hvac_modes) {
+                    e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
+                }
+                if (e.attributes.fan_modes) {
+                    e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
+                }
+                if (e.attributes.swing_modes) {
+                    e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
+                }
+                if (e.attributes.preset_modes) {
+                    e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
+                }
+            });
+            
+            allHvacModes = Array.from(hvacModesSet);
+            allFanModes = Array.from(fanModesSet);
+            allSwingModes = Array.from(swingModesSet);
+            allPresetModes = Array.from(presetModesSet);
+        }
     } else {
         // For individual entities
         entity = climateEntities.find(e => e.entity_id === currentEntityId);
@@ -3968,9 +4276,21 @@ function handleNodeSettings(event) {
     // Update panel content
     const timeInput = getDocumentRoot().querySelector('#node-time-input');
     const tempInput = getDocumentRoot().querySelector('#node-temp-input');
+    const tempNoChange = getDocumentRoot().querySelector('#temp-no-change');
+    const tempUpBtn = getDocumentRoot().querySelector('#temp-up');
+    const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
     
     if (timeInput) timeInput.value = node.time;
-    if (tempInput) tempInput.value = node.temp;
+    
+    // Handle temperature and no-change checkbox
+    const isNoChange = node.noChange === true;
+    if (tempNoChange) tempNoChange.checked = isNoChange;
+    if (tempInput) {
+        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
+        tempInput.disabled = isNoChange;
+    }
+    if (tempUpBtn) tempUpBtn.disabled = isNoChange;
+    if (tempDownBtn) tempDownBtn.disabled = isNoChange;
     
     // Populate HVAC mode dropdown
     const hvacModeSelect = getDocumentRoot().querySelector('#node-hvac-mode');
@@ -4079,6 +4399,15 @@ function handleNodeSettings(event) {
     } else {
         presetModeItem.style.display = 'none';
     }
+    
+    // Update value inputs
+    const valueAInput = getDocumentRoot().querySelector('#node-value-A');
+    const valueBInput = getDocumentRoot().querySelector('#node-value-B');
+    const valueCInput = getDocumentRoot().querySelector('#node-value-C');
+    
+    if (valueAInput) valueAInput.value = (node['A'] !== null && node['A'] !== undefined) ? node['A'] : '';
+    if (valueBInput) valueBInput.value = (node['B'] !== null && node['B'] !== undefined) ? node['B'] : '';
+    if (valueCInput) valueCInput.value = (node['C'] !== null && node['C'] !== undefined) ? node['C'] : '';
     
     // Show panel
     const panel = getDocumentRoot().querySelector('#node-settings-panel');

@@ -2,143 +2,24 @@
 import logging
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.util import json as json_util
 from aiohttp import web
-import voluptuous as vol
-from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, UPDATE_INTERVAL_SECONDS
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
+# Expose dynamic service descriptions for Home Assistant UI
+from .services import async_get_services  # noqa: E402,F401
 
 _LOGGER = logging.getLogger(__name__)
-
-
-# Service schemas
-SET_SCHEDULE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("nodes"): vol.All(cv.ensure_list, [
-        vol.Schema({
-            vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float),
-            vol.Optional("hvac_mode"): cv.string,
-            vol.Optional("fan_mode"): cv.string,
-            vol.Optional("swing_mode"): cv.string,
-            vol.Optional("preset_mode"): cv.string
-        })
-    ]),
-    vol.Optional("day"): cv.string,
-    vol.Optional("schedule_mode"): cv.string
-})
-
-SCHEDULE_ID_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string
-})
-
-CREATE_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string
-})
-
-DELETE_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string
-})
-
-RENAME_GROUP_SCHEMA = vol.Schema({
-    vol.Required("old_name"): cv.string,
-    vol.Required("new_name"): cv.string
-})
-
-ADD_TO_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string,
-    vol.Required("entity_id"): cv.entity_id
-})
-
-REMOVE_FROM_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string,
-    vol.Required("entity_id"): cv.entity_id
-})
-
-SET_GROUP_SCHEDULE_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string,
-    vol.Required("nodes"): vol.All(cv.ensure_list, [
-        vol.Schema({
-            vol.Required("time"): cv.string,
-            vol.Required("temp"): vol.Coerce(float),
-            vol.Optional("hvac_mode"): cv.string,
-            vol.Optional("fan_mode"): cv.string,
-            vol.Optional("swing_mode"): cv.string,
-            vol.Optional("preset_mode"): cv.string
-        })
-    ]),
-    vol.Optional("day"): cv.string,
-    vol.Optional("schedule_mode"): cv.string
-})
-
-ENABLE_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string
-})
-
-DISABLE_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string
-})
-
-SET_IGNORED_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("ignored"): cv.boolean
-})
-
-ADVANCE_SCHEDULE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string
-})
-
-ADVANCE_GROUP_SCHEMA = vol.Schema({
-    vol.Required("group_name"): cv.string
-})
-
-CANCEL_ADVANCE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string
-})
-
-CREATE_PROFILE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("profile_name"): cv.string
-})
-
-DELETE_PROFILE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("profile_name"): cv.string
-})
-
-RENAME_PROFILE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("old_name"): cv.string,
-    vol.Required("new_name"): cv.string
-})
-
-SET_ACTIVE_PROFILE_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string,
-    vol.Required("profile_name"): cv.string
-})
-
-GET_PROFILES_SCHEMA = vol.Schema({
-    vol.Required("schedule_id"): cv.string
-})
-
-CLEANUP_DERIVATIVE_SENSORS_SCHEMA = vol.Schema({
-    vol.Optional("confirm_delete_all", default=False): cv.boolean
-})
-
-FACTORY_RESET_SCHEMA = vol.Schema({
-    vol.Required("confirm"): cv.boolean
-})
 
 
 async def _async_setup_common(hass: HomeAssistant) -> None:
@@ -185,397 +66,9 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get("services_registered"):
         return
 
-    # Register services
-    async def handle_set_schedule(call: ServiceCall) -> None:
-        """Handle set_schedule service call."""
-        schedule_id = call.data["schedule_id"]
-        nodes = call.data["nodes"]
-        day = call.data.get("day")  # Optional: mon, tue, wed, thu, fri, sat, sun, weekday, weekend, all_days
-        schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
-        await storage.async_set_schedule(schedule_id, nodes, day, schedule_mode)
-        _LOGGER.info(f"Schedule set for {schedule_id} (day: {day}, mode: {schedule_mode})")
-        
-        # Don't clear last_node_states or trigger refresh - let the coordinator 
-        # apply changes only at the next scheduled node transition.
-        # This prevents unnecessary commands to climate entities when editing schedules.
-    
-    async def handle_get_schedule(call: ServiceCall) -> dict:
-        """Handle get_schedule service call."""
-        schedule_id = call.data["schedule_id"]
-        day = call.data.get("day")  # Optional: which day to get
-        schedule = await storage.async_get_schedule(schedule_id, day)
-        # Return as service response data including enabled state
-        if schedule:
-            # Get nodes for compatibility: if 'nodes' key exists use it, otherwise get from schedules
-            nodes = schedule.get("nodes", [])
-            if not nodes and "schedules" in schedule:
-                # New day-based format - get nodes from all_days as default
-                schedules_dict = schedule.get("schedules", {})
-                nodes = schedules_dict.get("all_days", [])
-            
-            _LOGGER.debug(f"get_schedule for {schedule_id} (day: {day}): returning {len(nodes)} nodes, enabled={schedule.get('enabled', True)}, ignored={schedule.get('ignored', False)}")
-            return {
-                "nodes": nodes,
-                "enabled": schedule.get("enabled", True),
-                "ignored": schedule.get("ignored", False),
-                "schedule_mode": schedule.get("schedule_mode", "all_days"),
-                "schedules": schedule.get("schedules", {})
-            }
-        
-        _LOGGER.debug(f"get_schedule for {schedule_id} (day: {day}): entity not in storage, returning empty")
-        return {"nodes": [], "enabled": False, "ignored": False, "schedule_mode": "all_days", "schedules": {}}
-    
-    async def handle_clear_schedule(call: ServiceCall) -> None:
-        """Handle clear_schedule service call."""
-        schedule_id = call.data["schedule_id"]
-        await storage.async_remove_entity(schedule_id)
-        _LOGGER.info(f"Schedule cleared for {schedule_id}")
-    
-    async def handle_enable_schedule(call: ServiceCall) -> None:
-        """Handle enable_schedule service call."""
-        schedule_id = call.data["schedule_id"]
-        await storage.async_set_enabled(schedule_id, True)
-        _LOGGER.info(f"Schedule enabled for {schedule_id}")
-        
-        # Clear last node state to force immediate update
-        if schedule_id in coordinator.last_node_states:
-            del coordinator.last_node_states[schedule_id]
-        
-        # Immediately apply the current schedule
-        await coordinator.async_refresh()
-    
-    async def handle_disable_schedule(call: ServiceCall) -> None:
-        """Handle disable_schedule service call."""
-        schedule_id = call.data["schedule_id"]
-        await storage.async_set_enabled(schedule_id, False)
-        _LOGGER.info(f"Schedule disabled for {schedule_id}")
-    
-    async def handle_sync_all(call: ServiceCall) -> None:
-        """Handle sync_all service call - force update all thermostats to scheduled temps."""
-        _LOGGER.info("Forcing temperature sync for all entities")
-        await coordinator.force_update_all()
-    
-    async def handle_create_group(call: ServiceCall) -> None:
-        """Handle create_group service call."""
-        group_name = call.data["group_name"]
-        try:
-            await storage.async_create_group(group_name)
-            _LOGGER.info(f"Group '{group_name}' created")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to create group: {e}")
-            raise
-    
-    async def handle_delete_group(call: ServiceCall) -> None:
-        """Handle delete_group service call."""
-        group_name = call.data["group_name"]
-        await storage.async_delete_group(group_name)
-        _LOGGER.info(f"Group '{group_name}' deleted")
-    
-    async def handle_rename_group(call: ServiceCall) -> None:
-        """Handle rename_group service call."""
-        old_name = call.data["old_name"]
-        new_name = call.data["new_name"]
-        try:
-            await storage.async_rename_group(old_name, new_name)
-            _LOGGER.info(f"Renamed group from '{old_name}' to '{new_name}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to rename group: {e}")
-            raise
-    
-    async def handle_add_to_group(call: ServiceCall) -> None:
-        """Handle add_to_group service call."""
-        group_name = call.data["group_name"]
-        entity_id = call.data["entity_id"]
-        try:
-            await storage.async_add_entity_to_group(group_name, entity_id)
-            _LOGGER.info(f"Added {entity_id} to group '{group_name}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to add to group: {e}")
-            raise
-    
-    async def handle_remove_from_group(call: ServiceCall) -> None:
-        """Handle remove_from_group service call."""
-        group_name = call.data["group_name"]
-        entity_id = call.data["entity_id"]
-        await storage.async_remove_entity_from_group(group_name, entity_id)
-        _LOGGER.info(f"Removed {entity_id} from group '{group_name}'")
-    
-    async def handle_get_groups(call: ServiceCall) -> dict:
-        """Handle get_groups service call."""
-        groups = await storage.async_get_groups()
-        return {"groups": groups}
-    
-    async def handle_set_group_schedule(call: ServiceCall) -> None:
-        """Handle set_group_schedule service call."""
-        group_name = call.data["group_name"]
-        nodes = call.data["nodes"]
-        day = call.data.get("day")  # Optional: mon, tue, wed, thu, fri, sat, sun, weekday, weekend, all_days
-        schedule_mode = call.data.get("schedule_mode")  # Optional: all_days, 5/2, individual
-        try:
-            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
-            
-            # Force immediate update for all entities in the group
-            group_data = await storage.async_get_groups()
-            if group_name in group_data and "entities" in group_data[group_name]:
-                for entity_id in group_data[group_name]["entities"]:
-                    if entity_id in coordinator.last_node_states:
-                        del coordinator.last_node_states[entity_id]
-                
-                # Trigger immediate coordinator update
-                await coordinator.async_request_refresh()
-        except ValueError as err:
-            _LOGGER.error(f"Error setting group schedule: {err}")
-            raise
-    
-    async def handle_enable_group(call: ServiceCall) -> None:
-        """Handle enable_group service call."""
-        group_name = call.data["group_name"]
-        try:
-            await storage.async_enable_group(group_name)
-            _LOGGER.info(f"Enabled group '{group_name}'")
-            
-            # Clear last node states for all entities in the group to force immediate update
-            group_data = await storage.async_get_groups()
-            if group_name in group_data and "entities" in group_data[group_name]:
-                for entity_id in group_data[group_name]["entities"]:
-                    if entity_id in coordinator.last_node_states:
-                        del coordinator.last_node_states[entity_id]
-            
-            # Immediately apply the current schedule to all entities in the group
-            await coordinator.async_refresh()
-        except ValueError as err:
-            _LOGGER.error(f"Error enabling group: {err}")
-            raise
-    
-    async def handle_disable_group(call: ServiceCall) -> None:
-        """Handle disable_group service call."""
-        group_name = call.data["group_name"]
-        try:
-            await storage.async_disable_group(group_name)
-            _LOGGER.info(f"Disabled group '{group_name}'")
-        except ValueError as err:
-            _LOGGER.error(f"Error disabling group: {err}")
-            raise
-    
-    async def handle_get_settings(call: ServiceCall) -> dict:
-        """Handle get_settings service call."""
-        settings = await storage.async_get_settings()
-        # Add version from manifest
-        try:
-            manifest_path = Path(__file__).parent / "manifest.json"
-            manifest = await hass.async_add_executor_job(
-                json_util.load_json, str(manifest_path)
-            )
-            version = manifest.get("version", "unknown")
-            
-            # Check if this is a dev deployment
-            dev_version_path = Path(__file__).parent / ".dev_version"
-            if await hass.async_add_executor_job(dev_version_path.exists):
-                version = f"{version} (dev)"
-            
-            settings["version"] = version
-        except Exception as e:
-            _LOGGER.warning(f"Failed to read version from manifest: {e}")
-            settings["version"] = "unknown"
-        return settings
-    
-    async def handle_save_settings(call: ServiceCall) -> None:
-        """Handle save_settings service call."""
-        settings_json = call.data.get("settings", "{}")
-        try:
-            settings = json.loads(settings_json)
-            await storage.async_save_settings(settings)
-            _LOGGER.info(f"Settings saved")
-        except (json.JSONDecodeError, ValueError) as e:
-            _LOGGER.error(f"Failed to save settings: {e}")
-            raise
-    
-    async def handle_set_ignored(call: ServiceCall) -> None:
-        """Handle set_ignored service call."""
-        schedule_id = call.data["schedule_id"]
-        ignored = call.data["ignored"]
-        await storage.async_set_ignored(schedule_id, ignored)
-        _LOGGER.info(f"Set {schedule_id} ignored={ignored}")
-    
-    async def handle_reload_integration(call: ServiceCall) -> None:
-        """Handle reload_integration service call - reloads this integration."""
-        _LOGGER.info("Reloading Climate Scheduler integration via service call")
-        # Find this integration's config entry
-        for entry in hass.config_entries.async_entries(DOMAIN):
-            await hass.config_entries.async_reload(entry.entry_id)
-            _LOGGER.info(f"Reloaded config entry: {entry.entry_id}")
-    
-    async def handle_advance_schedule(call: ServiceCall) -> None:
-        """Handle advance_schedule service call - advance to next scheduled node."""
-        schedule_id = call.data["schedule_id"]
-        _LOGGER.info(f"Advancing schedule for {schedule_id}")
-        result = await coordinator.advance_to_next_node(schedule_id)
-        if result["success"]:
-            _LOGGER.info(f"Successfully advanced {schedule_id} to next node")
-        else:
-            _LOGGER.error(f"Failed to advance {schedule_id}: {result.get('error')}")
-            raise ValueError(result.get("error", "Unknown error"))
-    
-    async def handle_advance_group(call: ServiceCall) -> None:
-        """Handle advance_group service call - advance all entities in group to next scheduled node."""
-        group_name = call.data["group_name"]
-        _LOGGER.info(f"Advancing group '{group_name}' to next scheduled node")
-        result = await coordinator.advance_group_to_next_node(group_name)
-        if result["success"]:
-            _LOGGER.info(f"Successfully advanced {result['success_count']}/{result['total_entities']} entities in group '{group_name}'")
-        else:
-            _LOGGER.error(f"Failed to advance group '{group_name}': {result.get('error')}")
-            raise ValueError(result.get("error", "Unknown error"))
-    
-    async def handle_cancel_advance(call: ServiceCall) -> None:
-        """Handle cancel_advance service call - cancel active advance override."""
-        schedule_id = call.data["schedule_id"]
-        _LOGGER.info(f"Cancelling advance for {schedule_id}")
-        result = await coordinator.cancel_advance(schedule_id)
-        if not result["success"]:
-            _LOGGER.error(f"Failed to cancel advance for {schedule_id}: {result.get('error')}")
-            raise ValueError(result.get("error", "Unknown error"))
-    
-    async def handle_get_advance_status(call: ServiceCall) -> dict:
-        """Handle get_advance_status service call - get advance override status and history."""
-        schedule_id = call.data["schedule_id"]
-        is_active = schedule_id in coordinator.override_until
-        override_until = coordinator.override_until.get(schedule_id)
-        history = coordinator.get_advance_history(schedule_id, hours=24)
-        
-        return {
-            "is_active": is_active,
-            "override_until": override_until.isoformat() if override_until else None,
-            "history": history
-        }
-    
-    async def handle_clear_advance_history(call: ServiceCall) -> None:
-        """Handle clear_advance_history service call - clear advance history for an entity."""
-        schedule_id = call.data["schedule_id"]
-        _LOGGER.info(f"Clearing advance history for {schedule_id}")
-        await coordinator.clear_advance_history(schedule_id)
-    
-    async def handle_create_profile(call: ServiceCall) -> None:
-        """Handle create_profile service call - create a new schedule profile."""
-        schedule_id = call.data["schedule_id"]
-        profile_name = call.data["profile_name"]
-        try:
-            await storage.async_create_profile(schedule_id, profile_name)
-            _LOGGER.info(f"Created profile '{profile_name}' for schedule '{schedule_id}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to create profile: {e}")
-            raise
-    
-    async def handle_delete_profile(call: ServiceCall) -> None:
-        """Handle delete_profile service call - delete a schedule profile."""
-        schedule_id = call.data["schedule_id"]
-        profile_name = call.data["profile_name"]
-        try:
-            await storage.async_delete_profile(schedule_id, profile_name)
-            _LOGGER.info(f"Deleted profile '{profile_name}' from schedule '{schedule_id}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to delete profile: {e}")
-            raise
-    
-    async def handle_rename_profile(call: ServiceCall) -> None:
-        """Handle rename_profile service call - rename a schedule profile."""
-        schedule_id = call.data["schedule_id"]
-        old_name = call.data["old_name"]
-        new_name = call.data["new_name"]
-        try:
-            await storage.async_rename_profile(schedule_id, old_name, new_name)
-            _LOGGER.info(f"Renamed profile from '{old_name}' to '{new_name}' for schedule '{schedule_id}'")
-        except ValueError as e:
-            _LOGGER.error(f"Failed to rename profile: {e}")
-            raise
-    
-    async def handle_set_active_profile(call: ServiceCall) -> None:
-        """Handle set_active_profile service call - set the active schedule profile."""
-        schedule_id = call.data["schedule_id"]
-        profile_name = call.data["profile_name"]
-        try:
-            await storage.async_set_active_profile(schedule_id, profile_name)
-            _LOGGER.info(f"Set active profile to '{profile_name}' for schedule '{schedule_id}'")
-            
-            # Clear last node state for all entities in the schedule to force immediate update
-            group_data = await storage.async_get_groups()
-            if schedule_id in group_data and "entities" in group_data[schedule_id]:
-                for entity_id in group_data[schedule_id]["entities"]:
-                    if entity_id in coordinator.last_node_states:
-                        del coordinator.last_node_states[entity_id]
-            
-            # Trigger immediate coordinator update
-            await coordinator.async_request_refresh()
-        except ValueError as e:
-            _LOGGER.error(f"Failed to set active profile: {e}")
-            raise
-    
-    async def handle_get_profiles(call: ServiceCall) -> dict:
-        """Handle get_profiles service call - get all profiles for a schedule."""
-        schedule_id = call.data["schedule_id"]
-        profiles = await storage.async_get_profiles(schedule_id)
-        active_profile = await storage.async_get_active_profile_name(schedule_id)
-        return {
-            "profiles": profiles,
-            "active_profile": active_profile
-        }
-    
-    async def handle_cleanup_derivative_sensors(call: ServiceCall) -> dict:
-        """Handle cleanup_derivative_sensors service call."""
-        confirm_delete_all = call.data.get("confirm_delete_all", False)
-        result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
-        return result
-    
-    async def handle_factory_reset(call: ServiceCall) -> None:
-        """Handle factory_reset service call - reset all data to freshly installed state."""
-        confirm = call.data.get("confirm", False)
-        if not confirm:
-            _LOGGER.error("Factory reset requires confirmation (set confirm=true)")
-            raise ValueError("Factory reset requires confirmation. Set confirm=true to proceed.")
-        
-        _LOGGER.warning("Factory reset initiated - clearing all schedules, groups, and settings")
-        await storage.async_factory_reset()
-        
-        # Clear coordinator state
-        coordinator.last_node_states.clear()
-        coordinator.override_until.clear()
-        
-        # Trigger refresh to ensure clean state
-        await coordinator.async_request_refresh()
-        
-        _LOGGER.info("Factory reset completed successfully")
-    
-    hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, schema=SET_SCHEDULE_SCHEMA)
-    hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, schema=SCHEDULE_ID_SCHEMA, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, schema=SCHEDULE_ID_SCHEMA)
-    hass.services.async_register(DOMAIN, "enable_schedule", handle_enable_schedule, schema=SCHEDULE_ID_SCHEMA)
-    hass.services.async_register(DOMAIN, "disable_schedule", handle_disable_schedule, schema=SCHEDULE_ID_SCHEMA)
-    hass.services.async_register(DOMAIN, "set_ignored", handle_set_ignored, schema=SET_IGNORED_SCHEMA)
-    hass.services.async_register(DOMAIN, "sync_all", handle_sync_all)
-    hass.services.async_register(DOMAIN, "create_group", handle_create_group, schema=CREATE_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "delete_group", handle_delete_group, schema=DELETE_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "rename_group", handle_rename_group, schema=RENAME_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "add_to_group", handle_add_to_group, schema=ADD_TO_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "remove_from_group", handle_remove_from_group, schema=REMOVE_FROM_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, schema=SET_GROUP_SCHEDULE_SCHEMA)
-    hass.services.async_register(DOMAIN, "enable_group", handle_enable_group, schema=ENABLE_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, schema=DISABLE_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "save_settings", handle_save_settings, schema=vol.Schema({vol.Required("settings"): cv.string}))
-    hass.services.async_register(DOMAIN, "reload_integration", handle_reload_integration)
-    hass.services.async_register(DOMAIN, "advance_schedule", handle_advance_schedule, schema=ADVANCE_SCHEDULE_SCHEMA)
-    hass.services.async_register(DOMAIN, "advance_group", handle_advance_group, schema=ADVANCE_GROUP_SCHEMA)
-    hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, schema=CANCEL_ADVANCE_SCHEMA)
-    hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, schema=SCHEDULE_ID_SCHEMA, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, schema=SCHEDULE_ID_SCHEMA)
-    hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, schema=CREATE_PROFILE_SCHEMA)
-    hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile, schema=DELETE_PROFILE_SCHEMA)
-    hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, schema=RENAME_PROFILE_SCHEMA)
-    hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, schema=SET_ACTIVE_PROFILE_SCHEMA)
-    hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, schema=GET_PROFILES_SCHEMA, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, schema=CLEANUP_DERIVATIVE_SENSORS_SCHEMA, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, schema=FACTORY_RESET_SCHEMA)
+    # Register services from services module  
+    from . import services as service_module
+    await service_module.async_setup_services(hass)
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -597,11 +90,10 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         _LOGGER.warning("Failed to read manifest version: %s", e)
         frontend_version = f"u{int(time.time())}"
     
-    # Check if we've already registered this version
-    registered_version = hass.data[DOMAIN].get("frontend_registered_version")
-    if registered_version == frontend_version:
-        _LOGGER.debug("Frontend already registered with version %s", frontend_version)
-        return
+    # Always attempt to (re)register frontend resources on startup/update.
+    # We intentionally do not short-circuit when the stored version matches
+    # the current one, because we want to remove any existing resource
+    # entries and recreate them during install/update/reboot.
 
     # Register static path for frontend files
     frontend_path = Path(__file__).parent / "frontend"
@@ -612,10 +104,11 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
     # Register the static path using the correct HA API
     should_cache = False
 
+    # Expose at /<domain>/static so integrations can reliably reference it
     await hass.http.async_register_static_paths([
-        StaticPathConfig(f"/local/{DOMAIN}", str(frontend_path), should_cache)
+        StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
     ])
-    _LOGGER.info("Registered frontend static path: %s -> %s", f"/local/{DOMAIN}", frontend_path)
+    _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
 
     # Register Lovelace resource
     try:
@@ -652,14 +145,16 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             await resources.async_load()
 
         # Build URL with version for cache busting
-        base_url = f"/local/{DOMAIN}/climate-scheduler-card.js"
+        # Use the integration-hosted static path we just registered
+        base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
         url = f"{base_url}?v={frontend_version}"
         
         # Check for old standalone card installations and remove them
         old_card_patterns = [
-            "/hacsfiles/climate-scheduler-card/",
-            "/local/community/climate-scheduler-card/",
-            "climate-scheduler-card.js"
+            "/hacsfiles/climate-scheduler/",
+            "/local/community/climate-scheduler/",
+            "climate-scheduler-card.js",
+            f"/{DOMAIN}/static/"
         ]
         
         existing_entry = None
@@ -679,23 +174,22 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                 await resources.async_delete_item(entry["id"])
                 removed_old = True
 
+        # If there's an existing bundled registration, remove it first so
+        # we always create a fresh entry (ensures consistent behavior on
+        # install/update/reboot and avoids stale IDs or metadata).
         if existing_entry:
-            # Always update to ensure latest version
-            existing_url = existing_entry["url"]
-            existing_version = existing_url.split("?v=")[1] if "?v=" in existing_url else "unknown"
-            
-            if existing_entry["url"] != url:
-                _LOGGER.info("Updating bundled frontend card from version %s to %s", existing_version, frontend_version)
-                await resources.async_update_item(existing_entry["id"], {"url": url})
-            else:
-                _LOGGER.debug("Bundled frontend card already registered with current version %s", frontend_version)
+            try:
+                _LOGGER.info("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
+                await resources.async_delete_item(existing_entry["id"])
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to remove existing bundled frontend resource, will attempt to (re)create it")
+
+        # Create a new resource entry for the bundled card
+        await resources.async_create_item({"res_type": "module", "url": url})
+        if removed_old:
+            _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
         else:
-            # Register the bundled card
-            await resources.async_create_item({"res_type": "module", "url": url})
-            if removed_old:
-                _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
-            else:
-                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+            _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
 
     except Exception as err:
         _LOGGER.error("Failed to auto-register frontend card: %s", err)

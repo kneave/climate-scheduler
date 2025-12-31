@@ -21,10 +21,13 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 - 🎯 **Fine-Grained Control** - Toggle schedules on/off without losing configuration and clear them when you want a fresh start
 - 🧩 **UI-Based Setup (Config Flow)** - Add via Settings → Devices & Services → Add Integration; YAML is optional and auto-imported if present
 - 📝 **Multiple Schedule Profiles** - Create multiple schedule profiles (e.g., Winter, Summer, Vacation) and switch between them using automations
+- 🔕 **"No Change" Temperature** - Set nodes to not change temperature while still modifying HVAC modes, fan settings, or other controls
+- 🚀 **Automation Events** - Fire events when nodes activate, enabling custom automations based on schedule changes
 
 ## Documentation
 
 - **[Actions Reference](ACTIONS.md)** - Complete list of all services/actions for use in automations and scripts
+- **[Automation Events](AUTOMATION_EVENTS.md)** - Fire events when nodes activate for custom automations
 - **[Development Guide](DEVELOPMENT.md)** - Information for developers and contributors
 
 ## Known Issues
@@ -76,10 +79,29 @@ views:
 5. **Drag the horizontal segment** between two nodes to slide that entire heating/cooling period while keeping the duration fixed
 6. Use the **Copy** button to copy the currently visible day's pattern, then **Paste** it onto another day or entity
 7. **Tap a node** to open its settings panel for HVAC/fan/swing/preset options
+   - Set temperature to **null/empty** for "no change" - this allows changing modes without modifying the temperature setpoint
 8. Changes auto-save and immediately trigger the coordinator so active periods update right away
 9. Use the **three-dot menu** to refresh entities, enable/disable schedules, or sync groups
 10. Toggle **Enabled** to activate/deactivate a schedule without losing configuration
 11. Use **Clear Schedule** to remove a schedule entirely (confirmation required)
+
+### "No Change" Temperature Feature
+
+Check the **"No Change"** checkbox below the temperature input to modify HVAC settings without changing the current temperature setpoint:
+
+**How to Use:**
+1. Tap a node to open its settings panel
+2. Check the **"No Change"** checkbox below the temperature field
+3. The temperature input will become disabled (visible but grayed out)
+4. Only HVAC mode, fan mode, swing mode, and preset mode changes will be applied when this node activates
+
+**Use Cases:**
+- **Turn off at night**: Create a 23:00 node, check "No Change", and set `hvac_mode: off` to turn off heating without changing the setpoint
+- **Mode switching**: Change from heat to cool mode during seasonal transitions without adjusting temperature
+- **Fan adjustments**: Increase fan speed at certain times while maintaining the current temperature
+- **Preset changes**: Switch to eco/away presets during work hours without temperature modifications
+
+When checked, the node will skip temperature changes entirely and only apply the selected mode settings.
 
 ## Screenshots
 

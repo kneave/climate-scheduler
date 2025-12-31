@@ -36,6 +36,23 @@ if (Test-Path $TARGET) {
     Copy-Item -Recurse $TARGET $backupPath
     Write-Host "Backup complete" -ForegroundColor Green
     Write-Host ""
+    # Keep only the latest backup for climate_scheduler -- remove older ones
+    try {
+        $allBackups = Get-ChildItem -Path "\\homeassistant.local\config\backups" -Directory | Where-Object { $_.Name -like "climate_scheduler_*" } | Sort-Object -Property Name -Descending
+        if ($allBackups.Count -gt 1) {
+            $toRemove = $allBackups | Select-Object -Skip 1
+            foreach ($dir in $toRemove) {
+                try {
+                    Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Host "Removed old backup: $($dir.FullName)" -ForegroundColor Gray
+                } catch {
+                    Write-Host "Warning: failed to remove old backup $($dir.FullName): $_" -ForegroundColor Yellow
+                }
+            }
+        }
+    } catch {
+        Write-Host "Warning: could not prune old backups: $_" -ForegroundColor Yellow
+    }
     
     # Remove old installation
     Write-Host "Removing old installation..." -ForegroundColor Yellow
