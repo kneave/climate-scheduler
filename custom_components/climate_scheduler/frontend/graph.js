@@ -521,6 +521,11 @@ class TemperatureGraph {
         if (this.nodes.length > 0) {
             this.drawTemperatureLine(g);
         }
+
+        // Draw advance-applied overlay (adds a visual node/segment when an advance is active)
+        if (this.advanceHistory && this.advanceHistory.length > 0 && this.nodes.length > 0) {
+            this.drawAdvanceAppliedOverlay(g);
+        }
         
         // Draw nodes
         this.drawNodes(g);
@@ -732,6 +737,83 @@ class TemperatureGraph {
                 }
             }
         });
+    }
+
+    drawAdvanceAppliedOverlay(g) {
+        const now = new Date();
+        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const currentMinutes = (now - todayMidnight) / (1000 * 60);
+
+        // Use the most recent active (not-cancelled, not-expired) advance event.
+        const activeEvents = (this.advanceHistory || [])
+            .filter((event) => {
+                if (!event || !event.activated_at || !event.target_time) return false;
+
+                const isCancelled = !!(
+                    event.cancelled_at &&
+                    event.cancelled_at !== 'null' &&
+                    event.cancelled_at !== 'None'
+                );
+                if (isCancelled) return false;
+
+                const targetMinutes = this.timeToMinutes(event.target_time);
+                return currentMinutes < targetMinutes;
+            })
+            .sort((a, b) => {
+                const ta = new Date(a.activated_at).getTime();
+                const tb = new Date(b.activated_at).getTime();
+                return ta - tb;
+            });
+
+        if (activeEvents.length === 0) return;
+
+        const event = activeEvents[activeEvents.length - 1];
+        const targetNode = event.target_node;
+        const targetTemp = targetNode && typeof targetNode.temp === 'number' ? targetNode.temp : null;
+        const isNoChange = !!(targetNode && targetNode.noChange);
+        if (targetTemp === null || isNoChange) return;
+
+        const activatedTime = new Date(event.activated_at);
+        const activatedMinutes = (activatedTime - todayMidnight) / (1000 * 60);
+        if (activatedMinutes < 0 || activatedMinutes >= 24 * 60) return;
+
+        const activatedTimeStr = `${String(activatedTime.getHours()).padStart(2, '0')}:${String(activatedTime.getMinutes()).padStart(2, '0')}`;
+        const activatedX = this.timeToX(activatedTimeStr);
+        const endX = this.timeToX(event.target_time);
+        const yTarget = this.tempToY(targetTemp);
+
+        // Determine the schedule's temperature at the activation time so we can draw the step from it.
+        const sortedNodes = [...this.nodes].sort((a, b) => this.timeToMinutes(a.time) - this.timeToMinutes(b.time));
+        const nodesWithTemp = sortedNodes.filter((n) => !n.noChange);
+        if (nodesWithTemp.length === 0) return;
+        const scheduleTempAtActivation = this.interpolateTemperature(nodesWithTemp, activatedTimeStr);
+        if (typeof scheduleTempAtActivation !== 'number') return;
+        const ySchedule = this.tempToY(scheduleTempAtActivation);
+
+        // Draw the applied override as a green step segment, plus a round node at activation.
+        const path = this.createSVGElement('path', {
+            d: `M ${activatedX} ${ySchedule} L ${activatedX} ${yTarget} L ${endX} ${yTarget}`,
+            stroke: '#00ff00',
+            'stroke-width': 3,
+            fill: 'none',
+            'stroke-linecap': 'square',
+            'stroke-linejoin': 'miter',
+            opacity: 0.9,
+            style: 'pointer-events: none;'
+        });
+        g.appendChild(path);
+
+        const node = this.createSVGElement('circle', {
+            cx: activatedX,
+            cy: yTarget,
+            r: 6,
+            fill: '#00ff00',
+            stroke: '#ffffff',
+            'stroke-width': 2,
+            opacity: 0.95,
+            style: 'pointer-events: none;'
+        });
+        g.appendChild(node);
     }
     
     drawGrid(g) {

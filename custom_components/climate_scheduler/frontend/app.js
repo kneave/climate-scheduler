@@ -839,7 +839,6 @@ function createSettingsPanel(groupData, editor) {
             <button id="undo-btn" class="btn-secondary-outline schedule-btn" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
             <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
             <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
-            <button id="advance-schedule-btn" class="btn-secondary-outline schedule-btn" title="Advance to next scheduled node">Advance</button>
             <button id="test-fire-event-btn" class="btn-secondary-outline schedule-btn" title="Test fire event with current active node">🧪 Test Event</button>
             <button id="clear-advance-history-btn" class="btn-secondary-outline schedule-btn" title="Clear advance history markers">Clear Advance History</button>`;
     
@@ -1746,6 +1745,7 @@ function createScheduleEditor() {
                     <button id="graph-copy-btn" class="btn-quick-action" title="Copy schedule">Copy</button>
                     <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule" disabled>Paste</button>
                     <button id="graph-undo-btn" class="btn-quick-action" title="Undo last change">Undo</button>
+                    <button id="advance-schedule-btn" class="btn-quick-action" title="Advance to next scheduled node">Advance</button>
                     <button id="save-schedule-btn" class="btn-quick-action btn-primary" title="Save schedule">Save</button>
                 </div>
                 <div class="graph-profile-selector" id="graph-profile-selector">
@@ -2039,6 +2039,11 @@ function attachEditorEventListeners(editorElement) {
                                 await haAPI.cancelAdvance(entityId);
                             }
                             showToast('Advance canceled for all entities in group', 'success');
+
+                            // Optimistically update button state immediately
+                            advanceBtn.textContent = 'Advance';
+                            advanceBtn.title = 'Advance all entities in group to next scheduled node';
+                            advanceBtn.dataset.isOverride = 'false';
                         }
                     }
                 } else {
@@ -2046,6 +2051,11 @@ function attachEditorEventListeners(editorElement) {
                     if (currentGroup) {
                         await haAPI.advanceGroup(currentGroup);
                         showToast(`Advanced all entities in group to next scheduled node`, 'success');
+
+                        // Optimistically update button state immediately
+                        advanceBtn.textContent = 'Cancel Advance';
+                        advanceBtn.title = 'Cancel advance override for all entities in group';
+                        advanceBtn.dataset.isOverride = 'true';
                     }
                 }
                 
@@ -2054,6 +2064,9 @@ function attachEditorEventListeners(editorElement) {
                 
                 // Small delay to ensure backend has updated
                 await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Re-check after backend settles (important if updateAdvanceButton ran too early)
+                await updateAdvanceButton();
                 
                 // Reload advance history to update graph
                 if (currentGroup) {

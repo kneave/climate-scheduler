@@ -220,13 +220,13 @@ All schedules in Climate Scheduler can control multiple climate entities.
 Create a new schedule.
 
 **Parameters:**
-- `group_name` (required): Name for the new schedule
+- `schedule_id` (required): Name for the new schedule
 
 **Example:**
 ```yaml
 service: climate_scheduler.create_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
 ```
 
 ### `climate_scheduler.delete_group`
@@ -234,13 +234,13 @@ data:
 Delete a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule to delete
+- `schedule_id` (required): Name of the schedule to delete
 
 **Example:**
 ```yaml
 service: climate_scheduler.delete_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
 ```
 
 ### `climate_scheduler.add_to_group`
@@ -248,14 +248,14 @@ data:
 Add a climate entity to a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule
+- `schedule_id` (required): Name of the schedule
 - `entity_id` (required): Climate entity to add
 
 **Example:**
 ```yaml
 service: climate_scheduler.add_to_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
   entity_id: climate.master_bedroom
 ```
 
@@ -264,14 +264,14 @@ data:
 Remove a climate entity from a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule
+- `schedule_id` (required): Name of the schedule
 - `entity_id` (required): Climate entity to remove
 
 **Example:**
 ```yaml
 service: climate_scheduler.remove_from_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
   entity_id: climate.master_bedroom
 ```
 
@@ -280,7 +280,7 @@ data:
 Set the schedule for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule
+- `schedule_id` (required): Name of the schedule
 - `nodes` (required): List of schedule nodes
 - `day` (optional): Day of week (default: `all_days`)
 - `schedule_mode` (optional): Schedule mode (default: `all_days`)
@@ -289,7 +289,7 @@ Set the schedule for all climate entities in a schedule.
 ```yaml
 service: climate_scheduler.set_group_schedule
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
   nodes:
     - time: "06:00"
       temp: 21
@@ -302,13 +302,13 @@ data:
 Enable scheduling for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule
+- `schedule_id` (required): Name of the schedule
 
 **Example:**
 ```yaml
 service: climate_scheduler.enable_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
 ```
 
 ### `climate_scheduler.disable_group`
@@ -316,13 +316,13 @@ data:
 Disable scheduling for all climate entities in a schedule.
 
 **Parameters:**
-- `group_name` (required): Name of the schedule
+- `schedule_id` (required): Name of the schedule
 
 **Example:**
 ```yaml
 service: climate_scheduler.disable_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
 ```
 
 ---
@@ -350,13 +350,13 @@ data:
 Manually advance all climate entities in a group to their next scheduled temperature and settings.
 
 **Parameters:**
-- `group_name` (required): Name of the group to advance
+- `schedule_id` (required): Name of the group to advance
 
 **Example:**
 ```yaml
 service: climate_scheduler.advance_group
 data:
-  group_name: Bedrooms
+  schedule_id: Bedrooms
 ```
 
 ### `climate_scheduler.cancel_advance`

@@ -295,7 +295,7 @@ class HomeAssistantAPI {
     
     async advanceGroup(groupName) {
         return await this.callService('climate_scheduler', 'advance_group', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
     
@@ -310,7 +310,10 @@ class HomeAssistantAPI {
             const result = await this.callService('climate_scheduler', 'get_advance_status', {
                 schedule_id: entityId
             }, true);
-            return result;
+            // Normalize across modes:
+            // - hass.callWS path returns `result.response`
+            // - websocket path may return `{response: ...}`
+            return result?.response ?? result;
         } catch (error) {
             console.error('Failed to get advance status:', error);
             return { is_active: false, history: [] };
@@ -325,15 +328,10 @@ class HomeAssistantAPI {
     
     async testFireEvent(groupName) {
         return await this.callService('climate_scheduler', 'test_fire_event', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
-    
-    async cancelAdvance(entityId) {
-        return await this.callService('climate_scheduler', 'cancel_advance', {
-            schedule_id: entityId
-        });
-    }
+
     
     async getOverrideStatus(entityId) {
         try {
@@ -363,13 +361,13 @@ class HomeAssistantAPI {
     // Group management methods
     async createGroup(groupName) {
         return await this.callService('climate_scheduler', 'create_group', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
     
     async deleteGroup(groupName) {
         return await this.callService('climate_scheduler', 'delete_group', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
     
@@ -382,14 +380,14 @@ class HomeAssistantAPI {
     
     async addToGroup(groupName, entityId) {
         return await this.callService('climate_scheduler', 'add_to_group', {
-            group_name: groupName,
+            schedule_id: groupName,
             entity_id: entityId
         });
     }
     
     async removeFromGroup(groupName, entityId) {
         return await this.callService('climate_scheduler', 'remove_from_group', {
-            group_name: groupName,
+            schedule_id: groupName,
             entity_id: entityId
         });
     }
@@ -414,7 +412,7 @@ class HomeAssistantAPI {
         }
 
         const serviceData = {
-            group_name: groupName,
+            schedule_id: groupName,
             nodes: nodes
         };
         
@@ -436,13 +434,13 @@ class HomeAssistantAPI {
     
     async enableGroup(groupName) {
         return await this.callService('climate_scheduler', 'enable_group', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
     
     async disableGroup(groupName) {
         return await this.callService('climate_scheduler', 'disable_group', {
-            group_name: groupName
+            schedule_id: groupName
         });
     }
     

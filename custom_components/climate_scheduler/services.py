@@ -25,7 +25,11 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
     all_groups = await storage.async_get_groups()
     
     # Get group names (excluding internal single-entity groups)
-    group_names = [name for name in all_groups.keys() if not name.startswith("__entity_")]
+    group_names = [
+        name
+        for name, group_data in all_groups.items()
+        if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
+    ]
     
     # Get all profiles with formatted labels
     profile_options = []
@@ -159,7 +163,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Create thermostat group",
             "description": "Create a new group to share schedules between multiple thermostats",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name for the new group",
                     "required": True,
                     "example": "Bedrooms",
@@ -172,7 +176,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Delete thermostat group",
             "description": "Delete a thermostat group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group to delete",
                     "required": True,
                     "example": "Bedrooms",
@@ -204,7 +208,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Add thermostat to group",
             "description": "Add a climate entity to a group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group",
                     "required": True,
                     "example": "Bedrooms",
@@ -223,7 +227,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Remove thermostat from group",
             "description": "Remove a climate entity from a group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group",
                     "required": True,
                     "example": "Bedrooms",
@@ -252,7 +256,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Set group schedule",
             "description": "Set schedule for all thermostats in a group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group",
                     "required": True,
                     "example": "Bedrooms",
@@ -289,7 +293,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Enable group schedule",
             "description": "Enable automatic scheduling for all thermostats in a group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group to enable",
                     "required": True,
                     "example": "Bedrooms",
@@ -302,7 +306,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Disable group schedule",
             "description": "Disable automatic scheduling for all thermostats in a group",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group to disable",
                     "required": True,
                     "example": "Bedrooms",
@@ -369,7 +373,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Advance group to next scheduled node",
             "description": "Manually advance all climate entities in a group to their next scheduled temperature and settings, even if the scheduled time hasn't arrived yet",
             "fields": {
-                "group_name": {
+                "schedule_id": {
                     "description": "Name of the group to advance",
                     "required": True,
                     "example": "Bedrooms",
@@ -554,7 +558,6 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
 
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up all services for the Climate Scheduler integration."""
-
     # Define voluptuous schemas for services (used for validation)
     service_schemas: dict[str, vol.Schema] = {
         "recreate_all_sensors": vol.Schema({vol.Required("confirm"): cv.boolean}),
@@ -572,27 +575,27 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "disable_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "set_ignored": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("ignored"): cv.boolean}),
         "sync_all": vol.Schema({}),
-        "create_group": vol.Schema({vol.Required("group_name"): cv.string}),
-        "delete_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "create_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "delete_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "rename_group": vol.Schema({vol.Required("old_name"): cv.string, vol.Required("new_name"): cv.string}),
-        "add_to_group": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("entity_id"): cv.string}),
-        "remove_from_group": vol.Schema({vol.Required("group_name"): cv.string, vol.Required("entity_id"): cv.string}),
+        "add_to_group": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("entity_id"): cv.string}),
+        "remove_from_group": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("entity_id"): cv.string}),
         "get_groups": vol.Schema({}),
         "list_groups": vol.Schema({}),
         "list_profiles": vol.Schema({}),
         "set_group_schedule": vol.Schema({
-            vol.Required("group_name"): cv.string,
+            vol.Required("schedule_id"): cv.string,
             vol.Required("nodes"): vol.Any(cv.string, list, dict),
             vol.Optional("day"): cv.string,
             vol.Optional("schedule_mode"): cv.string
         }),
-        "enable_group": vol.Schema({vol.Required("group_name"): cv.string}),
-        "disable_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "enable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "disable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "get_settings": vol.Schema({}),
         "save_settings": vol.Schema({vol.Required("settings"): cv.string}),
         "reload_integration": vol.Schema({}),
         "advance_schedule": vol.Schema({vol.Required("schedule_id"): cv.string}),
-        "advance_group": vol.Schema({vol.Required("group_name"): cv.string}),
+        "advance_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "cancel_advance": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "get_advance_status": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "clear_advance_history": vol.Schema({vol.Required("schedule_id"): cv.string}),
@@ -750,7 +753,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     # Get dynamic data for selectors
     all_groups = await storage.async_get_groups()
-    group_names = [name for name in all_groups.keys() if not name.startswith("__entity_")]
+    group_names = [
+        name
+        for name, group_data in all_groups.items()
+        if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
+    ]
 
     # Build profile options with labels
     profile_options = []
@@ -877,6 +884,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await storage.async_set_enabled(target_id, False)
         _LOGGER.info(f"Disabled schedule for {target_id}")
 
+    async def _advance_target(target_id: str) -> None:
+        """Advance either a single entity schedule_id or a group schedule_id.
+
+        If `target_id` matches a stored group, advances all entities in the group.
+        Otherwise treats `target_id` as a single climate entity id.
+        """
+        group = await storage.async_get_group(target_id)
+        if group is not None:
+            await coordinator.async_advance_group(target_id)
+            _LOGGER.info(f"Advanced schedule for group '{target_id}'")
+            return
+
+        await coordinator.async_advance_schedule(target_id)
+        _LOGGER.info(f"Advanced schedule for {target_id}")
+
     async def handle_enable_schedule(call: ServiceCall) -> None:
         """Handle enable_schedule service call (supports entity or group)."""
         target = call.data["schedule_id"]
@@ -895,7 +917,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_create_group(call: ServiceCall) -> None:
         """Handle create_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         try:
             await storage.async_create_group(group_name)
             _LOGGER.info(f"Created group '{group_name}'")
@@ -905,7 +927,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_delete_group(call: ServiceCall) -> None:
         """Handle delete_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         try:
             await storage.async_delete_group(group_name)
             _LOGGER.info(f"Deleted group '{group_name}'")
@@ -926,7 +948,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_add_to_group(call: ServiceCall) -> None:
         """Handle add_to_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         entity_id = call.data["entity_id"]
         try:
             await storage.async_add_entity_to_group(group_name, entity_id)
@@ -937,7 +959,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_remove_from_group(call: ServiceCall) -> None:
         """Handle remove_from_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         entity_id = call.data["entity_id"]
         await storage.async_remove_entity_from_group(group_name, entity_id)
         _LOGGER.info(f"Removed {entity_id} from group '{group_name}'")
@@ -950,7 +972,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_list_groups(call: ServiceCall) -> dict:
         """Handle list_groups service call - return simple list of group names."""
         groups = await storage.async_get_groups()
-        group_names = [name for name in groups.keys() if not name.startswith("__entity_")]
+        group_names = [
+            name
+            for name, group_data in groups.items()
+            if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
+        ]
         return {"groups": group_names}
     
     async def handle_list_profiles(call: ServiceCall) -> dict:
@@ -976,7 +1002,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_set_group_schedule(call: ServiceCall) -> None:
         """Handle set_group_schedule service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         nodes = call.data["nodes"]
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
@@ -997,7 +1023,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_enable_group(call: ServiceCall) -> None:
         """Handle enable_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         try:
             # Delegate to single-entity enable logic so group behaviour
             # is consistent and backwards-compatible.
@@ -1008,7 +1034,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_disable_group(call: ServiceCall) -> None:
         """Handle disable_group service call."""
-        group_name = call.data["group_name"]
+        group_name = call.data["schedule_id"]
         try:
             # Delegate to single-entity disable logic so group behaviour
             # reuses the same implementation.
@@ -1072,45 +1098,44 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_advance_schedule(call: ServiceCall) -> None:
         """Handle advance_schedule service call."""
-        entity_id = call.data["schedule_id"]
-        await coordinator.async_advance_schedule(entity_id)
-        _LOGGER.info(f"Advanced schedule for {entity_id}")
+        target_id = call.data["schedule_id"]
+        await _advance_target(target_id)
     
     async def handle_advance_group(call: ServiceCall) -> None:
         """Handle advance_group service call."""
-        group_name = call.data["group_name"]
-        await coordinator.async_advance_group(group_name)
-        _LOGGER.info(f"Advanced schedule for group '{group_name}'")
+        group_name = call.data["schedule_id"]
+        await _advance_target(group_name)
     
     async def handle_cancel_advance(call: ServiceCall) -> None:
         """Handle cancel_advance service call."""
-        entity_id = call.data["schedule_id"]
-        await coordinator.async_cancel_advance(entity_id)
-        
-        # Force immediate update
-        if entity_id in coordinator.last_node_states:
-            del coordinator.last_node_states[entity_id]
-        
-        await coordinator.async_request_refresh()
-        _LOGGER.info(f"Cancelled advance for {entity_id}")
+        target_id = call.data["schedule_id"]
+        await coordinator.async_cancel_advance(target_id)
+        _LOGGER.info(f"Cancelled advance for {target_id}")
     
     async def handle_get_advance_status(call: ServiceCall) -> dict:
         """Handle get_advance_status service call."""
         entity_id = call.data["schedule_id"]
         status = await coordinator.async_get_advance_status(entity_id)
-        
+
+        # Frontend expects {is_active, history}. Keep backwards-compatible keys too.
+        is_active = status.get("is_advanced", False)
+        history = coordinator.get_advance_history(entity_id)
+
         return {
             "entity_id": entity_id,
+            "is_active": is_active,
+            "history": history,
+            # legacy/extra fields
             "is_advanced": status.get("is_advanced", False),
             "advance_time": status.get("advance_time"),
             "original_node": status.get("original_node"),
-            "advanced_node": status.get("advanced_node")
+            "advanced_node": status.get("advanced_node"),
         }
     
     async def handle_clear_advance_history(call: ServiceCall) -> None:
         """Handle clear_advance_history service call."""
         entity_id = call.data["schedule_id"]
-        await storage.async_clear_advance_history(entity_id)
+        await coordinator.clear_advance_history(entity_id)
         _LOGGER.info(f"Cleared advance history for {entity_id}")
     
     async def handle_create_profile(call: ServiceCall) -> None:
