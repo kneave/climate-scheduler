@@ -628,14 +628,26 @@ else {
 # Commit the version change
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
 if (-not $DryRun) {
-    git add $manifestPath
-    if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
-        git add CHANGELOG.md
-    }
-    git commit -m "Release v$fullVersion"
+    # Check if there are any changes to commit
+    $hasChanges = git status --porcelain
+    
+    if ($hasChanges) {
+        git add $manifestPath
+        if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
+            git add CHANGELOG.md
+        }
+        git commit -m "Release v$fullVersion"
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to commit changes"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to commit changes"
+            exit 1
+        }
+    }
+    elseif ($script:isReRelease) {
+        Write-Host "No changes to commit (re-release mode - this is expected)" -ForegroundColor Green
+    }
+    else {
+        Write-Error "No changes to commit"
         exit 1
     }
 }
