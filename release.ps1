@@ -474,6 +474,8 @@ $categoryPrompts = @{
     "Removed" = "Removed features"
 }
 
+$needsChangelogUpdate = $false
+
 if (-not $usePreparedNotes) {
     foreach ($category in $categoryPrompts.Keys | Sort-Object) {
         Write-Host "`n$category - $($categoryPrompts[$category])" -ForegroundColor Cyan
@@ -504,6 +506,23 @@ if (-not $usePreparedNotes) {
         }
     }
 
+    # Check if any changelog entries were provided
+    $hasAnyEntries = $false
+    foreach ($category in $changelogEntries.Keys) {
+        if ($changelogEntries[$category] -and $changelogEntries[$category].Count -gt 0) {
+            $hasAnyEntries = $true
+            break
+        }
+    }
+
+    if (-not $hasAnyEntries) {
+        Write-Error "No changelog entries provided. Release requires either:"
+        Write-Host "  1. Pre-existing changelog entry for v$fullVersion in CHANGELOG.md, OR" -ForegroundColor Yellow
+        Write-Host "  2. Changelog entries entered during the release process" -ForegroundColor Yellow
+        Write-Host "`nPlease update CHANGELOG.md with the release notes or provide entries when prompted." -ForegroundColor Yellow
+        exit 1
+    }
+
     # Generate changelog content
     $date = Get-Date -Format "yyyy-MM-dd"
     $changelogContent = @"
@@ -519,33 +538,37 @@ if (-not $usePreparedNotes) {
             $changelogContent += "`n"
         }
     }
+    
+    $needsChangelogUpdate = $true
 }
 else {
     # Using prepared notes extracted from CHANGELOG.md; $changelogContent already set
+    Write-Host "`nUsing existing changelog entry - no need to update CHANGELOG.md" -ForegroundColor Green
 }
 
-# Update or create CHANGELOG.md
-$changelogPath = "CHANGELOG.md"
-if (Test-Path $changelogPath) {
-    $existingChangelog = Get-Content $changelogPath -Raw
-    # Insert new entry after the header
-    if ($existingChangelog -match '(# Changelog\s*)(.*)') {
-        $newChangelog = $matches[1] + $changelogContent + $matches[2]
-        if (-not $DryRun) {
-            Set-Content $changelogPath $newChangelog
+# Update or create CHANGELOG.md only if we generated new content
+if ($needsChangelogUpdate) {
+    $changelogPath = "CHANGELOG.md"
+    if (Test-Path $changelogPath) {
+        $existingChangelog = Get-Content $changelogPath -Raw
+        # Insert new entry after the header
+        if ($existingChangelog -match '(# Changelog\s*)(.*)') {
+            $newChangelog = $matches[1] + $changelogContent + $matches[2]
+            if (-not $DryRun) {
+                Set-Content $changelogPath $newChangelog
+            }
         }
+        else {
+            # No proper header, prepend to file
+            if (-not $DryRun) {
+                Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
+            }
+        }
+        Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
     }
     else {
-        # No proper header, prepend to file
-        if (-not $DryRun) {
-            Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
-        }
-    }
-    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
-}
-else {
-    # Create new CHANGELOG.md
-    $header = @"
+        # Create new CHANGELOG.md
+        $header = @"
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -554,10 +577,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 "@
-    if (-not $DryRun) {
-        Set-Content $changelogPath ($header + $changelogContent)
+        if (-not $DryRun) {
+            Set-Content $changelogPath ($header + $changelogContent)
+        }
+        Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Created' }) CHANGELOG.md" -ForegroundColor Green
     }
-    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Created' }) CHANGELOG.md" -ForegroundColor Green
 }
 
 # Update manifest.json only if version changed
@@ -578,7 +602,7 @@ else {
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
 if (-not $DryRun) {
     git add $manifestPath
-    if (Test-Path "CHANGELOG.md") {
+    if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
         git add CHANGELOG.md
     }
     git commit -m "Release v$fullVersion"
@@ -589,7 +613,13 @@ if (-not $DryRun) {
     }
 }
 else {
-    Write-Host "Files to commit: manifest.json, CHANGELOG.md" -ForegroundColor Cyan
+    Write-Host "Files to commit: manifest.json" -ForegroundColor Cyan
+    if ($needsChangelogUpdate) {
+        Write-Host "                 CHANGELOG.md (updated with new entries)" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "                 CHANGELOG.md (already contains v$fullVersion entry)" -ForegroundColor Cyan
+    }
     Write-Host "Commit message: 'Release v$fullVersion'" -ForegroundColor Cyan
 }
 
@@ -645,20 +675,82 @@ function Get-ChangelogForVersion {
     $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
     if (-not $content) { return $null }
 
-    # Robust extraction: find the starting heading and slice until the next '## [' or EOF
-    $search1 = "## [$VersionString]"
-    $search2 = "## [v$VersionString]"
+    # Parse version to get major.minor (e.g., "1.14.2" -> "1.14")
+    $versionParts = $VersionString -split '\.'
+    if ($versionParts.Count -lt 2) { 
+        # If we can't parse major.minor, fall back to exact version match
+        $search1 = "## [$VersionString]"
+        $search2 = "## [v$VersionString]"
+        $startIdx = $content.IndexOf($search2)
+        if ($startIdx -lt 0) { $startIdx = $content.IndexOf($search1) }
+        if ($startIdx -lt 0) { return $null }
+        $rest = $content.Substring($startIdx)
+        $nextMarker = "`n## ["
+        $nextIdx = $rest.IndexOf($nextMarker)
+        if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
+        return $section.Trim()
+    }
 
-    $startIdx = $content.IndexOf($search2)
-    if ($startIdx -lt 0) { $startIdx = $content.IndexOf($search1) }
+    $majorMinor = "$($versionParts[0]).$($versionParts[1])"
+    
+    # Find the first occurrence of this major.minor version
+    $pattern = "## \[$majorMinor\."
+    $patternV = "## \[v$majorMinor\."
+    
+    $startIdx = -1
+    $searchPos = 0
+    
+    # Find the first heading with this major.minor version
+    while ($searchPos -lt $content.Length) {
+        $idx1 = $content.IndexOf($pattern, $searchPos)
+        $idx2 = $content.IndexOf($patternV, $searchPos)
+        
+        if ($idx1 -ge 0 -and ($idx2 -lt 0 -or $idx1 -lt $idx2)) {
+            $startIdx = $idx1
+            break
+        }
+        elseif ($idx2 -ge 0) {
+            $startIdx = $idx2
+            break
+        }
+        else {
+            break
+        }
+    }
+    
     if ($startIdx -lt 0) { return $null }
-
+    
+    # Extract from start until we hit a different major.minor version or EOF
     $rest = $content.Substring($startIdx)
-    # look for next heading marker starting on a new line
-    $nextMarker = "`n## ["
-    $nextIdx = $rest.IndexOf($nextMarker)
-    if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
-    return $section.Trim()
+    $lines = $rest -split "`n"
+    $result = @()
+    $foundFirst = $false
+    
+    foreach ($line in $lines) {
+        if ($line -match '^## \[v?(\d+\.\d+)\.' -or $line -match '^## \[v?(\d+\.\d+)\]') {
+            $lineVersion = $matches[1]
+            if (-not $foundFirst) {
+                # This is the first version header
+                $foundFirst = $true
+                $result += $line
+            }
+            elseif ($lineVersion -eq $majorMinor) {
+                # Same major.minor, keep including
+                $result += $line
+            }
+            else {
+                # Different major.minor, stop here
+                break
+            }
+        }
+        else {
+            if ($foundFirst) {
+                $result += $line
+            }
+        }
+    }
+    
+    return ($result -join "`n").Trim()
 }
 
 if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
@@ -672,10 +764,18 @@ if (-not $DryRun -and -not $SkipGitHub -and $hasGhCli) {
     }
 
     # Prefer extracting a prepared section from CHANGELOG.md for this version
+    # This will extract all versions with the same major.minor (e.g., all 1.14.x versions)
     $preparedNotes = Get-ChangelogForVersion $fullVersion
 
     if ($preparedNotes) {
-        Write-Host "Using release notes extracted from CHANGELOG.md for v$fullVersion" -ForegroundColor Green
+        $versionParts = $fullVersion -split '\.'
+        if ($versionParts.Count -ge 2) {
+            $majorMinor = "$($versionParts[0]).$($versionParts[1])"
+            Write-Host "Using release notes extracted from CHANGELOG.md for all v$majorMinor.x versions" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Using release notes extracted from CHANGELOG.md for v$fullVersion" -ForegroundColor Green
+        }
         $releaseNotes = $preparedNotes
     }
     else {
