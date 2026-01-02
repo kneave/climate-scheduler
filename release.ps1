@@ -552,7 +552,8 @@ if ($needsChangelogUpdate) {
     if (Test-Path $changelogPath) {
         $existingChangelog = Get-Content $changelogPath -Raw
         # Insert new entry after the header
-        if ($existingChangelog -match '(# Changelog\s*)(.*)') {
+        # Use regex with SingleLine mode so . matches newlines
+        if ($existingChangelog -match '(?s)(# Changelog\s*\n)(.*)') {
             $newChangelog = $matches[1] + $changelogContent + $matches[2]
             if (-not $DryRun) {
                 Set-Content $changelogPath $newChangelog
