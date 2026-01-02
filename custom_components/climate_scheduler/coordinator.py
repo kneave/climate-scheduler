@@ -96,6 +96,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         )
         self.storage = storage
         self.last_node_states = {}  # Track last node state (temp + modes) for each entity
+        self.last_node_times = {}  # Track last node time for each entity to detect time transitions
         self.override_until = {}  # Track entities with advance override (entity_id -> time)
         self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
 
@@ -110,8 +111,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
         _LOGGER.info("Force updating all thermostats to scheduled temperatures")
-        # Clear last node temps to force updates
+        # Clear last node states and times to force updates
         self.last_node_states.clear()
+        self.last_node_times.clear()
         # Trigger immediate refresh
         await self.async_request_refresh()
     
@@ -587,10 +589,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         _LOGGER.debug(f"No active node for virtual group '{group_name}'")
                         continue
                     
-                    # Create signature for virtual group tracking
+                    # Create signature for virtual group tracking (includes time for comparison)
                     virtual_key = f"_virtual_{group_name}"
+                    node_time = active_node.get("time")
                     node_signature = {
-                        "time": active_node.get("time"),
+                        "time": node_time,
                         "temp": active_node.get("temp"),
                         "hvac_mode": active_node.get("hvac_mode"),
                         "fan_mode": active_node.get("fan_mode"),
@@ -601,10 +604,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         "C": active_node.get("C"),
                     }
                     
-                    # Check if we've transitioned to a new node
+                    # Check if we've transitioned to a new node (including time check)
                     last_node = self.last_node_states.get(virtual_key)
+                    last_node_time = self.last_node_times.get(virtual_key)
+                    
+                    # For virtual groups, we include time in the signature itself
+                    # so we can rely on signature comparison alone
                     if last_node == node_signature:
-                        _LOGGER.debug(f"Virtual group '{group_name}' still on same node, skipping")
+                        _LOGGER.debug(f"Virtual group '{group_name}' still on same node (time: {node_time}), skipping")
                         results[virtual_key] = {
                             "updated": False,
                             "reason": "same_node"
@@ -613,6 +620,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     
                     # Node has changed, fire event
                     self.last_node_states[virtual_key] = node_signature
+                    self.last_node_times[virtual_key] = node_time
                     
                     self.hass.bus.async_fire(
                         f"{DOMAIN}_node_activated",
@@ -724,11 +732,18 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "preset_mode": active_node.get("preset_mode"),
                 }
                 
-                # Check if we've transitioned to a new node
+                # Get the node time to detect time-based transitions
+                node_time = active_node.get("time")
+                last_node_time = self.last_node_times.get(entity_id)
+                
+                # Check if we've transitioned to a new node (either state changed OR time changed)
                 last_node = self.last_node_states.get(entity_id)
-                if last_node == node_signature:
-                    # Still on same node, don't override manual changes
-                    _LOGGER.debug(f"{entity_id} still on same node, skipping")
+                node_time_changed = last_node_time != node_time
+                node_state_changed = last_node != node_signature
+                
+                if last_node == node_signature and not node_time_changed:
+                    # Still on same node with same time, don't override manual changes
+                    _LOGGER.debug(f"{entity_id} still on same node (time: {node_time}), skipping")
                     results[entity_id] = {
                         "updated": False,
                         "target_temp": target_temp,
@@ -736,9 +751,16 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     }
                     continue
                 
-                # Node has changed, update the temperature and settings
-                _LOGGER.info(f"{entity_id} node changed: {last_node} -> {node_signature}")
+                # Node has changed (state or time), update the temperature and settings
+                if node_time_changed and not node_state_changed:
+                    _LOGGER.info(f"{entity_id} node time changed ({last_node_time} -> {node_time}), reapplying same settings")
+                elif node_state_changed:
+                    _LOGGER.info(f"{entity_id} node state changed: {last_node} -> {node_signature}")
+                else:
+                    _LOGGER.info(f"{entity_id} node changed")
+                    
                 self.last_node_states[entity_id] = node_signature
+                self.last_node_times[entity_id] = node_time
                 
                 # Re-get current state (we checked it exists earlier)
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
