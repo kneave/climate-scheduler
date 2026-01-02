@@ -62,9 +62,61 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             timedelta(seconds=UPDATE_INTERVAL_SECONDS)
         )
 
-    # Avoid re-registering services
+    # Avoid re-registering services, but be robust across updates/reloads.
+    # During an in-process reload/upgrade, `hass.data` can persist while new
+    # services from a newer version are missing. If so, re-register.
     if hass.data[DOMAIN].get("services_registered"):
-        return
+        # Keep this list in sync with the services registered in `services.py`.
+        expected_services = (
+            "recreate_all_sensors",
+            "cleanup_malformed_sensors",
+            "set_schedule",
+            "get_schedule",
+            "clear_schedule",
+            "enable_schedule",
+            "disable_schedule",
+            "set_ignored",
+            "sync_all",
+            "create_group",
+            "delete_group",
+            "rename_group",
+            "add_to_group",
+            "remove_from_group",
+            "get_groups",
+            "list_groups",
+            "list_profiles",
+            "set_group_schedule",
+            "enable_group",
+            "disable_group",
+            "get_settings",
+            "save_settings",
+            "reload_integration",
+            "advance_schedule",
+            "advance_group",
+            "cancel_advance",
+            "get_advance_status",
+            "clear_advance_history",
+            "create_profile",
+            "delete_profile",
+            "rename_profile",
+            "set_active_profile",
+            "get_profiles",
+            "cleanup_derivative_sensors",
+            "factory_reset",
+            "reregister_card",
+        )
+        missing = [s for s in expected_services if not hass.services.has_service(DOMAIN, s)]
+        if not missing:
+            # Services are already registered; still ensure frontend resources
+            # are registered/updated (important after install/upgrade or when
+            # Lovelace wasn't ready earlier during startup).
+            await _register_frontend_resources(hass)
+            return
+        _LOGGER.warning(
+            "Climate Scheduler services flagged as registered but missing %s; re-registering services",
+            missing,
+        )
+        hass.data[DOMAIN]["services_registered"] = False
 
     # Register services from services module  
     from . import services as service_module
@@ -101,14 +153,19 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         _LOGGER.warning("Frontend directory not found at %s", frontend_path)
         return
 
-    # Register the static path using the correct HA API
+    # Register the static path using the correct HA API.
+    # This only needs to happen once per HA runtime; avoid repeated registration
+    # and noisy logs when config entries reload.
     should_cache = False
-
-    # Expose at /<domain>/static so integrations can reliably reference it
-    await hass.http.async_register_static_paths([
-        StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
-    ])
-    _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
+    if not hass.data[DOMAIN].get("frontend_static_registered"):
+        # Expose at /<domain>/static so integrations can reliably reference it
+        await hass.http.async_register_static_paths([
+            StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
+        ])
+        hass.data[DOMAIN]["frontend_static_registered"] = True
+        _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
+    else:
+        _LOGGER.debug("Frontend static path already registered")
 
     # Register Lovelace resource
     try:
