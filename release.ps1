@@ -169,8 +169,10 @@ if (-not $Version) {
     
     # Check if manifest version is valid for release
     $canUseManifest = $true
+    $canReRelease = $false
     if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTag) {
         $canUseManifest = $false
+        $canReRelease = $true  # Allow re-release option
     }
     
     if ($suggestedPatch) {
@@ -188,6 +190,7 @@ if (-not $Version) {
         $buildOption = $null
         $customOption = $null
         $manifestOption = $null
+        $reReleaseOption = $null
         
         # Show pre-release build increment option first if available
         if ($suggestedPreReleaseBuild) {
@@ -226,6 +229,12 @@ if (-not $Version) {
         if ($canUseManifest) {
             Write-Host "  $optionNum. Use manifest version:     $currentVersion"
             $manifestOption = $optionNum
+            $optionNum++
+        }
+        
+        if ($canReRelease) {
+            Write-Host "  $optionNum. Re-release:                $currentVersion (force re-release existing tag)" -ForegroundColor Yellow
+            $reReleaseOption = $optionNum
             $optionNum++
         }
         
@@ -275,6 +284,17 @@ if (-not $Version) {
             $Version = $currentVersion
             Write-Host "Selected: $Version (from manifest)" -ForegroundColor Green
         }
+        { $canReRelease -and $_ -eq $reReleaseOption.ToString() } {
+            $Version = $currentVersion
+            $script:isReRelease = $true
+            Write-Host "Selected: $Version (re-release - will force update existing tag)" -ForegroundColor Yellow
+            Write-Host "WARNING: This will delete and recreate the tag v$Version" -ForegroundColor Red
+            $confirm = Read-Host "Are you sure you want to re-release? (Y/N)"
+            if ($confirm -notin @('Y', 'y', 'yes', 'Yes', 'YES')) {
+                Write-Host "Re-release cancelled." -ForegroundColor Yellow
+                exit 0
+            }
+        }
         { $_ -eq "Q" -or $_ -eq "q" } {
             Write-Host "Release cancelled." -ForegroundColor Yellow
             exit 0
@@ -318,40 +338,46 @@ else {
 
 # Compare with latest tag to ensure version is incremented
 if ($latestTag -ne "0.0.0.0") {
-    # Parse versions for comparison (with build number)
-    $latestParts = $latestTag -replace 'b', '' -split '\.'
-    $newParts = $Version -split '\.'
-    
-    $latestMajor = [int]$latestParts[0]
-    $latestMinor = [int]$latestParts[1]
-    $latestPatch = [int]$latestParts[2]
-    $latestBuild = if ($latestParts.Count -gt 3) { [int]$latestParts[3] } else { 0 }
-    
-    $newMajor = [int]$newParts[0]
-    $newMinor = [int]$newParts[1]
-    $newPatch = [int]$newParts[2]
-    $newBuild = if ($newParts.Count -gt 3) { [int]$newParts[3] } else { 0 }
-    
-    # Check if version is the same or lower
-    if ($Version -eq ($latestTag -replace 'b', '')) {
-        Write-Error "Version $Version is the same as the latest tag v$latestTag. Please increment the version."
-        exit 1
+    # Skip version validation for re-releases
+    if ($script:isReRelease) {
+        Write-Host "`nRe-release mode: Skipping version validation" -ForegroundColor Yellow
     }
-    
-    # Check if version is lower
-    if ($newMajor -lt $latestMajor -or 
-        ($newMajor -eq $latestMajor -and $newMinor -lt $latestMinor) -or
-        ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -lt $latestPatch) -or
-        ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -eq $latestPatch -and $newBuild -le $latestBuild)) {
-        Write-Error "Version $Version is lower than or equal to the latest tag v$latestTag. Version must be incremented."
-        Write-Host "`nSuggested versions:" -ForegroundColor Yellow
-        Write-Host "  Patch: $suggestedPatch"
-        Write-Host "  Minor: $suggestedMinor"
-        Write-Host "  Major: $suggestedMajor"
-        exit 1
+    else {
+        # Parse versions for comparison (with build number)
+        $latestParts = $latestTag -replace 'b', '' -split '\.'
+        $newParts = $Version -split '\.'
+        
+        $latestMajor = [int]$latestParts[0]
+        $latestMinor = [int]$latestParts[1]
+        $latestPatch = [int]$latestParts[2]
+        $latestBuild = if ($latestParts.Count -gt 3) { [int]$latestParts[3] } else { 0 }
+        
+        $newMajor = [int]$newParts[0]
+        $newMinor = [int]$newParts[1]
+        $newPatch = [int]$newParts[2]
+        $newBuild = if ($newParts.Count -gt 3) { [int]$newParts[3] } else { 0 }
+        
+        # Check if version is the same or lower
+        if ($Version -eq ($latestTag -replace 'b', '')) {
+            Write-Error "Version $Version is the same as the latest tag v$latestTag. Please increment the version."
+            exit 1
+        }
+        
+        # Check if version is lower
+        if ($newMajor -lt $latestMajor -or 
+            ($newMajor -eq $latestMajor -and $newMinor -lt $latestMinor) -or
+            ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -lt $latestPatch) -or
+            ($newMajor -eq $latestMajor -and $newMinor -eq $latestMinor -and $newPatch -eq $latestPatch -and $newBuild -le $latestBuild)) {
+            Write-Error "Version $Version is lower than or equal to the latest tag v$latestTag. Version must be incremented."
+            Write-Host "`nSuggested versions:" -ForegroundColor Yellow
+            Write-Host "  Patch: $suggestedPatch"
+            Write-Host "  Minor: $suggestedMinor"
+            Write-Host "  Major: $suggestedMajor"
+            exit 1
+        }
+        
+        Write-Host "`nVersion check passed: $latestTag -> $Version" -ForegroundColor Green
     }
-    
-    Write-Host "`nVersion check passed: $latestTag -> $Version" -ForegroundColor Green
 }
 # Create full version string for git tags and GitHub releases
 # Note: manifest.json gets numeric-only version, git tags get version with 'b' suffix for pre-releases
@@ -552,7 +578,8 @@ if ($needsChangelogUpdate) {
     if (Test-Path $changelogPath) {
         $existingChangelog = Get-Content $changelogPath -Raw
         # Insert new entry after the header
-        if ($existingChangelog -match '(# Changelog\s*)(.*)') {
+        # Use regex with SingleLine mode so . matches newlines
+        if ($existingChangelog -match '(?s)(# Changelog\s*\n)(.*)') {
             $newChangelog = $matches[1] + $changelogContent + $matches[2]
             if (-not $DryRun) {
                 Set-Content $changelogPath $newChangelog
@@ -626,6 +653,14 @@ else {
 # Create and push tag
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) git tag v$fullVersion..." -ForegroundColor Yellow
 if (-not $DryRun) {
+    # If re-releasing, delete the existing tag first
+    if ($script:isReRelease) {
+        Write-Host "Deleting existing tag v$fullVersion (re-release mode)..." -ForegroundColor Yellow
+        git tag -d "v$fullVersion" 2>$null
+        git push origin ":refs/tags/v$fullVersion" 2>$null
+        Write-Host "Existing tag deleted" -ForegroundColor Green
+    }
+    
     git tag -a "v$fullVersion" -m "Release v$fullVersion"
 
     if ($LASTEXITCODE -ne 0) {
@@ -644,7 +679,13 @@ if (-not $DryRun) {
         exit 1
     }
 
-    git push origin "v$fullVersion"
+    # Force push tag if re-releasing
+    if ($script:isReRelease) {
+        git push origin "v$fullVersion" --force
+    }
+    else {
+        git push origin "v$fullVersion"
+    }
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to push tag"
