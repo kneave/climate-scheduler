@@ -285,6 +285,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Remove panel and services only if this is the last entry
     entries = hass.config_entries.async_entries(DOMAIN)
     if len(entries) <= 1:
+        _LOGGER.debug("[BACKEND] Unloading last config entry - removing all services (including set_group_schedule)")
         # Unregister services
         for svc in [
             "set_schedule","get_schedule","clear_schedule","enable_schedule","disable_schedule",
@@ -297,8 +298,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ]:
             try:
                 hass.services.async_remove(DOMAIN, svc)
+                if svc == "set_group_schedule":
+                    _LOGGER.debug("[BACKEND] Removed service: set_group_schedule")
             except Exception:  # noqa: BLE001
                 pass
+        _LOGGER.info("[BACKEND] All services removed during unload")
         hass.data.pop(DOMAIN, None)
+    else:
+        _LOGGER.info("[BACKEND] Unloading entry but keeping services (not last entry)")
     return True
 

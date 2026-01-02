@@ -1006,8 +1006,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         nodes = call.data["nodes"]
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
+        _LOGGER.debug(
+            "[BACKEND] set_group_schedule service called: group=%s, nodes=%d, day=%s, mode=%s",
+            group_name,
+            len(nodes) if isinstance(nodes, list) else "?",
+            day,
+            schedule_mode
+        )
         try:
             await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            _LOGGER.debug(
+                "[BACKEND] set_group_schedule succeeded: group=%s",
+                group_name
+            )
             
             # Force immediate update for all entities in the group
             group_data = await storage.async_get_groups()
@@ -1018,7 +1029,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 
                 await coordinator.async_request_refresh()
         except ValueError as err:
-            _LOGGER.error(f"Error setting group schedule: {err}")
+            _LOGGER.error(
+                "[BACKEND] set_group_schedule failed with ValueError: group=%s, error=%s",
+                group_name,
+                err
+            )
+            raise
+        except Exception as err:
+            _LOGGER.error(
+                "[BACKEND] set_group_schedule failed with unexpected error: group=%s, error=%s",
+                group_name,
+                err,
+                exc_info=True
+            )
             raise
     
     async def handle_enable_group(call: ServiceCall) -> None:
@@ -1320,7 +1343,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "get_groups", handle_get_groups, service_schemas.get("get_groups"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "list_groups", handle_list_groups, service_schemas.get("list_groups"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "list_profiles", handle_list_profiles, service_schemas.get("list_profiles"), supports_response=SupportsResponse.ONLY)
+    _LOGGER.debug("[BACKEND] Registering Climate Scheduler services...")
     hass.services.async_register(DOMAIN, "set_group_schedule", handle_set_group_schedule, service_schemas.get("set_group_schedule"))
+    _LOGGER.debug("[BACKEND] Registered: set_group_schedule")
     hass.services.async_register(DOMAIN, "enable_group", handle_enable_group, service_schemas.get("enable_group"))
     hass.services.async_register(DOMAIN, "disable_group", handle_disable_group, service_schemas.get("disable_group"))
     hass.services.async_register(DOMAIN, "get_settings", handle_get_settings, service_schemas.get("get_settings"), supports_response=SupportsResponse.ONLY)
@@ -1340,4 +1365,4 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
     
-    _LOGGER.info("All Climate Scheduler services registered with dynamic selectors")
+    _LOGGER.debug("[BACKEND] All Climate Scheduler services registered successfully (including set_group_schedule)")

@@ -41,12 +41,17 @@ function convertScheduleNodes(nodes, fromUnit, toUnit) {
 let allGroups = {}; // Store all groups data
 let allEntities = {}; // Store all entities data with their schedules
 let currentGroup = null; // Currently selected group
+let currentEntityId = null; // Currently selected individual entity (legacy path, mostly unused now)
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
 let isLoadingSchedule = false; // Flag to prevent auto-save during schedule loading
+let isSaveInProgress = false; // Flag to prevent concurrent saves
+let pendingSaveNeeded = false; // Flag to indicate a save was skipped and needs to be retried
+let saveTimeout = null; // Timeout for debouncing save operations
+const SAVE_DEBOUNCE_MS = 300; // Wait 300ms after last change before saving
 
 // Debug logging function
 function debugLog(message, type = 'info') {
@@ -444,7 +449,6 @@ function renderIgnoredEntities() {
 const lastClickTime = {};
 const CLICK_DEBOUNCE_MS = 500;
 let isProcessingGroupClick = false;
-let isSaveInProgress = false;
 
 // Create a group container element
 function createGroupContainer(groupName, groupData) {
@@ -3178,10 +3182,54 @@ async function loadGroupHistoryData(entityIds) {
 
 // Save schedule (auto-save, no alerts)
 async function saveSchedule() {
+    console.debug('[SAVE] saveSchedule() called', {
+        timestamp: new Date().toISOString(),
+        isLoadingSchedule,
+        isSaveInProgress,
+        hasPendingTimeout: saveTimeout !== null,
+        currentGroup,
+        currentDay,
+        currentScheduleMode
+    });
+
     // Don't save if we're in the middle of loading a schedule
     if (isLoadingSchedule) {
+        console.debug('[SAVE] Skipped: isLoadingSchedule=true');
         return;
     }
+    
+    // If a save is already in progress, mark pending and return
+    if (isSaveInProgress) {
+        console.warn('[SAVE] Save in progress, marking pending save needed.');
+        pendingSaveNeeded = true;
+        return;
+    }
+    
+    // Clear any existing debounce timeout
+    if (saveTimeout) {
+        console.debug('[SAVE] Clearing previous debounce timeout');
+        clearTimeout(saveTimeout);
+        saveTimeout = null;
+    }
+    
+    // Debounce: wait for changes to settle before saving
+    console.debug(`[SAVE] Debouncing save for ${SAVE_DEBOUNCE_MS}ms`);
+    saveTimeout = setTimeout(() => {
+        saveTimeout = null;
+        performSave();
+    }, SAVE_DEBOUNCE_MS);
+}
+
+// Perform the actual save operation (called after debounce delay)
+async function performSave() {
+    const saveStartTime = performance.now();
+    
+    console.debug('[SAVE] performSave() executing', {
+        timestamp: new Date().toISOString(),
+        currentGroup,
+        currentDay,
+        currentScheduleMode
+    });
     
     // Set save in progress flag
     isSaveInProgress = true;
@@ -3189,6 +3237,13 @@ async function saveSchedule() {
     // Check if we're editing a group schedule
     if (currentGroup) {
         const nodes = graph.getNodes();
+        console.debug('[SAVE] Group mode detected', {
+            groupName: currentGroup,
+            nodeCount: nodes.length,
+            day: currentDay,
+            scheduleMode: currentScheduleMode
+        });
+        
         try {
             const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
             
@@ -3199,11 +3254,23 @@ async function saveSchedule() {
             
             // Temporarily switch to editing profile if needed
             if (needsProfileSwitch) {
+                console.debug('[SAVE] Switching profile', { from: activeProfile, to: editingProfile });
                 await haAPI.setActiveProfile(currentGroup, editingProfile);
             }
             
             // Save to group schedule with day and mode
+            const setGroupScheduleStart = performance.now();
+            console.debug('[SAVE] Calling setGroupSchedule', {
+                groupName: currentGroup,
+                nodeCount: nodes.length,
+                day: currentDay,
+                scheduleMode: currentScheduleMode,
+                timeSinceSaveStart: (setGroupScheduleStart - saveStartTime).toFixed(2) + 'ms'
+            });
             await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
+            console.debug('[SAVE] setGroupSchedule succeeded', {
+                duration: (performance.now() - setGroupScheduleStart).toFixed(2) + 'ms'
+            });
             
             // Update local cache immediately with the saved data
             if (allGroups[currentGroup]) {
@@ -3215,13 +3282,16 @@ async function saveSchedule() {
             
             // Switch back to original active profile if we changed it
             if (needsProfileSwitch && activeProfile) {
+                console.debug('[SAVE] Switching profile back', { to: activeProfile });
                 await haAPI.setActiveProfile(currentGroup, activeProfile);
             }
             
             // Update enabled state
             if (enabled) {
+                console.debug('[SAVE] Calling enableGroup');
                 await haAPI.enableGroup(currentGroup);
             } else {
+                console.debug('[SAVE] Calling disableGroup');
                 await haAPI.disableGroup(currentGroup);
             }
             
@@ -3229,46 +3299,49 @@ async function saveSchedule() {
             if (allGroups[currentGroup]) {
                 allGroups[currentGroup].enabled = enabled;
             }
+            
+            console.debug('[SAVE] Group save completed successfully', {
+                totalDuration: (performance.now() - saveStartTime).toFixed(2) + 'ms'
+            });
         } catch (error) {
-            console.error('Failed to auto-save group schedule:', error);
+            console.error('[SAVE] Failed to auto-save group schedule:', {
+                error,
+                errorCode: error?.code,
+                errorMessage: error?.message,
+                translationKey: error?.translation_key,
+                groupName: currentGroup,
+                timeSinceSaveStart: (performance.now() - saveStartTime).toFixed(2) + 'ms'
+            });
         } finally {
             isSaveInProgress = false;
+            console.debug('[SAVE] isSaveInProgress flag cleared');
+            
+            // If another save was requested while this one was in progress, trigger it now
+            if (pendingSaveNeeded) {
+                console.debug('[SAVE] Pending save detected, triggering debounced save');
+                pendingSaveNeeded = false;
+                // Call saveSchedule (not performSave) to go through debouncing again
+                saveSchedule();
+            }
         }
         return;
     }
     
-    // Otherwise save individual entity schedule
-    if (!currentEntityId) {
-        isSaveInProgress = false;
-        return;
-    }
-    
-    try {
-        const nodes = graph.getNodes();
-        const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
-        
-        // Update local state immediately with the current entity's schedule
-        entitySchedules.set(currentEntityId, JSON.parse(JSON.stringify(nodes)));
-        
-        // Save schedule to HA in background with day and mode
-        await haAPI.setSchedule(currentEntityId, nodes, currentDay, currentScheduleMode);
-        
-        // Update enabled state
-        if (enabled) {
-            await haAPI.enableSchedule(currentEntityId);
-        } else {
-            await haAPI.disableSchedule(currentEntityId);
-        }
-    } catch (error) {
-        console.error('Failed to auto-save schedule:', error);
-    } finally {
-        isSaveInProgress = false;
-    }
+    // Note: Entity-only save path removed - all schedules (including single entities)
+    // are now saved as groups via set_group_schedule above.
+    console.debug('[SAVE] No currentGroup set, nothing to save');
+    isSaveInProgress = false;
 }
 
 // Handle graph changes - auto-save and sync if needed
 async function handleGraphChange(event, force = false) {
     // Handle graph change
+    console.log('[GRAPH] handleGraphChange triggered', {
+        timestamp: new Date().toISOString(),
+        eventType: event?.type,
+        force,
+        currentGroup
+    });
     
     // If event has detail.force, use that
     if (event && event.detail && event.detail.force !== undefined) {

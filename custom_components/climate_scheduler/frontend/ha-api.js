@@ -403,10 +403,20 @@ class HomeAssistantAPI {
     }
     
     async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+        const callStartTime = performance.now();
+        console.debug('[HA-API] setGroupSchedule called', {
+            timestamp: new Date().toISOString(),
+            groupName,
+            nodeCount: nodes?.length,
+            day,
+            scheduleMode,
+            usingHassObject: this.usingHassObject
+        });
+        
         // Guard: ensure a valid groupName is provided before calling HA service.
         if (!groupName) {
             const msg = 'setGroupSchedule called without a valid groupName';
-            console.error(msg, groupName, nodes, day, scheduleMode);
+            console.error('[HA-API]', msg, groupName, nodes, day, scheduleMode);
             // Throw so callers can handle the error rather than sending null to HA
             throw new Error(msg);
         }
@@ -423,11 +433,29 @@ class HomeAssistantAPI {
             serviceData.schedule_mode = scheduleMode;
         }
         
+        console.debug('[HA-API] Calling climate_scheduler.set_group_schedule', {
+            serviceData: { ...serviceData, nodes: `[${nodes?.length} nodes]` },
+            connectionMode: this.usingHassObject ? 'hass-object' : 'websocket'
+        });
+        
         try {
             const result = await this.callService('climate_scheduler', 'set_group_schedule', serviceData);
+            console.debug('[HA-API] set_group_schedule succeeded', {
+                duration: (performance.now() - callStartTime).toFixed(2) + 'ms',
+                result
+            });
             return result;
         } catch (error) {
-            console.error('setGroupSchedule failed:', error);
+            console.error('[HA-API] setGroupSchedule failed:', {
+                error,
+                errorCode: error?.code,
+                errorMessage: error?.message,
+                translationKey: error?.translation_key,
+                translationPlaceholders: error?.translation_placeholders,
+                groupName,
+                duration: (performance.now() - callStartTime).toFixed(2) + 'ms',
+                connectionMode: this.usingHassObject ? 'hass-object' : 'websocket'
+            });
             throw error;
         }
     }
