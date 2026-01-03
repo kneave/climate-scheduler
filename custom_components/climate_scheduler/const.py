@@ -12,7 +12,6 @@ DEFAULT_SCHEDULE = []
 # Temperature settings (in Celsius)
 MIN_TEMP = 5.0
 MAX_TEMP = 30.0
-TEMP_THRESHOLD = 0.5  # Only update if difference exceeds this
 NO_CHANGE_TEMP = None  # Special value to indicate temperature should not be changed
 
 # Update interval

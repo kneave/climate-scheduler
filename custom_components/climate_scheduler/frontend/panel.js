@@ -364,11 +364,11 @@ class ClimateSchedulerPanel extends HTMLElement {
                                             <div style="display:flex; gap:12px; align-items:center;">
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="min-temp" style="font-weight:600;">Min Temp (<span id="min-unit">°C</span>)</label>
-                                                    <input id="min-temp" type="number" step="0.5" placeholder="e.g. 5.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                    <input id="min-temp" type="number" step="0.1" placeholder="e.g. 5.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
                                                 </div>
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="max-temp" style="font-weight:600;">Max Temp (<span id="max-unit">°C</span>)</label>
-                                                    <input id="max-temp" type="number" step="0.5" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                    <input id="max-temp" type="number" step="0.1" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
                                                 </div>
                                             </div>
                                         </div>

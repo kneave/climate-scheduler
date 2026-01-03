@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.14.5] - 2026-01-03
+### Changed
+- Temperature steps changed from 0.5c to 0.1c
+
 ## [1.14.4] - 2026-01-02
 ### Fixed
 - Issue #78: Schedules now reapply on node time transitions even if settings are the same, ensuring manual changes are reset to the schedule at each node time

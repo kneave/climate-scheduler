@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
 
-from .const import DOMAIN, TEMP_THRESHOLD, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
+from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)

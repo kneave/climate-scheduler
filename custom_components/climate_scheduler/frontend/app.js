@@ -35,7 +35,7 @@ function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
     return nodes.map(node => ({
         ...node,
-        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * 2) / 2 // Round to 0.5
+        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * 10) / 10 // Round to 0.1
     }));
 }
 let allGroups = {}; // Store all groups data
@@ -1820,9 +1820,9 @@ function createScheduleEditor() {
                         <div class="setting-item">
                             <label>Temperature:</label>
                             <div class="input-spinner">
-                                <button class="spinner-btn" id="temp-down" title="-0.5°">▼</button>
-                                <input type="number" id="node-temp-input" class="temp-input" step="0.5" />
-                                <button class="spinner-btn" id="temp-up" title="+0.5°">▲</button>
+                                <button class="spinner-btn" id="temp-down" title="-0.1°">▼</button>
+                                <input type="number" id="node-temp-input" class="temp-input" step="0.1" />
+                                <button class="spinner-btn" id="temp-up" title="+0.1°">▲</button>
                             </div>
                         </div>
                         <div class="setting-item" style="padding-left: 20px;">
@@ -2323,8 +2323,8 @@ function attachEditorEventListeners(editorElement) {
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
-            // Increment based on temperature unit (0.5°C or 1°F)
-            const increment = temperatureUnit === '°F' ? 1 : 0.5;
+            // Increment based on temperature unit (0.1°C or 0.2°F)
+            const increment = temperatureUnit === '°F' ? 0.2 : 0.1;
             node.temp = Math.round((node.temp + increment) * 10) / 10;
             
             tempInput.value = node.temp;
@@ -2346,8 +2346,8 @@ function attachEditorEventListeners(editorElement) {
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
-            // Decrement based on temperature unit (0.5°C or 1°F)
-            const increment = temperatureUnit === '°F' ? 1 : 0.5;
+            // Decrement based on temperature unit (0.1°C or 0.2°F)
+            const increment = temperatureUnit === '°F' ? 0.2 : 0.1;
             node.temp = Math.round((node.temp - increment) * 10) / 10;
             
             tempInput.value = node.temp;
