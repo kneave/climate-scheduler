@@ -448,33 +448,85 @@ function Get-ChangelogForVersion {
     if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
     return $section.Trim()
 }
+
+# Helper: extract Unreleased section
+function Get-UnreleasedChangelog {
+    $path = "CHANGELOG.md"
+    if (-not (Test-Path $path)) { return $null }
+
+    $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $null }
+
+    # Look for ## [Unreleased]
+    $startMarker = "## [Unreleased]"
+    $startIdx = $content.IndexOf($startMarker)
+    if ($startIdx -lt 0) { return $null }
+
+    # Extract from after the heading until the next ## [ marker
+    $rest = $content.Substring($startIdx + $startMarker.Length)
+    $nextMarker = "`n## ["
+    $nextIdx = $rest.IndexOf($nextMarker)
+    if ($nextIdx -lt 0) { $section = $rest } else { $section = $rest.Substring(0, $nextIdx) }
+    
+    return $section.Trim()
+}
  
 
 # If CHANGELOG.md already contains a section for this version, offer to use it
 $changelogPath = "CHANGELOG.md"
 $usePreparedNotes = $false
+$useUnreleasedSection = $false
 $preparedNotes = $null
+$unreleasedContent = $null
+
 if (Test-Path $changelogPath) {
-    # Use the helper to robustly extract the full changelog section for this version
-    $preparedNotes = Get-ChangelogForVersion $fullVersion
-    if ($preparedNotes) {
-        Write-Host "`nFound existing changelog entry for v$fullVersion in $changelogPath." -ForegroundColor Cyan
-        $allLines = [regex]::Split($preparedNotes, "\r?\n")
+    # First check for Unreleased section
+    $unreleasedContent = Get-UnreleasedChangelog
+    if ($unreleasedContent -and $unreleasedContent.Trim().Length -gt 0) {
+        Write-Host "`nFound [Unreleased] section in $changelogPath." -ForegroundColor Cyan
+        $allLines = [regex]::Split($unreleasedContent, "\r?\n")
         $maxPreview = 30
         $preview = $allLines | Select-Object -First $maxPreview
         Write-Host "Preview:" -ForegroundColor Gray
         foreach ($line in $preview) { Write-Host "  $line" -ForegroundColor DarkGray }
         if ($allLines.Count -gt $maxPreview) { Write-Host "  ... (truncated, showing first $maxPreview lines)" -ForegroundColor DarkGray }
         Write-Host ""
-        $useResp = Read-Host "Use this changelog entry for the release? (Y/n)"
+        $useResp = Read-Host "Use [Unreleased] section for v$fullVersion? (Y/n)"
         if ([string]::IsNullOrWhiteSpace($useResp) -or $useResp -in @('Y', 'y')) {
+            $useUnreleasedSection = $true
             $usePreparedNotes = $true
-            $changelogContent = $preparedNotes
-            Write-Host "Using changelog entry from $changelogPath." -ForegroundColor Green
+            $date = Get-Date -Format "yyyy-MM-dd"
+            $changelogContent = "## [$fullVersion] - $date`n`n" + $unreleasedContent
+            Write-Host "Will convert [Unreleased] to [$fullVersion]" -ForegroundColor Green
             Write-Host "`nFull changelog section that will be used:" -ForegroundColor Gray
             Write-Host "----------------------------------------" -ForegroundColor DarkGray
             Write-Host $changelogContent -ForegroundColor DarkGray
             Write-Host "----------------------------------------`n" -ForegroundColor DarkGray
+        }
+    }
+    
+    # If not using Unreleased, check for version-specific entry
+    if (-not $useUnreleasedSection) {
+        $preparedNotes = Get-ChangelogForVersion $fullVersion
+        if ($preparedNotes) {
+            Write-Host "`nFound existing changelog entry for v$fullVersion in $changelogPath." -ForegroundColor Cyan
+            $allLines = [regex]::Split($preparedNotes, "\r?\n")
+            $maxPreview = 30
+            $preview = $allLines | Select-Object -First $maxPreview
+            Write-Host "Preview:" -ForegroundColor Gray
+            foreach ($line in $preview) { Write-Host "  $line" -ForegroundColor DarkGray }
+            if ($allLines.Count -gt $maxPreview) { Write-Host "  ... (truncated, showing first $maxPreview lines)" -ForegroundColor DarkGray }
+            Write-Host ""
+            $useResp = Read-Host "Use this changelog entry for the release? (Y/n)"
+            if ([string]::IsNullOrWhiteSpace($useResp) -or $useResp -in @('Y', 'y')) {
+                $usePreparedNotes = $true
+                $changelogContent = $preparedNotes
+                Write-Host "Using changelog entry from $changelogPath." -ForegroundColor Green
+                Write-Host "`nFull changelog section that will be used:" -ForegroundColor Gray
+                Write-Host "----------------------------------------" -ForegroundColor DarkGray
+                Write-Host $changelogContent -ForegroundColor DarkGray
+                Write-Host "----------------------------------------`n" -ForegroundColor DarkGray
+            }
         }
     }
 }
@@ -543,8 +595,9 @@ if (-not $usePreparedNotes) {
 
     if (-not $hasAnyEntries) {
         Write-Error "No changelog entries provided. Release requires either:"
-        Write-Host "  1. Pre-existing changelog entry for v$fullVersion in CHANGELOG.md, OR" -ForegroundColor Yellow
-        Write-Host "  2. Changelog entries entered during the release process" -ForegroundColor Yellow
+        Write-Host "  1. [Unreleased] section in CHANGELOG.md, OR" -ForegroundColor Yellow
+        Write-Host "  2. Pre-existing changelog entry for v$fullVersion in CHANGELOG.md, OR" -ForegroundColor Yellow
+        Write-Host "  3. Changelog entries entered during the release process" -ForegroundColor Yellow
         Write-Host "`nPlease update CHANGELOG.md with the release notes or provide entries when prompted." -ForegroundColor Yellow
         exit 1
     }
@@ -568,30 +621,57 @@ if (-not $usePreparedNotes) {
     $needsChangelogUpdate = $true
 }
 else {
-    # Using prepared notes extracted from CHANGELOG.md; $changelogContent already set
-    Write-Host "`nUsing existing changelog entry - no need to update CHANGELOG.md" -ForegroundColor Green
+    # Using prepared notes extracted from CHANGELOG.md
+    if ($useUnreleasedSection) {
+        # Need to replace [Unreleased] with versioned section and add new [Unreleased]
+        Write-Host "`nWill update CHANGELOG.md: convert [Unreleased] to [$fullVersion]" -ForegroundColor Green
+        $needsChangelogUpdate = $true
+    }
+    else {
+        # Using existing versioned entry - no update needed
+        Write-Host "`nUsing existing changelog entry - no need to update CHANGELOG.md" -ForegroundColor Green
+        $needsChangelogUpdate = $false
+    }
 }
 
-# Update or create CHANGELOG.md only if we generated new content
+# Update or create CHANGELOG.md only if we generated new content or converting Unreleased
 if ($needsChangelogUpdate) {
     $changelogPath = "CHANGELOG.md"
     if (Test-Path $changelogPath) {
         $existingChangelog = Get-Content $changelogPath -Raw
-        # Insert new entry after the header
-        # Use regex with SingleLine mode so . matches newlines
-        if ($existingChangelog -match '(?s)(# Changelog\s*\n)(.*)') {
-            $newChangelog = $matches[1] + $changelogContent + $matches[2]
+        
+        if ($useUnreleasedSection) {
+            # Replace [Unreleased] section with versioned section and add new empty [Unreleased]
+            $unreleasedMarker = "## [Unreleased]"
+            $newUnreleasedSection = @"
+## [Unreleased]
+
+$changelogContent
+"@
+            $existingChangelog = $existingChangelog -replace [regex]::Escape("## [Unreleased]"), $newUnreleasedSection
+            
             if (-not $DryRun) {
-                Set-Content $changelogPath $newChangelog
+                Set-Content $changelogPath $existingChangelog
             }
+            Write-Host "$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md: converted [Unreleased] to [$fullVersion]" -ForegroundColor Green
         }
         else {
-            # No proper header, prepend to file
-            if (-not $DryRun) {
-                Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
+            # Insert new entry after the header
+            # Use regex with SingleLine mode so . matches newlines
+            if ($existingChangelog -match '(?s)(# Changelog\s*\n)(.*)') {
+                $newChangelog = $matches[1] + $changelogContent + $matches[2]
+                if (-not $DryRun) {
+                    Set-Content $changelogPath $newChangelog
+                }
             }
+            else {
+                # No proper header, prepend to file
+                if (-not $DryRun) {
+                    Set-Content $changelogPath ($changelogContent + "`n" + $existingChangelog)
+                }
+            }
+            Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
         }
-        Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updated' }) CHANGELOG.md" -ForegroundColor Green
     }
     else {
         # Create new CHANGELOG.md
