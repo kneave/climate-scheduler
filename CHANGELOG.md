@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- Configurable temperature precision settings (graph snap step and input field step)
+- Settings panel now allows choosing between 0.1°, 0.5°, or 1.0° temperature steps
+
 ## [1.14.5] - 2026-01-03
 ### Changed
 - Temperature steps changed from 0.5c to 0.1c

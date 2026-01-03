@@ -380,6 +380,30 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     </div>
                                     
                                     <div class="settings-section">
+                                        <h4>Temperature Precision</h4>
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
+                                            <div class="setting-item" style="flex:1;">
+                                                <label for="graph-snap-step">Graph Snap Step:</label>
+                                                <select id="graph-snap-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
+                                                    <option value="0.1">0.1°</option>
+                                                    <option value="0.5">0.5°</option>
+                                                    <option value="1">1.0°</option>
+                                                </select>
+                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Temperature rounding when dragging nodes on the graph</p>
+                                            </div>
+                                            <div class="setting-item" style="flex:1;">
+                                                <label for="input-temp-step">Input Field Step:</label>
+                                                <select id="input-temp-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
+                                                    <option value="0.1">0.1°</option>
+                                                    <option value="0.5">0.5°</option>
+                                                    <option value="1">1.0°</option>
+                                                </select>
+                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Step size for temperature input fields and up/down buttons</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="settings-section">
                                         <h4>Derivative Sensors</h4>
                                         <p class="settings-description">Automatically create sensors to track heating/cooling rates for performance analysis</p>
                                         <div class="setting-item">

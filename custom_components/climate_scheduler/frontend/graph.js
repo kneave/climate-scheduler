@@ -4,7 +4,7 @@
  */
 
 class TemperatureGraph {
-    constructor(svgElement, temperatureUnit = '°C') {
+    constructor(svgElement, temperatureUnit = '°C', graphSnapStep = 0.1) {
         this.svg = svgElement;
         this.nodes = [];
         this.historyData = []; // Array of {entityId, entityName, data: [{time, temp}], color}
@@ -21,6 +21,7 @@ class TemperatureGraph {
         this.hoverLine = null;
         this.hoverTimeLabel = null;
         this.temperatureUnit = temperatureUnit;
+        this.graphSnapStep = graphSnapStep; // Temperature snap step for rounding
         this.undoStack = [];
         this.undoButton = null;
         this.tooltipMode = 'history'; // 'history' or 'cursor'
@@ -1258,7 +1259,8 @@ class TemperatureGraph {
                     // Show cursor position (time and temperature)
                     const mouseTemp = this.yToTemp(point.y);
                     const clampedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, mouseTemp));
-                    const roundedTemp = Math.round(clampedTemp * 10) / 10;
+                    const multiplier = 1 / this.graphSnapStep;
+                    const roundedTemp = Math.round(clampedTemp * multiplier) / multiplier;
                     const snappedTime = this.snapToInterval(mouseTime);
                     this.showCursorTooltip(point.x, point.y, snappedTime, roundedTemp);
                 } else {
@@ -1322,7 +1324,8 @@ class TemperatureGraph {
         const node = this.nodes[this.draggingNode];
         const newTemp = this.yToTemp(point.y - this.dragOffset.y);
         const clampedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, newTemp));
-        const roundedTemp = Math.round(clampedTemp * 10) / 10; // Round to 0.1°C
+        const multiplier = 1 / this.graphSnapStep;
+        const roundedTemp = Math.round(clampedTemp * multiplier) / multiplier;
         this.nodes[this.draggingNode].temp = roundedTemp;
         
         // Check if another node already exists at this time
@@ -1356,7 +1359,8 @@ class TemperatureGraph {
             const snappedMouseTime = this.snapToInterval(mouseTime);
             const mouseTemp = this.yToTemp(point.y);
             const clampedMouseTemp = Math.max(this.minTemp, Math.min(this.maxTemp, mouseTemp));
-            const roundedMouseTemp = Math.round(clampedMouseTemp * 10) / 10;
+            const multiplier = 1 / this.graphSnapStep;
+            const roundedMouseTemp = Math.round(clampedMouseTemp * multiplier) / multiplier;
             this.showCursorTooltip(point.x, point.y, snappedMouseTime, roundedMouseTemp);
         }
         
@@ -1423,12 +1427,14 @@ class TemperatureGraph {
         const existingIndex = this.nodes.findIndex(n => n.time === snappedTime);
         if (existingIndex !== -1) {
             // Update existing node
-            this.nodes[existingIndex].temp = Math.round(clampedTemp * 10) / 10;
+            const multiplier = 1 / this.graphSnapStep;
+            this.nodes[existingIndex].temp = Math.round(clampedTemp * multiplier) / multiplier;
         } else {
             // Add new node
+            const multiplier = 1 / this.graphSnapStep;
             this.nodes.push({
                 time: snappedTime,
-                temp: Math.round(clampedTemp * 10) / 10
+                temp: Math.round(clampedTemp * multiplier) / multiplier
             });
         }
         
