@@ -906,29 +906,32 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
                 
-                # Fire event for scheduled node activation
-                self.hass.bus.async_fire(
-                    f"{DOMAIN}_node_activated",
-                    {
-                        "entity_id": entity_id,
-                        "group_name": group_name,
-                        "node": {
-                            "time": active_node.get("time"),
-                            "temp": clamped_temp,
-                            "hvac_mode": active_node.get("hvac_mode"),
-                            "fan_mode": active_node.get("fan_mode"),
-                            "swing_mode": active_node.get("swing_mode"),
-                            "preset_mode": active_node.get("preset_mode"),
-                            "A": active_node.get("A"),
-                            "B": active_node.get("B"),
-                            "C": active_node.get("C"),
-                        },
-                        "previous_node": last_node,
-                        "day": current_day,
-                        "trigger_type": "scheduled",
-                    }
-                )
-                _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled)")
+                # Fire event for scheduled node activation ONLY if node actually changed
+                if node_time_changed or node_state_changed:
+                    self.hass.bus.async_fire(
+                        f"{DOMAIN}_node_activated",
+                        {
+                            "entity_id": entity_id,
+                            "group_name": group_name,
+                            "node": {
+                                "time": active_node.get("time"),
+                                "temp": clamped_temp,
+                                "hvac_mode": active_node.get("hvac_mode"),
+                                "fan_mode": active_node.get("fan_mode"),
+                                "swing_mode": active_node.get("swing_mode"),
+                                "preset_mode": active_node.get("preset_mode"),
+                                "A": active_node.get("A"),
+                                "B": active_node.get("B"),
+                                "C": active_node.get("C"),
+                            },
+                            "previous_node": last_node,
+                            "day": current_day,
+                            "trigger_type": "scheduled",
+                        }
+                    )
+                    _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled transition)")
+                else:
+                    _LOGGER.debug(f"Skipping event for {entity_id} - no node transition detected")
                 
                 results[entity_id] = {
                     "updated": True,

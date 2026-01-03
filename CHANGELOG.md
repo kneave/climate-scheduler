@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-## [1.14.6] - 2026-01-03
-
 ### Added
 - Configurable temperature precision settings (graph snap step and input field step)
 - Settings panel now allows choosing between 0.1°, 0.5°, or 1.0° temperature steps
@@ -11,19 +9,11 @@
 
 ### Changed
 - test_fire_event now includes all group entities in event data instead of single entity_id
+- node_activated events now only fire on actual node transitions, preventing event spam on every coordinator update
 
 ### Fixed
 - Duplicate variable declaration causing syntax error in frontend
-### Added
-- Configurable temperature precision settings (graph snap step and input field step)
-- Settings panel now allows choosing between 0.1°, 0.5°, or 1.0° temperature steps
-- test_fire_event service now accepts node and day parameters for testing specific scenarios
-
-### Changed
-- test_fire_event now includes all group entities in event data instead of single entity_id
-
-### Fixed
-- Duplicate variable declaration causing syntax error in frontend
+- Fixed constant stream of events being generated every 60 seconds even when no node transition occurred
 
 ## [1.14.5] - 2026-01-03
 ### Changed
