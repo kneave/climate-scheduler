@@ -1877,6 +1877,7 @@ function createScheduleEditor() {
                         </div>
                     </div>
                     <div class="settings-actions">
+                        <button id="test-fire-event-btn" class="btn-secondary" title="Test fire event with this node">🧪 Test Event</button>
                         <button id="delete-node" class="btn-danger">Delete Node</button>
                     </div>
                 </div>
@@ -2088,25 +2089,6 @@ function attachEditorEventListeners(editorElement) {
                 showToast('Failed: ' + error.message, 'error');
             } finally {
                 advanceBtn.disabled = false;
-            }
-        };
-    }
-    
-    // Test fire event button
-    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
-    if (testFireBtn) {
-        testFireBtn.onclick = async () => {
-            if (!currentGroup) return;
-            
-            testFireBtn.disabled = true;
-            try {
-                await haAPI.testFireEvent(currentGroup);
-                showToast(`Test event fired for group '${currentGroup}'`, 'success');
-            } catch (error) {
-                console.error('Failed to test fire event:', error);
-                showToast('Failed to fire test event: ' + error.message, 'error');
-            } finally {
-                testFireBtn.disabled = false;
             }
         };
     }
@@ -2358,6 +2340,34 @@ function attachEditorEventListeners(editorElement) {
             saveSchedule();
         };
     };
+    
+    // Test fire event button (in node settings)
+    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
+    if (testFireBtn) {
+        testFireBtn.onclick = async () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph || !currentGroup) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            testFireBtn.disabled = true;
+            try {
+                // Get current day
+                const now = new Date();
+                const currentDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now.getDay() === 0 ? 6 : now.getDay() - 1];
+                
+                await haAPI.testFireEvent(currentGroup, node, currentDay);
+                showToast(`Test event fired for node at ${node.time}`, 'success');
+            } catch (error) {
+                console.error('Failed to test fire event:', error);
+                showToast('Failed to fire test event: ' + error.message, 'error');
+            } finally {
+                testFireBtn.disabled = false;
+            }
+        };
+    }
     
     // Delete node button
     const deleteNode = editorElement.querySelector('#delete-node');

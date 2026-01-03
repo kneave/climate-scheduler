@@ -408,6 +408,31 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             },
         },
         
+        "test_fire_event": {
+            "name": "Test fire event",
+            "description": "Fire a test node_activated event with specific node settings for testing automations",
+            "fields": {
+                "schedule_id": {
+                    "description": "Group name or entity ID to fire event for",
+                    "required": True,
+                    "example": "Downstairs",
+                    "selector": {"text": {}},
+                },
+                "node": {
+                    "description": "Node data (time, temp, hvac_mode, etc.) as JSON string",
+                    "required": False,
+                    "example": '{"time": "08:00", "temp": 21, "hvac_mode": "heat"}',
+                    "selector": {"text": {}},
+                },
+                "day": {
+                    "description": "Day of week (mon, tue, wed, thu, fri, sat, sun)",
+                    "required": False,
+                    "example": "mon",
+                    "selector": {"text": {}},
+                }
+            },
+        },
+        
         "get_advance_status": {
             "name": "Get advance status",
             "description": "Check if a climate entity has an active advance override",
@@ -599,6 +624,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "cancel_advance": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "get_advance_status": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "clear_advance_history": vol.Schema({vol.Required("schedule_id"): cv.string}),
+        "test_fire_event": vol.Schema({
+            vol.Required("schedule_id"): cv.string,
+            vol.Optional("node"): cv.string,
+            vol.Optional("day"): cv.string
+        }),
         
         "delete_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "rename_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("old_name"): cv.string, vol.Required("new_name"): cv.string}),
@@ -1155,6 +1185,99 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "advanced_node": status.get("advanced_node"),
         }
     
+    async def handle_test_fire_event(call: ServiceCall) -> None:
+        """Handle test_fire_event service call - fires an event without applying settings."""
+        target_id = call.data["schedule_id"]
+        node_data = call.data.get("node")
+        day = call.data.get("day")
+        
+        _LOGGER.debug(f"[BACKEND] test_fire_event called for: {target_id}")
+        
+        # Parse node data if provided as JSON string
+        if isinstance(node_data, str):
+            import json
+            node_data = json.loads(node_data)
+        
+        # Get current day if not provided
+        if not day:
+            import datetime
+            now = datetime.datetime.now()
+            day = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][now.weekday()]
+        
+        # Determine if this is a group or entity
+        all_groups = await storage.async_get_groups()
+        
+        if target_id in all_groups:
+            # It's a group
+            group_name = target_id
+            group_data = all_groups[group_name]
+            
+            # Get all entities in the group
+            entities = group_data.get("entities", [])
+            
+            # Fire event with provided node data
+            hass.bus.async_fire(
+                f"{DOMAIN}_node_activated",
+                {
+                    "entities": entities,
+                    "group_name": group_name,
+                    "node": {
+                        "time": node_data.get("time"),
+                        "temp": node_data.get("temp"),
+                        "hvac_mode": node_data.get("hvac_mode"),
+                        "fan_mode": node_data.get("fan_mode"),
+                        "swing_mode": node_data.get("swing_mode"),
+                        "preset_mode": node_data.get("preset_mode"),
+                        "A": node_data.get("A"),
+                        "B": node_data.get("B"),
+                        "C": node_data.get("C"),
+                    },
+                    "day": day,
+                    "trigger_type": "test",
+                }
+            )
+            _LOGGER.info(f"Test event fired for group: {group_name} with node at {node_data.get('time')}")
+        else:
+            # Assume it's an entity - find its group
+            entity_id = target_id
+            group_name = None
+            
+            for gname, gdata in all_groups.items():
+                if entity_id in gdata.get("entities", []):
+                    group_name = gname
+                    break
+            
+            if not group_name:
+                _LOGGER.error(f"Entity {entity_id} not found in any group")
+                return
+            
+            # Get all entities in the group
+            group_data = all_groups[group_name]
+            entities = group_data.get("entities", [])
+            
+            # Fire event with provided node data
+            hass.bus.async_fire(
+                f"{DOMAIN}_node_activated",
+                {
+                    "entities": entities,
+                    "group_name": group_name,
+                    "node": {
+                        "time": node_data.get("time"),
+                        "temp": node_data.get("temp"),
+                        "hvac_mode": node_data.get("hvac_mode"),
+                        "fan_mode": node_data.get("fan_mode"),
+                        "swing_mode": node_data.get("swing_mode"),
+                        "preset_mode": node_data.get("preset_mode"),
+                        "A": node_data.get("A"),
+                        "B": node_data.get("B"),
+                        "C": node_data.get("C"),
+                    },
+                    "day": day,
+                    "trigger_type": "test",
+                }
+            )
+            _LOGGER.info(f"Test event fired for entity: {entity_id} with node at {node_data.get('time')}")
+    
     async def handle_clear_advance_history(call: ServiceCall) -> None:
         """Handle clear_advance_history service call."""
         entity_id = call.data["schedule_id"]
@@ -1356,6 +1479,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "cancel_advance", handle_cancel_advance, service_schemas.get("cancel_advance"))
     hass.services.async_register(DOMAIN, "get_advance_status", handle_get_advance_status, service_schemas.get("get_advance_status"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_advance_history", handle_clear_advance_history, service_schemas.get("clear_advance_history"))
+    hass.services.async_register(DOMAIN, "test_fire_event", handle_test_fire_event, service_schemas.get("test_fire_event"))
     hass.services.async_register(DOMAIN, "create_profile", handle_create_profile, service_schemas.get("create_profile"))
     hass.services.async_register(DOMAIN, "delete_profile", handle_delete_profile, service_schemas.get("delete_profile"))
     hass.services.async_register(DOMAIN, "rename_profile", handle_rename_profile, service_schemas.get("rename_profile"))

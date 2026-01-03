@@ -337,6 +337,29 @@ clear_advance_history:
       selector:
         text: {}
 
+test_fire_event:
+  name: Test fire event
+  description: Fire a test node_activated event with specific node settings for testing automations
+  fields:
+    schedule_id:
+      description: Group name or entity ID to fire event for
+      required: true
+      example: Downstairs
+      selector:
+        text: {}
+    node:
+      description: Node data (time, temp, hvac_mode, etc.) as JSON string
+      required: false
+      example: '{"time": "08:00", "temp": 21, "hvac_mode": "heat"}'
+      selector:
+        text: {}
+    day:
+      description: Day of week (mon, tue, wed, thu, fri, sat, sun)
+      required: false
+      example: mon
+      selector:
+        text: {}
+
 create_profile:
   name: Create profile
   description: Create a profile for a schedule

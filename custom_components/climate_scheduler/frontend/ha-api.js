@@ -326,9 +326,11 @@ class HomeAssistantAPI {
         });
     }
     
-    async testFireEvent(groupName) {
+    async testFireEvent(groupName, node, day) {
         return await this.callService('climate_scheduler', 'test_fire_event', {
-            schedule_id: groupName
+            schedule_id: groupName,
+            node: JSON.stringify(node),
+            day: day
         });
     }
 

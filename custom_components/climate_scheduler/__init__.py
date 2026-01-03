@@ -96,6 +96,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "cancel_advance",
             "get_advance_status",
             "clear_advance_history",
+            "test_fire_event",
             "create_profile",
             "delete_profile",
             "rename_profile",
@@ -292,7 +293,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "sync_all","create_group","delete_group","add_to_group","remove_from_group",
             "get_groups","set_group_schedule","enable_group","disable_group","get_settings",
             "save_settings","reload_integration","advance_schedule","advance_group",
-            "cancel_advance","get_advance_status","clear_advance_history","create_profile",
+            "cancel_advance","get_advance_status","clear_advance_history","test_fire_event","create_profile",
             "delete_profile","rename_profile","set_active_profile","get_profiles",
             "cleanup_derivative_sensors","factory_reset"
         ]:

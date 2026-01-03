@@ -4,6 +4,13 @@
 ### Added
 - Configurable temperature precision settings (graph snap step and input field step)
 - Settings panel now allows choosing between 0.1°, 0.5°, or 1.0° temperature steps
+- test_fire_event service now accepts node and day parameters for testing specific scenarios
+
+### Changed
+- test_fire_event now includes all group entities in event data instead of single entity_id
+
+### Fixed
+- Duplicate variable declaration causing syntax error in frontend
 
 ## [1.14.5] - 2026-01-03
 ### Changed
