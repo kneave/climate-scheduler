@@ -58,10 +58,6 @@ async def async_setup_entry(
         # Skip ignored entities
         if await storage.async_is_ignored(entity_id):
             continue
-            
-        # Skip disabled schedules
-        if not await storage.async_is_enabled(entity_id):
-            continue
         
         # Find the device for this climate entity
         entity_entry = entity_registry.async_get(entity_id)

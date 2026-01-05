@@ -633,10 +633,6 @@ class ScheduleStorage:
             self._data["groups"][entity_group_name]["enabled"] = enabled
             await self.async_save()
             _LOGGER.info(f"Set group '{entity_group_name}' enabled={enabled} for entity {entity_id}")
-            
-            # Reload sensor platform to create/remove derivative sensors
-            if enabled:
-                await self._reload_sensor_platform()
         else:
             _LOGGER.warning(f"Entity {entity_id} not found in any group for async_set_enabled")
     
@@ -884,6 +880,8 @@ class ScheduleStorage:
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
+        group_data = self._data["groups"][group_name]
+        
         # Check if entity is currently in a different single-entity group
         old_single_entity_group = None
         for existing_group_name, existing_group_data in self._data.get("groups", {}).items():
@@ -897,8 +895,13 @@ class ScheduleStorage:
                 existing_group_data["entities"].remove(entity_id)
                 break
         
-        if entity_id not in self._data["groups"][group_name]["entities"]:
-            self._data["groups"][group_name]["entities"].append(entity_id)
+        if entity_id not in group_data["entities"]:
+            group_data["entities"].append(entity_id)
+            
+            # If the group was a single-entity group and now has 2+ entities, convert to multi-entity group
+            if group_data.get("_is_single_entity_group") and len(group_data["entities"]) >= 2:
+                group_data["_is_single_entity_group"] = False
+                _LOGGER.info(f"Group '{group_name}' now has {len(group_data['entities'])} entities - converted to multi-entity group")
             
             # Delete the old single-entity group if it existed
             if old_single_entity_group:
@@ -917,6 +920,11 @@ class ScheduleStorage:
                 group_data = self._data["groups"][group_name]
                 
                 entities.remove(entity_id)
+                
+                # If only 1 entity remains, convert the group to a single-entity group
+                if len(entities) == 1:
+                    group_data["_is_single_entity_group"] = True
+                    _LOGGER.info(f"Group '{group_name}' now has only 1 entity - converted to single-entity group")
                 
                 # Create a new single-entity group for the removed entity using friendly name
                 friendly_name = entity_id
