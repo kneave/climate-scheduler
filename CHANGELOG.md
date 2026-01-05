@@ -1,5 +1,10 @@
 # Changelog
 
+
+## [1.14.7.1b] - 2026-01-05
+### Added
+- First attempt at a HA entity to control schedules
+
 ## [Unreleased]
 
 ## [1.14.6] - 2026-01-03
@@ -269,5 +274,6 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
