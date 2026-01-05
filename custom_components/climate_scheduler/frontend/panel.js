@@ -364,11 +364,11 @@ class ClimateSchedulerPanel extends HTMLElement {
                                             <div style="display:flex; gap:12px; align-items:center;">
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="min-temp" style="font-weight:600;">Min Temp (<span id="min-unit">°C</span>)</label>
-                                                    <input id="min-temp" type="number" step="0.5" placeholder="e.g. 5.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                    <input id="min-temp" type="number" step="0.1" placeholder="e.g. 5.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
                                                 </div>
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="max-temp" style="font-weight:600;">Max Temp (<span id="max-unit">°C</span>)</label>
-                                                    <input id="max-temp" type="number" step="0.5" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                    <input id="max-temp" type="number" step="0.1" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
                                                 </div>
                                             </div>
                                         </div>
@@ -376,6 +376,30 @@ class ClimateSchedulerPanel extends HTMLElement {
                                             <label>
                                                 <input type="checkbox" id="debug-panel-toggle" style="margin-right: 8px;"> Show Debug Panel
                                             </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="settings-section">
+                                        <h4>Temperature Precision</h4>
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
+                                            <div class="setting-item" style="flex:1;">
+                                                <label for="graph-snap-step">Graph Snap Step:</label>
+                                                <select id="graph-snap-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
+                                                    <option value="0.1">0.1°</option>
+                                                    <option value="0.5">0.5°</option>
+                                                    <option value="1">1.0°</option>
+                                                </select>
+                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Temperature rounding when dragging nodes on the graph</p>
+                                            </div>
+                                            <div class="setting-item" style="flex:1;">
+                                                <label for="input-temp-step">Input Field Step:</label>
+                                                <select id="input-temp-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
+                                                    <option value="0.1">0.1°</option>
+                                                    <option value="0.5">0.5°</option>
+                                                    <option value="1">1.0°</option>
+                                                </select>
+                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Step size for temperature input fields and up/down buttons</p>
+                                            </div>
                                         </div>
                                     </div>
                                     

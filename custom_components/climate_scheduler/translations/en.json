@@ -115,6 +115,10 @@
       "name": "Clear advance history",
       "description": "Clear stored advance history for a schedule target"
     },
+    "test_fire_event": {
+      "name": "Test fire event",
+      "description": "Fire a test node_activated event with the current active node settings for testing automations"
+    },
     "create_profile": {
       "name": "Create profile",
       "description": "Create a profile for a schedule"

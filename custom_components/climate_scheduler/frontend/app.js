@@ -33,9 +33,10 @@ function convertTemperature(temp, fromUnit, toUnit) {
 
 function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
+    const multiplier = 1 / graphSnapStep;
     return nodes.map(node => ({
         ...node,
-        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * 2) / 2 // Round to 0.5
+        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * multiplier) / multiplier
     }));
 }
 let allGroups = {}; // Store all groups data
@@ -45,6 +46,8 @@ let currentEntityId = null; // Currently selected individual entity (legacy path
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
+let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
+let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
 let isLoadingSchedule = false; // Flag to prevent auto-save during schedule loading
@@ -679,7 +682,7 @@ async function editGroupSchedule(groupName, day = null) {
     // Recreate graph with the new SVG element
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
-        graph = new TemperatureGraph(svgElement, temperatureUnit);
+        graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep);
         graph.setTooltipMode(tooltipMode);
         // Apply configured min/max if available
         if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
@@ -1820,9 +1823,9 @@ function createScheduleEditor() {
                         <div class="setting-item">
                             <label>Temperature:</label>
                             <div class="input-spinner">
-                                <button class="spinner-btn" id="temp-down" title="-0.5°">▼</button>
-                                <input type="number" id="node-temp-input" class="temp-input" step="0.5" />
-                                <button class="spinner-btn" id="temp-up" title="+0.5°">▲</button>
+                                <button class="spinner-btn" id="temp-down">▼</button>
+                                <input type="number" id="node-temp-input" class="temp-input" />
+                                <button class="spinner-btn" id="temp-up">▲</button>
                             </div>
                         </div>
                         <div class="setting-item" style="padding-left: 20px;">
@@ -1874,6 +1877,7 @@ function createScheduleEditor() {
                         </div>
                     </div>
                     <div class="settings-actions">
+                        <button id="test-fire-event-btn" class="btn-secondary" title="Test fire event with this node">🧪 Test Event</button>
                         <button id="delete-node" class="btn-danger">Delete Node</button>
                     </div>
                 </div>
@@ -2085,25 +2089,6 @@ function attachEditorEventListeners(editorElement) {
                 showToast('Failed: ' + error.message, 'error');
             } finally {
                 advanceBtn.disabled = false;
-            }
-        };
-    }
-    
-    // Test fire event button
-    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
-    if (testFireBtn) {
-        testFireBtn.onclick = async () => {
-            if (!currentGroup) return;
-            
-            testFireBtn.disabled = true;
-            try {
-                await haAPI.testFireEvent(currentGroup);
-                showToast(`Test event fired for group '${currentGroup}'`, 'success');
-            } catch (error) {
-                console.error('Failed to test fire event:', error);
-                showToast('Failed to fire test event: ' + error.message, 'error');
-            } finally {
-                testFireBtn.disabled = false;
             }
         };
     }
@@ -2323,9 +2308,9 @@ function attachEditorEventListeners(editorElement) {
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
-            // Increment based on temperature unit (0.5°C or 1°F)
-            const increment = temperatureUnit === '°F' ? 1 : 0.5;
-            node.temp = Math.round((node.temp + increment) * 10) / 10;
+            // Increment based on inputTempStep setting
+            const multiplier = 1 / inputTempStep;
+            node.temp = Math.round((node.temp + inputTempStep) * multiplier) / multiplier;
             
             tempInput.value = node.temp;
             graph.render();
@@ -2346,15 +2331,43 @@ function attachEditorEventListeners(editorElement) {
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
-            // Decrement based on temperature unit (0.5°C or 1°F)
-            const increment = temperatureUnit === '°F' ? 1 : 0.5;
-            node.temp = Math.round((node.temp - increment) * 10) / 10;
+            // Decrement based on inputTempStep setting
+            const multiplier = 1 / inputTempStep;
+            node.temp = Math.round((node.temp - inputTempStep) * multiplier) / multiplier;
             
             tempInput.value = node.temp;
             graph.render();
             saveSchedule();
         };
     };
+    
+    // Test fire event button (in node settings)
+    const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
+    if (testFireBtn) {
+        testFireBtn.onclick = async () => {
+            const panel = editorElement.querySelector('#node-settings-panel');
+            const nodeIndex = parseInt(panel.dataset.nodeIndex);
+            if (isNaN(nodeIndex) || !graph || !currentGroup) return;
+            
+            const node = graph.nodes[nodeIndex];
+            if (!node) return;
+            
+            testFireBtn.disabled = true;
+            try {
+                // Get current day
+                const now = new Date();
+                const currentDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now.getDay() === 0 ? 6 : now.getDay() - 1];
+                
+                await haAPI.testFireEvent(currentGroup, node, currentDay);
+                showToast(`Test event fired for node at ${node.time}`, 'success');
+            } catch (error) {
+                console.error('Failed to test fire event:', error);
+                showToast('Failed to fire test event: ' + error.message, 'error');
+            } finally {
+                testFireBtn.disabled = false;
+            }
+        };
+    }
     
     // Delete node button
     const deleteNode = editorElement.querySelector('#delete-node');
@@ -4374,9 +4387,16 @@ function handleNodeSettings(event) {
     if (tempInput) {
         tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
         tempInput.disabled = isNoChange;
+        tempInput.step = inputTempStep.toString(); // Set step dynamically
     }
-    if (tempUpBtn) tempUpBtn.disabled = isNoChange;
-    if (tempDownBtn) tempDownBtn.disabled = isNoChange;
+    if (tempUpBtn) {
+        tempUpBtn.disabled = isNoChange;
+        tempUpBtn.title = `+${inputTempStep}°`;
+    }
+    if (tempDownBtn) {
+        tempDownBtn.disabled = isNoChange;
+        tempDownBtn.title = `-${inputTempStep}°`;
+    }
     
     // Populate HVAC mode dropdown
     const hvacModeSelect = getDocumentRoot().querySelector('#node-hvac-mode');
@@ -4877,6 +4897,45 @@ async function setupSettingsPanel() {
                 debugContent.innerHTML = '';
                 debugLog('Debug console cleared');
             }
+        });
+    }
+    
+    // Graph snap step setting
+    const graphSnapStepSelect = getDocumentRoot().querySelector('#graph-snap-step');
+    if (graphSnapStepSelect) {
+        graphSnapStepSelect.value = graphSnapStep.toString();
+        graphSnapStepSelect.addEventListener('change', (e) => {
+            graphSnapStep = parseFloat(e.target.value);
+            localStorage.setItem('graphSnapStep', graphSnapStep);
+            showToast(`Graph snap step set to ${graphSnapStep}°`, 'success');
+            
+            // Update graph instance if it exists
+            if (graph) {
+                graph.graphSnapStep = graphSnapStep;
+            }
+        });
+    }
+    
+    // Input temperature step setting
+    const inputTempStepSelect = getDocumentRoot().querySelector('#input-temp-step');
+    if (inputTempStepSelect) {
+        inputTempStepSelect.value = inputTempStep.toString();
+        inputTempStepSelect.addEventListener('change', (e) => {
+            inputTempStep = parseFloat(e.target.value);
+            localStorage.setItem('inputTempStep', inputTempStep);
+            showToast(`Input field step set to ${inputTempStep}°`, 'success');
+            
+            // Update the temperature input field if it exists
+            const tempInput = getDocumentRoot().querySelector('#node-temp-input');
+            if (tempInput) {
+                tempInput.step = inputTempStep.toString();
+            }
+            
+            // Update button titles
+            const tempUpBtn = getDocumentRoot().querySelector('#temp-up');
+            const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
+            if (tempUpBtn) tempUpBtn.title = `+${inputTempStep}°`;
+            if (tempDownBtn) tempDownBtn.title = `-${inputTempStep}°`;
         });
     }
     
