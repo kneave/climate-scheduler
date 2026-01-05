@@ -1075,7 +1075,34 @@ class ScheduleStorage:
         
         self._data["groups"][group_name]["enabled"] = False
         await self.async_save()
-        _LOGGER.info(f"Disabled group '{group_name}'")    
+        _LOGGER.info(f"Disabled group '{group_name}'")
+    
+    async def async_enable_schedule(self, schedule_id: str) -> None:
+        """Enable a schedule by group name or entity_id."""
+        # Check if it's a group name
+        if schedule_id in self._data.get("groups", {}):
+            await self.async_enable_group(schedule_id)
+        else:
+            # Treat as entity_id - find its group
+            group_name = await self.async_get_entity_group(schedule_id)
+            if group_name:
+                await self.async_enable_group(group_name)
+            else:
+                raise ValueError(f"Schedule '{schedule_id}' not found")
+    
+    async def async_disable_schedule(self, schedule_id: str) -> None:
+        """Disable a schedule by group name or entity_id."""
+        # Check if it's a group name
+        if schedule_id in self._data.get("groups", {}):
+            await self.async_disable_group(schedule_id)
+        else:
+            # Treat as entity_id - find its group
+            group_name = await self.async_get_entity_group(schedule_id)
+            if group_name:
+                await self.async_disable_group(group_name)
+            else:
+                raise ValueError(f"Schedule '{schedule_id}' not found")
+    
     # Profile Management Methods
     
     async def async_create_profile(self, target_id: str, profile_name: str) -> None:

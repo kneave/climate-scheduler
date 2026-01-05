@@ -272,16 +272,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Climate Scheduler from a config entry."""
     await _async_setup_common(hass)
     
-    # Forward entry setup to sensor and climate platforms
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "climate"])
+    # Forward entry setup to sensor, climate, and switch platforms
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "climate", "switch"])
     
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Unload both platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "climate"])
+    # Unload all platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "climate", "switch"])
     
     # Remove panel and services only if this is the last entry
     entries = hass.config_entries.async_entries(DOMAIN)
