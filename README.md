@@ -51,6 +51,8 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 5. Click to add it
 6. Optionally set the view to "Panel" mode for a full-page experience
 
+> **Note:** If you encounter issues with the card not appearing, see the [Card Troubleshooting Guide](card_troubleshooting.md).
+
 **Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
 
 **Alternative (YAML):**
@@ -129,7 +131,7 @@ This integration supports UI-based setup (config entry). No YAML is required.
 
 1. Install the component via HACS
 2. Reboot Home Assistant
-3. Add an Integration for "Climate Scheduler Card"
+3. Open Settings -> Devices & Services -> Integrations, and then click "Add Integration" in the bottom right. Find the listing for "Climate Scheduler" and follow the steps to set up.
 4. Clear the frontend cache (doing this any earlier will do nothing)
 5. Finally, add the card to one of your dashboards
 
