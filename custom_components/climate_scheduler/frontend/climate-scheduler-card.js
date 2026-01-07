@@ -1,6 +1,5 @@
 ﻿/**
- * Climate Scheduler Card - Standalone Version
- * Requires Climate Scheduler integration to be installed for backend services
+ * Climate Scheduler Card 
  */
 
 class ClimateSchedulerCard extends HTMLElement {
