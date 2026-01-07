@@ -1,16 +1,50 @@
 # Changelog
 
-
-
-## [1.14.7.2b] - 2026-01-05
-### Added
-- Added a Switch entity that follows the Scheduler Component format
-
-## [1.14.7.1b] - 2026-01-05
-### Added
-- First attempt at a HA entity to control schedules
-
 ## [Unreleased]
+
+## [1.14.7.3b] - 2026-01-07
+
+### Added
+- **Scheduler Component Compatibility**: Switch entities now expose schedule data in scheduler-component format
+  - Each schedule creates a `switch.schedule_<name>_<token>` entity
+  - Attributes include `next_trigger`, `next_slot`, `actions`, and `next_entries`
+  - Compatible with integrations like Intelligent-Heating-Pilot that consume scheduler data
+  - Supports both single-entity and multi-entity group schedules
+- Documentation: Added SCHEDULER_COMPATIBILITY.md with integration examples
+- Documentation: Added TESTING_SCHEDULER_FORMAT.md with validation methods
+- Validation script: validate_scheduler_format.py for verifying data format compliance
+
+### Changed
+- Switch entities now use token-based unique IDs for better uniqueness (format: `switch.schedule_<name>_<token>`)
+- Actions array now properly populates with all schedule nodes and entities
+- Enhanced `_compute_schedule_attributes()` to derive entity from group name when missing
+
+### Fixed
+- Fixed AttributeError: 'entity_id' property no longer blocks Home Assistant from setting the entity ID
+- Automatic cleanup of old switch entities without token suffixes (removes duplicates on reload)
+- Empty entities list now handled gracefully - derives entity from single-entity group name
+- Actions and next_entries now properly populated even when entities list is temporarily empty
+
+### Added
+- **Scheduler Component Compatibility**: Switch entities now expose schedule data in scheduler-component format
+  - Each schedule creates a `switch.schedule_<name>_<token>` entity
+  - Attributes include `next_trigger`, `next_slot`, `actions`, and `next_entries`
+  - Compatible with integrations like Intelligent-Heating-Pilot that consume scheduler data
+  - Supports both single-entity and multi-entity group schedules
+- Documentation: Added SCHEDULER_COMPATIBILITY.md with integration examples
+- Documentation: Added TESTING_SCHEDULER_FORMAT.md with validation methods
+- Validation script: validate_scheduler_format.py for verifying data format compliance
+
+### Changed
+- Switch entities now use token-based unique IDs for better uniqueness (format: `switch.schedule_<name>_<token>`)
+- Actions array now properly populates with all schedule nodes and entities
+- Enhanced `_compute_schedule_attributes()` to derive entity from group name when missing
+
+### Fixed
+- Fixed AttributeError: 'entity_id' property no longer blocks Home Assistant from setting the entity ID
+- Automatic cleanup of old switch entities without token suffixes (removes duplicates on reload)
+- Empty entities list now handled gracefully - derives entity from single-entity group name
+- Actions and next_entries now properly populated even when entities list is temporarily empty
 
 ## [1.14.6] - 2026-01-03
 
@@ -279,6 +313,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
