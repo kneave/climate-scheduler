@@ -22,8 +22,35 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Climate Scheduler switch entities from a config entry."""
+    from homeassistant.helpers import entity_registry as er
+    
     storage = hass.data[DOMAIN]["storage"]
     coordinator = hass.data[DOMAIN]["coordinator"]
+    entity_registry = er.async_get(hass)
+    
+    # Clean up old switch entities that don't have the token suffix
+    # (These are from before we added the unique_id token)
+    old_entities_removed = 0
+    for entry in list(entity_registry.entities.values()):
+        if entry.platform != DOMAIN or entry.domain != "switch":
+            continue
+        
+        # Old entities have unique_id like "climate_scheduler_schedule_bathroom"
+        # New entities have unique_id like "climate_scheduler_schedule_climate.bathroom_abc123"
+        # or "climate_scheduler_schedule_Bathroom_abc123"
+        if entry.unique_id and entry.unique_id.startswith(f"{DOMAIN}_schedule_"):
+            # Check if it's missing the token (no underscore followed by 6 hex chars at the end)
+            parts = entry.unique_id.split("_")
+            last_part = parts[-1] if parts else ""
+            
+            # If the last part is not a 6-character hex token, it's an old entity
+            if len(last_part) != 6 or not all(c in "0123456789abcdef" for c in last_part.lower()):
+                _LOGGER.info(f"Removing old scheduler entity: {entry.entity_id} (unique_id: {entry.unique_id})")
+                entity_registry.async_remove(entry.entity_id)
+                old_entities_removed += 1
+    
+    if old_entities_removed > 0:
+        _LOGGER.info(f"Removed {old_entities_removed} old scheduler switch entities")
     
     switches = []
     
@@ -236,15 +263,22 @@ class ClimateSchedulerSwitch(CoordinatorEntity, SwitchEntity):
             
             # Build actions list for all nodes
             entities = self._group_data.get("entities", [])
+            
+            # If entities list is empty, try to derive from group name for single-entity groups
+            if not entities and self._group_name.startswith("__entity_"):
+                entities = [self._group_name.replace("__entity_", "")]
+                _LOGGER.debug(f"Derived entity from group name: {entities}")
+            
             self._cached_actions = []
             
             for node in sorted_nodes:
                 temp = node.get("temp")
-                actions_for_node = []
                 
-                for entity_id in entities:
+                # If still no entities, create a generic action without entity_id
+                # This allows the data structure to be populated even if entities are missing
+                if not entities:
                     action = {
-                        "entity_id": entity_id,
+                        "entity_id": "unknown",
                         "service": "climate.set_temperature",
                         "data": {"temperature": temp}
                     }
@@ -258,9 +292,26 @@ class ClimateSchedulerSwitch(CoordinatorEntity, SwitchEntity):
                         action["service"] = "climate.set_preset_mode"
                         action["data"] = {"preset_mode": node["preset_mode"]}
                     
-                    actions_for_node.append(action)
-                
-                self._cached_actions.extend(actions_for_node)
+                    self._cached_actions.append(action)
+                else:
+                    # Normal case: create actions for each entity
+                    for entity_id in entities:
+                        action = {
+                            "entity_id": entity_id,
+                            "service": "climate.set_temperature",
+                            "data": {"temperature": temp}
+                        }
+                        
+                        # Add HVAC mode if present
+                        if "hvac_mode" in node:
+                            action["data"]["hvac_mode"] = node["hvac_mode"]
+                        
+                        # Add preset mode if present
+                        if "preset_mode" in node:
+                            action["service"] = "climate.set_preset_mode"
+                            action["data"] = {"preset_mode": node["preset_mode"]}
+                        
+                        self._cached_actions.append(action)
             
             # Build next_entries (fallback format)
             self._cached_next_entries = []
@@ -278,12 +329,21 @@ class ClimateSchedulerSwitch(CoordinatorEntity, SwitchEntity):
                         node_dt += timedelta(days=1)
                     
                     entry_actions = []
-                    for entity_id in entities:
+                    
+                    # If still no entities, create a generic action
+                    if not entities:
                         entry_actions.append({
-                            "entity_id": entity_id,
+                            "entity_id": "unknown",
                             "service": "climate.set_temperature",
                             "data": {"temperature": temp}
                         })
+                    else:
+                        for entity_id in entities:
+                            entry_actions.append({
+                                "entity_id": entity_id,
+                                "service": "climate.set_temperature",
+                                "data": {"temperature": temp}
+                            })
                     
                     self._cached_next_entries.append({
                         "time": node_dt.isoformat(),
