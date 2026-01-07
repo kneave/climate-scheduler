@@ -1,0 +1,151 @@
+{
+  "title": "Climate Scheduler",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Konfigurácia plánovača klimatizácie",
+        "description": "Plánovač klimatizácie je pripravený na použitie. Nie je potrebná žiadna ďalšia konfigurácia."
+      }
+    }
+  },
+  "services": {
+    "set_schedule": {
+      "name": "Nastavenie klimatického harmonogramu",
+      "description": "Konfigurácia teplotného plánu pre cieľový plán"
+    },
+    "get_schedule": {
+      "name": "Získajte klimatický harmonogram",
+      "description": "Načítať aktuálny rozvrh pre cieľ rozvrhu"
+    },
+    "clear_schedule": {
+        "name": "Vymazať klimatický harmonogram",
+      "description": "Vymazať plán pre cieľ plánu"
+    },
+    "enable_schedule": {
+      "name": "Povoliť klimatický plán",
+      "description": "Povoliť plán pre cieľ plánu"
+    },
+    "disable_schedule": {
+      "name": "Zakázať klimatizačný plán",
+      "description": "Zakázať plán pre cieľ plánu"
+    },
+    "create_group": {
+      "name": "Vytvoriť skupinu termostatov",
+      "description": "Vytvorte novú skupinu na zdieľanie harmonogramov medzi viacerými termostatmi"
+    },
+    "delete_group": {
+      "name": "Odstrániť skupinu termostatov",
+      "description": "Odstrániť skupinu termostatov"
+    },
+    "add_to_group": {
+      "name": "Pridať termostat do skupiny",
+      "description": "Pridanie klimatickej entity do skupiny"
+    },
+    "remove_from_group": {
+      "name": "Odstrániť termostat zo skupiny",
+      "description": "Odstránenie klimatickej entity zo skupiny"
+    },
+    "get_groups": {
+      "name": "Získať všetky skupiny",
+      "description": "Načítať všetky skupiny termostatov"
+    },
+    "set_group_schedule": {
+      "name": "Nastaviť rozvrh skupiny",
+      "description": "Nastavenie plánu pre všetky termostaty v skupine"
+    },
+    "sync_all": {
+      "name": "Synchronizovať všetky termostaty",
+      "description": "Vynútiť synchronizáciu všetkých povolených termostatov s ich harmonogramami"
+    },
+    "enable_group": {
+      "name": "Povoliť skupinový rozvrh",
+      "description": "Povoliť automatické plánovanie pre všetky termostaty v skupine"
+    },
+    "disable_group": {
+      "name": "Zakázať skupinový rozvrh",
+      "description": "Zakázať automatické plánovanie pre všetky termostaty v skupine"
+    },
+    "get_settings": {
+      "name": "Získať nastavenia",
+      "description": "Získanie globálnych nastavení integrácie (min./max. teplota, predvolený harmonogram atď.)"
+    },
+    "save_settings": {
+      "name": "Uložiť nastavenia",
+      "description": "Uložiť nastavenia globálnej integrácie"
+    },
+    "reload_integration": {
+      "name": "Integrácia obnovenia (vývojár)",
+      "description": "Obnoviť integráciu plánovača klimatizácie (iba pre vývojárov)"
+    }
+    ,
+    "reregister_card": {
+      "name": "Znovu zaregistrujte vlastnú kartu",
+      "description": "Odstráňte všetky existujúce frontendové zdroje zodpovedajúce danej URL adrese a vytvorte nový záznam zdroja"
+    }
+    ,
+    "recreate_all_sensors": {
+      "name": "Znovu vytvorte všetky senzory",
+      "description": "Odstráňte a znovu vytvorte všetky odvodené senzory"
+    },
+    "cleanup_malformed_sensors": {
+      "name": "Vyčistenie chybných senzorov",
+      "description": "Vyhľadajte neočakávané derivačné senzory a voliteľne ich odstráňte"
+    },
+    "set_ignored": {
+      "name": "Ignorované",
+      "description": "Označiť cieľ plánu ako ignorovaný alebo nie"
+    },
+    "advance_schedule": {
+      "name": "Pokročilý rozvrh",
+      "description": "Dočasný pokročilý plán pre cieľ plánu"
+    },
+    "advance_group": {
+      "name": "Pokročilá skupina",
+      "description": "Dočasné pokročilé rozvrhy pre skupinu"
+    },
+    "cancel_advance": {
+      "name": "Zrušiť pokročilé",
+      "description": "Zrušenie rozšírenej akcie plánovania pre cieľ plánovania"
+    },
+    "get_advance_status": {
+      "name": "Získať stav zálohy",
+      "description": "Získanie aktuálneho stavu zálohy pre cieľ plánu"
+    },
+    "clear_advance_history": {
+      "name": "Vymazať históriu záloh",
+      "description": "Vymazať uloženú históriu predbežných nastavení pre cieľ plánu"
+    },
+    "test_fire_event": {
+      "name": "Test fire event",
+      "description": "Fire a test node_activated event with the current active node settings for testing automations"
+    },
+    "create_profile": {
+      "name": "Vytvorriť profil",
+      "description": "Vytvorenie profilu pre rozvrh"
+    },
+    "delete_profile": {
+      "name": "Zmazať profil",
+      "description": "Odstránenie profilu z rozvrhu"
+    },
+    "rename_profile": {
+      "name": "Premenovať profil",
+      "description": "Premenovať profil"
+    },
+    "set_active_profile": {
+      "name": "Nastaviť aktívny profil",
+      "description": "Nastavenie aktívneho profilu pre plán"
+    },
+    "get_profiles": {
+      "name": "Získať profily",
+      "description": "Získajte profily pre rozvrh"
+    },
+    "cleanup_derivative_sensors": {
+      "name": "Čistenie derivačných senzorov",
+      "description": "Odstrániť odvodené senzory na základe nastavenia automatického vytvárania"
+    },
+    "factory_reset": {
+      "name": "Obnovenie továrenských nastavení",
+      "description": "Obnoviť všetky údaje plánovača klimatizácie do nového stavu (deštruktívne)"
+    }
+  }
+}
