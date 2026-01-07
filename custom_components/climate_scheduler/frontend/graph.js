@@ -1452,17 +1452,29 @@ class TemperatureGraph {
     }
     
     getNodeAtPoint(point) {
+        // Preconditions
+        if (this.nodes.length == 0) {
+            return null;  // No nodes, so no node at point
+        }
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+            throw new Error('point must be an object with numeric x and y properties')
+        }
+
+        // Logic
+        let closestIndex = null;
+        let closestDistance = Infinity;
         for (let i = 0; i < this.nodes.length; i++) {
             const node = this.nodes[i];
             const x = this.timeToX(node.time);
             const y = this.tempToY(node.temp);
             const distance = Math.sqrt(Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2));
             
-            if (distance <= this.nodeTouchRadius) {
-                return i;
+            if (distance <= this.nodeTouchRadius && distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = i;
             }
         }
-        return null;
+        return closestIndex;
     }
 
     getSortedNodeIndices() {
