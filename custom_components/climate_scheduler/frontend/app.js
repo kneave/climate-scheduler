@@ -2181,7 +2181,10 @@ function attachEditorEventListeners(editorElement) {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
             if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const newIndex = currentIndex > 0 ? currentIndex - 1 : graph.nodes.length - 1;
+                const sortedIndices = graph.getSortedNodeIndices();
+                const currentPos = sortedIndices.indexOf(currentIndex);
+                const newPos = currentPos > 0 ? currentPos - 1 : sortedIndices.length - 1;
+                const newIndex = sortedIndices[newPos];
                 graph.showNodeSettings(newIndex);
             }
         };
@@ -2192,7 +2195,10 @@ function attachEditorEventListeners(editorElement) {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
             if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const newIndex = currentIndex < graph.nodes.length - 1 ? currentIndex + 1 : 0;
+                const sortedIndices = graph.getSortedNodeIndices();
+                const currentPos = sortedIndices.indexOf(currentIndex);
+                const newPos = currentPos < graph.nodes.length - 1 ? currentPos + 1 : 0;
+                const newIndex = sortedIndices[newPos];
                 graph.showNodeSettings(newIndex);
             }
         };
