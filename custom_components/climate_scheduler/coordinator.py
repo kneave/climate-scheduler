@@ -326,10 +326,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 )
         
         # Fire event for manual advance
+        # Get all entities in the group for event data
+        group_entities = groups[group_name].get("entities", [])
+        
         self.hass.bus.async_fire(
             f"{DOMAIN}_node_activated",
             {
-                "entity_id": entity_id,
+                "entity_id": entity_id,  # Specific entity that was advanced
+                "entities": group_entities,  # All entities in the group
                 "group_name": group_name,
                 "node": {
                     "time": next_node.get("time"),
@@ -660,6 +664,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         f"{DOMAIN}_node_activated",
                         {
                             "entity_id": None,  # No entity for virtual groups
+                            "entities": [],  # Empty list for virtual groups
                             "group_name": group_name,
                             "node": {
                                 "time": active_node.get("time"),
@@ -942,10 +947,15 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 
                 # Fire event for scheduled node activation ONLY if node actually changed
                 if node_time_changed or node_state_changed:
+                    # Get all entities in the group for event data
+                    all_groups = await self.storage.async_get_groups()
+                    group_entities = all_groups.get(group_name, {}).get("entities", [])
+                    
                     self.hass.bus.async_fire(
                         f"{DOMAIN}_node_activated",
                         {
                             "entity_id": entity_id,
+                            "entities": group_entities,  # All entities in the group
                             "group_name": group_name,
                             "node": {
                                 "time": active_node.get("time"),

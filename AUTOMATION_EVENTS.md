@@ -64,10 +64,11 @@ The event includes the following data:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `entity_id` | string or null | The climate entity that was updated (e.g., `climate.bedroom`), or `null` for virtual schedules |
+| `entity_id` | string or null | The climate entity that was updated (e.g., `climate.bedroom`), or `null` for virtual schedules. For single-entity events, this is the specific entity. For backwards compatibility. |
+| `entities` | list | All climate entities in the group (e.g., `["climate.bedroom"]`). Empty list for virtual schedules. **Use this field for new automations.** |
 | `group_name` | string | The group name this entity belongs to |
 | `day` | string | Day of the week (`mon`, `tue`, `wed`, etc.) |
-| `trigger_type` | string | Either `scheduled` or `manual_advance` |
+| `trigger_type` | string | Either `scheduled`, `manual_advance`, or `test` |
 | `node` | object | Details about the activated node |
 | `node.time` | string | Time of the node (e.g., `07:00`) |
 | `node.temp` | number or null | Target temperature (after clamping), or `null` for "no change" |
