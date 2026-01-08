@@ -228,13 +228,52 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         
         # Get the schedule data from storage (synchronously accessible)
         group_data = self._storage._data.get("groups", {}).get(self._group_name, {})
+        schedule_mode = group_data.get("schedule_mode", "all_days")
         schedules = group_data.get("schedules", {})
-        schedule_data = schedules.get(current_day)
+        
+        # Get nodes for current day using the same logic as coordinator
+        if schedule_mode == "all_days":
+            nodes = schedules.get("all_days", [])
+        elif schedule_mode == "5/2":
+            if current_day in ["mon", "tue", "wed", "thu", "fri"]:
+                nodes = schedules.get("weekday", [])
+            else:
+                nodes = schedules.get("weekend", [])
+        else:  # individual
+            nodes = schedules.get(current_day, [])
+        
+        # In individual or 5/2 mode, if current time is before all nodes today,
+        # use previous day's last node
+        if schedule_mode in ["individual", "5/2"] and nodes:
+            sorted_nodes = sorted(nodes, key=lambda n: self._storage._time_to_minutes(n["time"]))
+            current_minutes = current_time.hour * 60 + current_time.minute
+            if sorted_nodes and current_minutes < self._storage._time_to_minutes(sorted_nodes[0]["time"]):
+                # We're before the first node of today, need previous day/period's last node
+                days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+                current_day_index = days_of_week.index(current_day)
+                prev_day = days_of_week[(current_day_index - 1) % 7]
+                
+                # Get previous day's nodes based on schedule mode
+                if schedule_mode == "5/2":
+                    # In 5/2 mode, determine if previous day is weekday or weekend
+                    if prev_day in ["mon", "tue", "wed", "thu", "fri"]:
+                        prev_day_nodes = schedules.get("weekday", [])
+                    else:
+                        prev_day_nodes = schedules.get("weekend", [])
+                else:
+                    # In individual mode, use specific day
+                    prev_day_nodes = schedules.get(prev_day, [])
+                
+                if prev_day_nodes:
+                    sorted_prev_nodes = sorted(prev_day_nodes, key=lambda n: self._storage._time_to_minutes(n["time"]))
+                    last_prev_node = sorted_prev_nodes[-1]
+                    # Prepend previous day's last node with time "00:00"
+                    carryover_node = {**last_prev_node, "time": "00:00"}
+                    nodes = [carryover_node] + nodes
         
         # Determine the active setpoint from schedule
         active_setpoint = None
-        if schedule_data and "nodes" in schedule_data:
-            nodes = schedule_data["nodes"]
+        if nodes:
             active_node = self._storage.get_active_node(nodes, current_time)
             if active_node:
                 active_setpoint = active_node.get("temp")

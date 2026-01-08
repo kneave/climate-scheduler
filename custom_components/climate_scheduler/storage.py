@@ -796,6 +796,51 @@ class ScheduleStorage:
         
         return active_node
     
+    async def get_active_node_for_group(self, group_name: str, current_time: Optional[time] = None, current_day: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get the active node for a group at a given time, handling cross-day transitions in individual mode.
+        
+        Args:
+            group_name: Name of the group
+            current_time: Time to check (defaults to now)
+            current_day: Day abbreviation (mon, tue, etc.) (defaults to today)
+            
+        Returns:
+            The active node at the specified time, or None if no schedule exists
+        """
+        if current_time is None:
+            current_time = datetime.now().time()
+        if current_day is None:
+            current_day = datetime.now().strftime('%a').lower()
+        
+        # Get group schedule for current day
+        group_schedule = await self.async_get_group_schedule(group_name, current_day)
+        if not group_schedule or not group_schedule.get("nodes"):
+            return None
+        
+        schedule_mode = group_schedule.get("schedule_mode", "all_days")
+        nodes = group_schedule["nodes"]
+        
+        # In individual or 5/2 mode, check if we need previous day's schedule
+        if schedule_mode in ["individual", "5/2"] and nodes:
+            sorted_nodes = sorted(nodes, key=lambda n: self._time_to_minutes(n["time"]))
+            current_minutes = current_time.hour * 60 + current_time.minute
+            first_node_minutes = self._time_to_minutes(sorted_nodes[0]["time"])
+            
+            if current_minutes < first_node_minutes:
+                # We're before the first node of today, get previous day/period's last node
+                days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+                current_day_index = days_of_week.index(current_day)
+                prev_day = days_of_week[(current_day_index - 1) % 7]
+                
+                prev_day_schedule = await self.async_get_group_schedule(group_name, prev_day)
+                if prev_day_schedule and prev_day_schedule.get("nodes"):
+                    prev_nodes = prev_day_schedule["nodes"]
+                    sorted_prev_nodes = sorted(prev_nodes, key=lambda n: self._time_to_minutes(n["time"]))
+                    return sorted_prev_nodes[-1]
+        
+        # Normal case: get active node from current day's schedule
+        return self.get_active_node(nodes, current_time)
+    
     def get_next_node(self, nodes: List[Dict[str, Any]], current_time: time) -> Optional[Dict[str, Any]]:
         """Get the next scheduled node after the current time."""
         if not nodes:

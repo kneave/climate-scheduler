@@ -554,6 +554,40 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Get group schedule for current day
                 group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
                 if group_schedule and "nodes" in group_schedule:
+                    # In individual or 5/2 mode, if current time is before all nodes today,
+                    # we need to check previous day's schedule for the active node
+                    schedule_mode = group_schedule.get("schedule_mode", "all_days")
+                    nodes = group_schedule["nodes"]
+                    
+                    if schedule_mode in ["individual", "5/2"] and nodes:
+                        # Check if current time is before all nodes today
+                        sorted_nodes = sorted(nodes, key=lambda n: self.storage._time_to_minutes(n["time"]))
+                        current_minutes = current_time.hour * 60 + current_time.minute
+                        first_node_minutes = self.storage._time_to_minutes(sorted_nodes[0]["time"])
+                        
+                        if current_minutes < first_node_minutes:
+                            # We're before the first node of today, need previous day/period's last node
+                            _LOGGER.info(f"Group '{group_name}': Current time {current_time} is before first node today, checking previous period")
+                            
+                            # Calculate previous day
+                            days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+                            current_day_index = days_of_week.index(current_day)
+                            prev_day = days_of_week[(current_day_index - 1) % 7]
+                            
+                            # Get previous day's schedule
+                            prev_day_schedule = await self.storage.async_get_group_schedule(group_name, prev_day)
+                            if prev_day_schedule and prev_day_schedule.get("nodes"):
+                                # Use previous day's last node as the active node until first node today
+                                prev_nodes = prev_day_schedule["nodes"]
+                                sorted_prev_nodes = sorted(prev_nodes, key=lambda n: self.storage._time_to_minutes(n["time"]))
+                                last_prev_node = sorted_prev_nodes[-1]
+                                
+                                # Prepend the previous day's last node to today's schedule with time "00:00"
+                                # This way get_active_node will correctly use it as the active node until first node today
+                                carryover_node = {**last_prev_node, "time": "00:00", "_from_previous_day": True}
+                                group_schedule["nodes"] = [carryover_node] + nodes
+                                _LOGGER.info(f"Group '{group_name}': Carrying over previous period's node (temp={last_prev_node.get('temp')}) to bridge to first node at {sorted_nodes[0]['time']}")
+                    
                     entities_list = group_data.get("entities", [])
                     
                     if len(entities_list) == 0:
