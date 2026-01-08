@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.14.7.4b] - 2026-01-08
+
+### Fixed
+- Issue 101: In 7 day or weekday/weekend modes tha coordinator wasn't checking the last node from the previous session and incorrectly using the last from the new session.
+
+### Fixed
+- Issue 101: In 7 day or weekday/weekend modes tha coordinator wasn't checking the last node from the previous session and incorrectly using the last from the new session.
+
 ## [1.14.7.3b] - 2026-01-07
 
 ### Added
@@ -313,6 +321,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
