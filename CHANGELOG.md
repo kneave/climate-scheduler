@@ -6,9 +6,7 @@
 
 ### Fixed
 - Issue 101: In 7 day or weekday/weekend modes tha coordinator wasn't checking the last node from the previous session and incorrectly using the last from the new session.
-
-### Fixed
-- Issue 101: In 7 day or weekday/weekend modes tha coordinator wasn't checking the last node from the previous session and incorrectly using the last from the new session.
+- Issue 102: `climate_scheduler_node_activated` events fired by coordinator and the test events button didn't match. `entity_id` is used if there's a single entity but `entities` is used where there are multiple. In the future I will remove `entity_id` and have single 
 
 ## [1.14.7.3b] - 2026-01-07
 

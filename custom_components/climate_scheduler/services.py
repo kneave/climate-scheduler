@@ -1219,6 +1219,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             hass.bus.async_fire(
                 f"{DOMAIN}_node_activated",
                 {
+                    # TODO: Remove entity_id in future version - deprecated in favor of entities list
+                    "entity_id": entities[0] if len(entities) == 1 else None,  # Single entity for backwards compatibility
                     "entities": entities,
                     "group_name": group_name,
                     "node": {
@@ -1259,6 +1261,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             hass.bus.async_fire(
                 f"{DOMAIN}_node_activated",
                 {
+                    # TODO: Remove entity_id in future version - deprecated in favor of entities list
+                    "entity_id": entity_id,  # The specific entity that was requested
                     "entities": entities,
                     "group_name": group_name,
                     "node": {
