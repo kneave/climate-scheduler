@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [1.14.7.5b] - 2026-01-09
+
+### Added
+- **Frontend Card Registration**: Improved card registration following HACS best practices
+  - Card now registers in picker immediately when JavaScript loads, before class definition
+  - Registration wrapped in IIFE with error handling to prevent cascade failures
+  - Better logging for debugging registration issues
+- **Automatic Browser Refresh Detection**: Frontend now detects when cached version is stale
+  - Version checking in both `climate-scheduler-card.js` and `panel.js`
+  - Shows toast notification when browser cache doesn't match server version
+  - Uses sessionStorage to avoid showing notification repeatedly
+  - Works for both dashboard cards and panel views
+- **Automatic Reload on Install/Upgrade**: Integration automatically reloads after first install or version upgrade
+  - Detects first install and upgrades by tracking version in config entry
+  - Triggers automatic reload 2 seconds after setup completes
+  - Ensures all entities and UI components are properly initialized
+  - Eliminates need for manual reload after installation or updates
+
+### Changed
+- Removed "(Dev)" suffix from "Reload Integration" service and button
+  - Service name: `climate_scheduler.reload_integration` (unchanged)
+  - Display name now: "Reload integration" (was "Reload integration (Dev)")
+  - Description updated to remove "development only" text
+- Frontend version checking moved from backend to JavaScript
+  - More accurate detection of stale browser cache
+  - Backend cannot know what's cached in user's browser
+
+### Fixed
+- Card registration now more resilient to loading errors
+- Version mismatch detection works correctly in both panel and dashboard contexts
+
 ## [1.14.7.4b] - 2026-01-08
 
 ### Fixed
@@ -31,26 +62,6 @@
 - Empty entities list now handled gracefully - derives entity from single-entity group name
 - Actions and next_entries now properly populated even when entities list is temporarily empty
 
-### Added
-- **Scheduler Component Compatibility**: Switch entities now expose schedule data in scheduler-component format
-  - Each schedule creates a `switch.schedule_<name>_<token>` entity
-  - Attributes include `next_trigger`, `next_slot`, `actions`, and `next_entries`
-  - Compatible with integrations like Intelligent-Heating-Pilot that consume scheduler data
-  - Supports both single-entity and multi-entity group schedules
-- Documentation: Added SCHEDULER_COMPATIBILITY.md with integration examples
-- Documentation: Added TESTING_SCHEDULER_FORMAT.md with validation methods
-- Validation script: validate_scheduler_format.py for verifying data format compliance
-
-### Changed
-- Switch entities now use token-based unique IDs for better uniqueness (format: `switch.schedule_<name>_<token>`)
-- Actions array now properly populates with all schedule nodes and entities
-- Enhanced `_compute_schedule_attributes()` to derive entity from group name when missing
-
-### Fixed
-- Fixed AttributeError: 'entity_id' property no longer blocks Home Assistant from setting the entity ID
-- Automatic cleanup of old switch entities without token suffixes (removes duplicates on reload)
-- Empty entities list now handled gracefully - derives entity from single-entity group name
-- Actions and next_entries now properly populated even when entities list is temporarily empty
 
 ## [1.14.6] - 2026-01-03
 
