@@ -950,8 +950,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
                 
-                # Fire event for scheduled node activation ONLY if node actually changed
-                if node_time_changed or node_state_changed:
+                # Fire event for scheduled node activation ONLY if node time changed (scheduled transition)
+                # Do NOT fire events when only state changed (user editing current node)
+                if node_time_changed:
                     # Get all entities in the group for event data
                     all_groups = await self.storage.async_get_groups()
                     group_entities = all_groups.get(group_name, {}).get("entities", [])
@@ -981,7 +982,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled transition)")
                 else:
-                    _LOGGER.debug(f"Skipping event for {entity_id} - no node transition detected")
+                    _LOGGER.debug(f"Skipping event for {entity_id} - node state changed but time unchanged (user edit)")
                 
                 results[entity_id] = {
                     "updated": True,

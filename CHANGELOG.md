@@ -1,5 +1,13 @@
 # Changelog
 
+## [unreleased]
+### Fixed
+- **Node Activated Events**: Events now only fire on scheduled time transitions, not when editing current node
+  - `climate_scheduler_node_activated` events now only trigger when node time changes (scheduled transition)
+  - Editing the current active node's settings no longer fires spurious events
+  - Climate entities still update immediately when current node is edited, but events are suppressed
+  - Prevents unwanted automation triggers when adjusting schedules in the UI
+
 ## [1.14.7.6b] - 2026-01-09
 
 ### Added
