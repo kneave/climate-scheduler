@@ -1,6 +1,7 @@
 # Changelog
 
-## [unreleased]
+
+## [1.14.7.7b] - 2026-01-09
 ### Fixed
 - **Node Activated Events**: Events now only fire on scheduled time transitions, not when editing current node
   - `climate_scheduler_node_activated` events now only trigger when node time changes (scheduled transition)
