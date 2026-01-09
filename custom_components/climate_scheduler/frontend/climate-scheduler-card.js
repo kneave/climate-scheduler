@@ -2,6 +2,71 @@
  * Climate Scheduler Card 
  */
 
+// Version checking - detect if browser cache is stale
+(async function() {
+  try {
+    const scriptUrl = document.currentScript?.src || new URL(import.meta.url).href;
+    const loadedVersion = new URL(scriptUrl).searchParams.get('v');
+    
+    // Fetch the current server version
+    const response = await fetch('/climate_scheduler/static/.version');
+    if (response.ok) {
+      const serverVersion = (await response.text()).trim().split(',')[0];
+      
+      // Compare versions - if they don't match, user has stale cache
+      if (loadedVersion && serverVersion && loadedVersion !== serverVersion) {
+        console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
+        
+        // Store in sessionStorage to avoid showing repeatedly
+        const notificationKey = 'climate_scheduler_refresh_shown';
+        const shownVersion = sessionStorage.getItem(notificationKey);
+        
+        if (shownVersion !== serverVersion) {
+          // Show persistent notification
+          const event = new Event('hass-notification', {
+            bubbles: true,
+            cancelable: false,
+            composed: true
+          });
+          event.detail = {
+            message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
+            duration: 0  // Persistent notification
+          };
+          document.body.dispatchEvent(event);
+          
+          // Mark as shown for this session
+          sessionStorage.setItem(notificationKey, serverVersion);
+          console.info('[Climate Scheduler] Refresh notification displayed');
+        }
+      }
+    }
+  } catch (e) {
+    console.debug('[Climate Scheduler] Version check failed:', e);
+  }
+})();
+
+// Register card in picker immediately before class definition
+// This ensures the card appears in the card picker even if there are errors during class definition
+(function() {
+  try {
+    window.customCards = window.customCards || [];
+    const cardType = 'climate-scheduler-card';
+    const exists = window.customCards.some((c) => c.type === cardType);
+    
+    if (!exists) {
+      window.customCards.push({
+        type: cardType,
+        name: 'Climate Scheduler Card',
+        description: 'Full Climate Scheduler UI as a Lovelace card',
+        preview: false,
+      });
+      console.info('[Climate Scheduler] Card registered in picker');
+    }
+  } catch (e) {
+    console.error('[Climate Scheduler] Failed to register card in picker:', e);
+  }
+})();
+
 class ClimateSchedulerCard extends HTMLElement {
   static getConfigElement() { return null; }
   static getStubConfig() { return {}; }
@@ -151,19 +216,14 @@ class ClimateSchedulerCard extends HTMLElement {
   }
 }
 
+// Define custom element after class is fully defined
 if (!customElements.get('climate-scheduler-card')) {
-  customElements.define('climate-scheduler-card', ClimateSchedulerCard);
-}
-
-window.customCards = window.customCards || [];
-const exists = window.customCards.some((c) => c.type === 'climate-scheduler-card');
-if (!exists) {
-  window.customCards.push({
-    type: 'climate-scheduler-card',
-    name: 'Climate Scheduler Card',
-    description: 'Full Climate Scheduler UI as a Lovelace card',
-    preview: false,
-  });
+  try {
+    customElements.define('climate-scheduler-card', ClimateSchedulerCard);
+    console.info('[Climate Scheduler] Custom element defined');
+  } catch (e) {
+    console.error('[Climate Scheduler] Failed to define custom element:', e);
+  }
 }
 
 export {};
