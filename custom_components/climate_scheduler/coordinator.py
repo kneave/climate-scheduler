@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
 from .storage import ScheduleStorage
@@ -33,7 +34,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
 
     async def async_get_advance_status(self, entity_id: str) -> dict:
         """Return advance override status for a climate entity or a group schedule_id."""
-        now = datetime.now()
+        now = dt_util.now()
 
         # If this is a group schedule_id, aggregate across member entities.
         group = await self.storage.async_get_group(entity_id)
@@ -121,8 +122,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Manually advance a specific entity to its next scheduled node."""
         _LOGGER.info(f"Advancing {entity_id} to next scheduled node")
         
-        current_time = datetime.now().time()
-        current_day = datetime.now().strftime('%a').lower()
+        now = dt_util.now()
+        current_time = now.time()
+        current_day = now.strftime('%a').lower()
         
         # Load global settings (min/max temps)
         try:
@@ -182,9 +184,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         # Set override to prevent auto-revert until next node's scheduled time
         next_node_time_str = next_node["time"]
         next_node_hours, next_node_minutes = map(int, next_node_time_str.split(":"))
-        override_until = datetime.now().replace(hour=next_node_hours, minute=next_node_minutes, second=0, microsecond=0)
+        override_until = dt_util.now().replace(hour=next_node_hours, minute=next_node_minutes, second=0, microsecond=0)
         # If next node time is earlier in the day than current time, it's tomorrow
-        if override_until <= datetime.now():
+        if override_until <= dt_util.now():
             override_until += timedelta(days=1)
         self.override_until[entity_id] = override_until
         
@@ -192,7 +194,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         if entity_id not in self.advance_history:
             self.advance_history[entity_id] = []
         self.advance_history[entity_id].append({
-            "activated_at": datetime.now().isoformat(),
+            "activated_at": dt_util.now().isoformat(),
             "target_time": next_node_time_str,
             "target_node": next_node,
             "cancelled_at": None
@@ -367,7 +369,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             if target_entity_id in self.advance_history and self.advance_history[target_entity_id]:
                 latest = self.advance_history[target_entity_id][-1]
                 if latest.get("cancelled_at") is None:
-                    latest["cancelled_at"] = datetime.now().isoformat()
+                    latest["cancelled_at"] = dt_util.now().isoformat()
 
             # Remove override if it exists
             if target_entity_id in self.override_until:
@@ -419,7 +421,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         if entity_id not in self.advance_history:
             return []
         
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = dt_util.now() - timedelta(hours=hours)
         history = []
         
         for event in self.advance_history[entity_id]:
@@ -486,7 +488,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 self.advance_history[group_name] = []
             self.advance_history[group_name].append(
                 {
-                    "activated_at": datetime.now().isoformat(),
+                    "activated_at": dt_util.now().isoformat(),
                     "target_time": first_success_next_node.get("time"),
                     "target_node": first_success_next_node,
                     "cancelled_at": None,
@@ -512,7 +514,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Get override status for an entity."""
         if entity_id in self.override_until:
             override_time = self.override_until[entity_id]
-            if datetime.now() < override_time:
+            if dt_util.now() < override_time:
                 return {
                     "has_override": True,
                     "override_until": override_time.isoformat()
@@ -523,8 +525,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Update heating schedules."""
         _LOGGER.info("=== COORDINATOR UPDATE CYCLE START ===")
         try:
-            current_time = datetime.now().time()
-            current_day = datetime.now().strftime('%a').lower()  # Get day: mon, tue, wed, etc.
+            now = dt_util.now()
+            current_time = now.time()
+            current_day = now.strftime('%a').lower()  # Get day: mon, tue, wed, etc.
             _LOGGER.info(f"Current time: {current_time}, day: {current_day}")
             # Load global settings (min/max temps)
             try:
@@ -703,7 +706,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Check if entity has an active advance override
                 if entity_id in self.override_until:
                     override_time = self.override_until[entity_id]
-                    if datetime.now() < override_time:
+                    if dt_util.now() < override_time:
                         _LOGGER.debug(f"Skipping {entity_id} - advance override active until {override_time}")
                         results[entity_id] = {
                             "updated": False,
@@ -718,7 +721,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             # Find the most recent uncompleted advance
                             for event in reversed(self.advance_history[entity_id]):
                                 if event["cancelled_at"] is None:
-                                    event["cancelled_at"] = datetime.now().isoformat()
+                                    event["cancelled_at"] = dt_util.now().isoformat()
                                     _LOGGER.info(f"Marked advance as completed for {entity_id}")
                                     history_updated = True
                                     break
