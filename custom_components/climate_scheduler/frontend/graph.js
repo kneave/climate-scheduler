@@ -990,9 +990,13 @@ class TemperatureGraph {
         // Create path with step function (hold value until next node)
         let pathData = '';
         
-        // Start from midnight with last node's temperature (wraps from previous day)
+        // Start from midnight with temperature from previous day's last node
+        // In 7-day or weekday/weekend modes, use previousDayLastTemp if set
+        // Otherwise fall back to current day's last node (for all_days mode)
         const startX = this.timeToX("00:00");
-        const startTemp = nodesWithTemp[nodesWithTemp.length - 1].temp;
+        const startTemp = (this.previousDayLastTemp !== null && this.previousDayLastTemp !== undefined) 
+            ? this.previousDayLastTemp 
+            : nodesWithTemp[nodesWithTemp.length - 1].temp;
         pathData = `M ${startX} ${this.tempToY(startTemp)}`;
         
         // Draw steps for each node that has a temperature
@@ -1635,6 +1639,13 @@ class TemperatureGraph {
     // Public methods
     setNodes(nodes) {
         this.nodes = nodes.map(n => ({ ...n }));
+        this.render();
+    }
+    
+    setPreviousDayLastTemp(temp) {
+        // Set the temperature from the previous day's last node
+        // Used for drawing the line at the start of the current day
+        this.previousDayLastTemp = temp;
         this.render();
     }
     
