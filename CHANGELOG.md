@@ -1,8 +1,6 @@
 # Changelog
 
-## [Unreleased]
-
-## [1.14.7.5b] - 2026-01-09
+## [1.14.7.6b] - 2026-01-09
 
 ### Added
 - **Frontend Card Registration**: Improved card registration following HACS best practices
@@ -30,8 +28,24 @@
   - Backend cannot know what's cached in user's browser
 
 ### Fixed
+- **Issue 101 Graph Rendering**: Enhanced fix for graph line drawing at the start of the day in 7-day and weekday/weekend modes
+  - Graph now correctly uses previous day's last temperature node when drawing the line at the start of the current day
+  - Added `setPreviousDayLastTemp()` method to graph.js for cross-day continuity
+  - Helper function in app.js determines correct previous day based on schedule mode (all_days, 5/2, individual)
+  - Fixes visual issue where graph would incorrectly draw from current day's last node at midnight
+- **Timezone Handling**: Fixed coordinator to use Home Assistant's configured timezone instead of system timezone
+  - Replaced all `datetime.now()` calls with `dt_util.now()` in coordinator.py (11 instances)
+  - Ensures schedule activation respects HA's timezone configuration, not the host system's timezone
+  - Critical for users where Home Assistant timezone differs from system timezone
+  - Properly handles daylight saving time (DST) transitions
+  - Storage format unchanged - times remain as "HH:MM" strings
 - Card registration now more resilient to loading errors
 - Version mismatch detection works correctly in both panel and dashboard contexts
+
+## [1.14.7.5b] - 2026-01-08
+
+### Fixed
+- Issue 102: `climate_scheduler_node_activated` events fired by coordinator and the test events button didn't match. `entity_id` is used if there's a single entity but `entities` is used where there are multiple. In the future I will remove `entity_id` and have single 
 
 ## [1.14.7.4b] - 2026-01-08
 
