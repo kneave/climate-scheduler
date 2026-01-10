@@ -1,17 +1,18 @@
 # Changelog
 
-
-## [1.14.7.7b] - 2026-01-09
-### Fixed
-- **Node Activated Events**: Events now only fire on scheduled time transitions, not when editing current node
-  - `climate_scheduler_node_activated` events now only trigger when node time changes (scheduled transition)
-  - Editing the current active node's settings no longer fires spurious events
-  - Climate entities still update immediately when current node is edited, but events are suppressed
-  - Prevents unwanted automation triggers when adjusting schedules in the UI
-
-## [1.14.7.6b] - 2026-01-09
+## [1.14.7] - 2026-01-10
 
 ### Added
+- **Scheduler Component Compatibility**: Switch entities now expose schedule data in scheduler-component format
+  - Each schedule creates a `switch.schedule_<name>_<token>` entity
+  - Attributes include `next_trigger`, `next_slot`, `actions`, and `next_entries`
+  - Compatible with integrations like Intelligent-Heating-Pilot that consume scheduler data
+  - Supports both single-entity and multi-entity group schedules
+- Documentation: Added SCHEDULER_COMPATIBILITY.md with integration examples
+- Documentation: Added TESTING_SCHEDULER_FORMAT.md with validation methods
+- Validation script: validate_scheduler_format.py for verifying data format compliance
+
+### Updated
 - **Frontend Card Registration**: Improved card registration following HACS best practices
   - Card now registers in picker immediately when JavaScript loads, before class definition
   - Registration wrapped in IIFE with error handling to prevent cascade failures
@@ -35,8 +36,17 @@
 - Frontend version checking moved from backend to JavaScript
   - More accurate detection of stale browser cache
   - Backend cannot know what's cached in user's browser
+  - Switch entities now use token-based unique IDs for better uniqueness (format: `switch.schedule_<name>_<token>`)
+- Actions array now properly populates with all schedule nodes and entities
+- Enhanced `_compute_schedule_attributes()` to derive entity from group name when missing
+
 
 ### Fixed
+- **Node Activated Events**: Events now only fire on scheduled time transitions, not when editing current node
+  - `climate_scheduler_node_activated` events now only trigger when node time changes (scheduled transition)
+  - Editing the current active node's settings no longer fires spurious events
+  - Climate entities still update immediately when current node is edited, but events are suppressed
+  - Prevents unwanted automation triggers when adjusting schedules in the UI
 - **Issue 101 Graph Rendering**: Enhanced fix for graph line drawing at the start of the day in 7-day and weekday/weekend modes
   - Graph now correctly uses previous day's last temperature node when drawing the line at the start of the current day
   - Added `setPreviousDayLastTemp()` method to graph.js for cross-day continuity
@@ -50,36 +60,9 @@
   - Storage format unchanged - times remain as "HH:MM" strings
 - Card registration now more resilient to loading errors
 - Version mismatch detection works correctly in both panel and dashboard contexts
-
-## [1.14.7.5b] - 2026-01-08
-
-### Fixed
 - Issue 102: `climate_scheduler_node_activated` events fired by coordinator and the test events button didn't match. `entity_id` is used if there's a single entity but `entities` is used where there are multiple. In the future I will remove `entity_id` and have single 
-
-## [1.14.7.4b] - 2026-01-08
-
-### Fixed
 - Issue 101: In 7 day or weekday/weekend modes tha coordinator wasn't checking the last node from the previous session and incorrectly using the last from the new session.
 - Issue 102: `climate_scheduler_node_activated` events fired by coordinator and the test events button didn't match. `entity_id` is used if there's a single entity but `entities` is used where there are multiple. In the future I will remove `entity_id` and have single 
-
-## [1.14.7.3b] - 2026-01-07
-
-### Added
-- **Scheduler Component Compatibility**: Switch entities now expose schedule data in scheduler-component format
-  - Each schedule creates a `switch.schedule_<name>_<token>` entity
-  - Attributes include `next_trigger`, `next_slot`, `actions`, and `next_entries`
-  - Compatible with integrations like Intelligent-Heating-Pilot that consume scheduler data
-  - Supports both single-entity and multi-entity group schedules
-- Documentation: Added SCHEDULER_COMPATIBILITY.md with integration examples
-- Documentation: Added TESTING_SCHEDULER_FORMAT.md with validation methods
-- Validation script: validate_scheduler_format.py for verifying data format compliance
-
-### Changed
-- Switch entities now use token-based unique IDs for better uniqueness (format: `switch.schedule_<name>_<token>`)
-- Actions array now properly populates with all schedule nodes and entities
-- Enhanced `_compute_schedule_attributes()` to derive entity from group name when missing
-
-### Fixed
 - Fixed AttributeError: 'entity_id' property no longer blocks Home Assistant from setting the entity ID
 - Automatic cleanup of old switch entities without token suffixes (removes duplicates on reload)
 - Empty entities list now handled gracefully - derives entity from single-entity group name
