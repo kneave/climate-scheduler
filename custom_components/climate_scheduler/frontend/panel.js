@@ -3,6 +3,49 @@
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
 
+// Version checking - detect if browser cache is stale
+(async function() {
+  try {
+    const scriptUrl = document.currentScript?.src || new URL(import.meta.url).href;
+    const loadedVersion = new URL(scriptUrl).searchParams.get('v');
+    
+    // Fetch the current server version
+    const response = await fetch('/climate_scheduler/static/.version');
+    if (response.ok) {
+      const serverVersion = (await response.text()).trim().split(',')[0];
+      
+      // Compare versions - if they don't match, user has stale cache
+      if (loadedVersion && serverVersion && loadedVersion !== serverVersion) {
+        console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
+        
+        // Store in sessionStorage to avoid showing repeatedly
+        const notificationKey = 'climate_scheduler_refresh_shown';
+        const shownVersion = sessionStorage.getItem(notificationKey);
+        
+        if (shownVersion !== serverVersion) {
+          // Show persistent notification
+          const event = new Event('hass-notification', {
+            bubbles: true,
+            cancelable: false,
+            composed: true
+          });
+          event.detail = {
+            message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
+            duration: 0  // Persistent notification
+          };
+          document.body.dispatchEvent(event);
+          
+          // Mark as shown for this session
+          sessionStorage.setItem(notificationKey, serverVersion);
+          console.info('[Climate Scheduler] Refresh notification displayed');
+        }
+      }
+    }
+  } catch (e) {
+    console.debug('[Climate Scheduler] Version check failed:', e);
+  }
+})();
+
 // Load other JavaScript files
 const loadScript = (src) => {
     return new Promise((resolve, reject) => {
@@ -421,7 +464,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                             <div class="settings-actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap;">
                                 <button id="refresh-entities-menu" class="btn-secondary">↻ Refresh Entities</button>
                                 <button id="sync-all-menu" class="btn-secondary">⟲ Sync All Thermostats</button>
-                                <button id="reload-integration-menu" class="btn-secondary">🔄 Reload Integration (Dev)</button>
+                                <button id="reload-integration-menu" class="btn-secondary">🔄 Reload Integration</button>
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
                                 <button id="cleanup-derivative-sensors-btn" class="btn-secondary">🧹 Cleanup Derivative Sensors</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>

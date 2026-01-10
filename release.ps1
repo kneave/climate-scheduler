@@ -170,7 +170,9 @@ if (-not $Version) {
     # Check if manifest version is valid for release
     $canUseManifest = $true
     $canReRelease = $false
-    if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTag) {
+    # Strip 'b' suffix from tag for comparison with manifest version
+    $latestTagNumeric = $latestTag -replace 'b$', ''
+    if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTagNumeric) {
         $canUseManifest = $false
         $canReRelease = $true  # Allow re-release option
     }

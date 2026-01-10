@@ -189,13 +189,11 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
 
         if resources is None:
             _LOGGER.warning("Lovelace resources not available, card will need manual registration")
-            hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
             return
 
         # Check for YAML mode
         if not hasattr(resources, "store") or resources.store is None:
             _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
-            hass.data[DOMAIN]["frontend_registered_version"] = frontend_version
             return
 
         # Ensure resources are loaded
@@ -244,10 +242,14 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
 
         # Create a new resource entry for the bundled card
         await resources.async_create_item({"res_type": "module", "url": url})
+        
         if removed_old:
             _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
         else:
             _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+        
+        # Note: Version mismatch detection and refresh notification is handled by the frontend
+        # JavaScript, which can accurately detect when the browser cache is stale
 
     except Exception as err:
         _LOGGER.error("Failed to auto-register frontend card: %s", err)
@@ -272,16 +274,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Climate Scheduler from a config entry."""
     await _async_setup_common(hass)
     
-    # Forward entry setup to sensor platform for derivative sensors
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    # Get current version from manifest
+    manifest_path = Path(__file__).parent / "manifest.json"
+    current_version = None
+    try:
+        manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
+        manifest = json.loads(manifest_text)
+        current_version = manifest.get("version")
+    except Exception as e:
+        _LOGGER.warning("Failed to read manifest version: %s", e)
+    
+    # Check if this is first install or an upgrade
+    stored_version = entry.data.get("version")
+    is_first_install = stored_version is None
+    is_upgrade = stored_version is not None and current_version != stored_version
+    
+    # Update version in config entry if changed
+    if current_version and (is_first_install or is_upgrade):
+        new_data = dict(entry.data)
+        new_data["version"] = current_version
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        
+        if is_first_install:
+            _LOGGER.info("First install detected (version %s) - will reload integration after setup", current_version)
+        elif is_upgrade:
+            _LOGGER.info("Upgrade detected (%s -> %s) - will reload integration after setup", stored_version, current_version)
+    
+    # Forward entry setup to sensor, climate, and switch platforms
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "climate", "switch"])
+    
+    # Reload integration after first install or upgrade to ensure UI is properly initialized
+    if is_first_install or is_upgrade:
+        async def _delayed_reload():
+            """Reload integration after a short delay to allow setup to complete."""
+            await asyncio.sleep(2)  # Wait for platforms to fully initialize
+            try:
+                _LOGGER.info("Performing post-setup reload to initialize UI")
+                await hass.config_entries.async_reload(entry.entry_id)
+            except Exception as e:
+                _LOGGER.warning("Post-setup reload failed: %s", e)
+        
+        import asyncio
+        hass.async_create_task(_delayed_reload())
     
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Unload sensor platform
-    await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    # Unload all platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "climate", "switch"])
     
     # Remove panel and services only if this is the last entry
     entries = hass.config_entries.async_entries(DOMAIN)
@@ -307,5 +349,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data.pop(DOMAIN, None)
     else:
         _LOGGER.info("[BACKEND] Unloading entry but keeping services (not last entry)")
-    return True
+    
+    return unload_ok
 

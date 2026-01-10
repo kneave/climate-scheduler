@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
 from .storage import ScheduleStorage
@@ -33,7 +34,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
 
     async def async_get_advance_status(self, entity_id: str) -> dict:
         """Return advance override status for a climate entity or a group schedule_id."""
-        now = datetime.now()
+        now = dt_util.now()
 
         # If this is a group schedule_id, aggregate across member entities.
         group = await self.storage.async_get_group(entity_id)
@@ -121,8 +122,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Manually advance a specific entity to its next scheduled node."""
         _LOGGER.info(f"Advancing {entity_id} to next scheduled node")
         
-        current_time = datetime.now().time()
-        current_day = datetime.now().strftime('%a').lower()
+        now = dt_util.now()
+        current_time = now.time()
+        current_day = now.strftime('%a').lower()
         
         # Load global settings (min/max temps)
         try:
@@ -182,9 +184,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         # Set override to prevent auto-revert until next node's scheduled time
         next_node_time_str = next_node["time"]
         next_node_hours, next_node_minutes = map(int, next_node_time_str.split(":"))
-        override_until = datetime.now().replace(hour=next_node_hours, minute=next_node_minutes, second=0, microsecond=0)
+        override_until = dt_util.now().replace(hour=next_node_hours, minute=next_node_minutes, second=0, microsecond=0)
         # If next node time is earlier in the day than current time, it's tomorrow
-        if override_until <= datetime.now():
+        if override_until <= dt_util.now():
             override_until += timedelta(days=1)
         self.override_until[entity_id] = override_until
         
@@ -192,7 +194,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         if entity_id not in self.advance_history:
             self.advance_history[entity_id] = []
         self.advance_history[entity_id].append({
-            "activated_at": datetime.now().isoformat(),
+            "activated_at": dt_util.now().isoformat(),
             "target_time": next_node_time_str,
             "target_node": next_node,
             "cancelled_at": None
@@ -326,10 +328,15 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 )
         
         # Fire event for manual advance
+        # Get all entities in the group for event data
+        group_entities = groups[group_name].get("entities", [])
+        
         self.hass.bus.async_fire(
             f"{DOMAIN}_node_activated",
             {
-                "entity_id": entity_id,
+                # TODO: Remove entity_id in future version - deprecated in favor of entities list
+                "entity_id": entity_id,  # Specific entity that was advanced
+                "entities": group_entities,  # All entities in the group
                 "group_name": group_name,
                 "node": {
                     "time": next_node.get("time"),
@@ -362,7 +369,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             if target_entity_id in self.advance_history and self.advance_history[target_entity_id]:
                 latest = self.advance_history[target_entity_id][-1]
                 if latest.get("cancelled_at") is None:
-                    latest["cancelled_at"] = datetime.now().isoformat()
+                    latest["cancelled_at"] = dt_util.now().isoformat()
 
             # Remove override if it exists
             if target_entity_id in self.override_until:
@@ -414,7 +421,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         if entity_id not in self.advance_history:
             return []
         
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = dt_util.now() - timedelta(hours=hours)
         history = []
         
         for event in self.advance_history[entity_id]:
@@ -481,7 +488,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 self.advance_history[group_name] = []
             self.advance_history[group_name].append(
                 {
-                    "activated_at": datetime.now().isoformat(),
+                    "activated_at": dt_util.now().isoformat(),
                     "target_time": first_success_next_node.get("time"),
                     "target_node": first_success_next_node,
                     "cancelled_at": None,
@@ -507,7 +514,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Get override status for an entity."""
         if entity_id in self.override_until:
             override_time = self.override_until[entity_id]
-            if datetime.now() < override_time:
+            if dt_util.now() < override_time:
                 return {
                     "has_override": True,
                     "override_until": override_time.isoformat()
@@ -518,8 +525,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         """Update heating schedules."""
         _LOGGER.info("=== COORDINATOR UPDATE CYCLE START ===")
         try:
-            current_time = datetime.now().time()
-            current_day = datetime.now().strftime('%a').lower()  # Get day: mon, tue, wed, etc.
+            now = dt_util.now()
+            current_time = now.time()
+            current_day = now.strftime('%a').lower()  # Get day: mon, tue, wed, etc.
             _LOGGER.info(f"Current time: {current_time}, day: {current_day}")
             # Load global settings (min/max temps)
             try:
@@ -554,6 +562,40 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Get group schedule for current day
                 group_schedule = await self.storage.async_get_group_schedule(group_name, current_day)
                 if group_schedule and "nodes" in group_schedule:
+                    # In individual or 5/2 mode, if current time is before all nodes today,
+                    # we need to check previous day's schedule for the active node
+                    schedule_mode = group_schedule.get("schedule_mode", "all_days")
+                    nodes = group_schedule["nodes"]
+                    
+                    if schedule_mode in ["individual", "5/2"] and nodes:
+                        # Check if current time is before all nodes today
+                        sorted_nodes = sorted(nodes, key=lambda n: self.storage._time_to_minutes(n["time"]))
+                        current_minutes = current_time.hour * 60 + current_time.minute
+                        first_node_minutes = self.storage._time_to_minutes(sorted_nodes[0]["time"])
+                        
+                        if current_minutes < first_node_minutes:
+                            # We're before the first node of today, need previous day/period's last node
+                            _LOGGER.info(f"Group '{group_name}': Current time {current_time} is before first node today, checking previous period")
+                            
+                            # Calculate previous day
+                            days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+                            current_day_index = days_of_week.index(current_day)
+                            prev_day = days_of_week[(current_day_index - 1) % 7]
+                            
+                            # Get previous day's schedule
+                            prev_day_schedule = await self.storage.async_get_group_schedule(group_name, prev_day)
+                            if prev_day_schedule and prev_day_schedule.get("nodes"):
+                                # Use previous day's last node as the active node until first node today
+                                prev_nodes = prev_day_schedule["nodes"]
+                                sorted_prev_nodes = sorted(prev_nodes, key=lambda n: self.storage._time_to_minutes(n["time"]))
+                                last_prev_node = sorted_prev_nodes[-1]
+                                
+                                # Prepend the previous day's last node to today's schedule with time "00:00"
+                                # This way get_active_node will correctly use it as the active node until first node today
+                                carryover_node = {**last_prev_node, "time": "00:00", "_from_previous_day": True}
+                                group_schedule["nodes"] = [carryover_node] + nodes
+                                _LOGGER.info(f"Group '{group_name}': Carrying over previous period's node (temp={last_prev_node.get('temp')}) to bridge to first node at {sorted_nodes[0]['time']}")
+                    
                     entities_list = group_data.get("entities", [])
                     
                     if len(entities_list) == 0:
@@ -625,7 +667,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     self.hass.bus.async_fire(
                         f"{DOMAIN}_node_activated",
                         {
+                            # TODO: Remove entity_id in future version - deprecated in favor of entities list
                             "entity_id": None,  # No entity for virtual groups
+                            "entities": [],  # Empty list for virtual groups
                             "group_name": group_name,
                             "node": {
                                 "time": active_node.get("time"),
@@ -662,7 +706,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Check if entity has an active advance override
                 if entity_id in self.override_until:
                     override_time = self.override_until[entity_id]
-                    if datetime.now() < override_time:
+                    if dt_util.now() < override_time:
                         _LOGGER.debug(f"Skipping {entity_id} - advance override active until {override_time}")
                         results[entity_id] = {
                             "updated": False,
@@ -677,7 +721,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             # Find the most recent uncompleted advance
                             for event in reversed(self.advance_history[entity_id]):
                                 if event["cancelled_at"] is None:
-                                    event["cancelled_at"] = datetime.now().isoformat()
+                                    event["cancelled_at"] = dt_util.now().isoformat()
                                     _LOGGER.info(f"Marked advance as completed for {entity_id}")
                                     history_updated = True
                                     break
@@ -906,12 +950,19 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
                 
-                # Fire event for scheduled node activation ONLY if node actually changed
-                if node_time_changed or node_state_changed:
+                # Fire event for scheduled node activation ONLY if node time changed (scheduled transition)
+                # Do NOT fire events when only state changed (user editing current node)
+                if node_time_changed:
+                    # Get all entities in the group for event data
+                    all_groups = await self.storage.async_get_groups()
+                    group_entities = all_groups.get(group_name, {}).get("entities", [])
+                    
                     self.hass.bus.async_fire(
                         f"{DOMAIN}_node_activated",
                         {
+                            # TODO: Remove entity_id in future version - deprecated in favor of entities list
                             "entity_id": entity_id,
+                            "entities": group_entities,  # All entities in the group
                             "group_name": group_name,
                             "node": {
                                 "time": active_node.get("time"),
@@ -931,7 +982,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled transition)")
                 else:
-                    _LOGGER.debug(f"Skipping event for {entity_id} - no node transition detected")
+                    _LOGGER.debug(f"Skipping event for {entity_id} - node state changed but time unchanged (user edit)")
                 
                 results[entity_id] = {
                     "updated": True,

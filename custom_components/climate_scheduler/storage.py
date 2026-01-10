@@ -633,10 +633,6 @@ class ScheduleStorage:
             self._data["groups"][entity_group_name]["enabled"] = enabled
             await self.async_save()
             _LOGGER.info(f"Set group '{entity_group_name}' enabled={enabled} for entity {entity_id}")
-            
-            # Reload sensor platform to create/remove derivative sensors
-            if enabled:
-                await self._reload_sensor_platform()
         else:
             _LOGGER.warning(f"Entity {entity_id} not found in any group for async_set_enabled")
     
@@ -800,6 +796,51 @@ class ScheduleStorage:
         
         return active_node
     
+    async def get_active_node_for_group(self, group_name: str, current_time: Optional[time] = None, current_day: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get the active node for a group at a given time, handling cross-day transitions in individual mode.
+        
+        Args:
+            group_name: Name of the group
+            current_time: Time to check (defaults to now)
+            current_day: Day abbreviation (mon, tue, etc.) (defaults to today)
+            
+        Returns:
+            The active node at the specified time, or None if no schedule exists
+        """
+        if current_time is None:
+            current_time = datetime.now().time()
+        if current_day is None:
+            current_day = datetime.now().strftime('%a').lower()
+        
+        # Get group schedule for current day
+        group_schedule = await self.async_get_group_schedule(group_name, current_day)
+        if not group_schedule or not group_schedule.get("nodes"):
+            return None
+        
+        schedule_mode = group_schedule.get("schedule_mode", "all_days")
+        nodes = group_schedule["nodes"]
+        
+        # In individual or 5/2 mode, check if we need previous day's schedule
+        if schedule_mode in ["individual", "5/2"] and nodes:
+            sorted_nodes = sorted(nodes, key=lambda n: self._time_to_minutes(n["time"]))
+            current_minutes = current_time.hour * 60 + current_time.minute
+            first_node_minutes = self._time_to_minutes(sorted_nodes[0]["time"])
+            
+            if current_minutes < first_node_minutes:
+                # We're before the first node of today, get previous day/period's last node
+                days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+                current_day_index = days_of_week.index(current_day)
+                prev_day = days_of_week[(current_day_index - 1) % 7]
+                
+                prev_day_schedule = await self.async_get_group_schedule(group_name, prev_day)
+                if prev_day_schedule and prev_day_schedule.get("nodes"):
+                    prev_nodes = prev_day_schedule["nodes"]
+                    sorted_prev_nodes = sorted(prev_nodes, key=lambda n: self._time_to_minutes(n["time"]))
+                    return sorted_prev_nodes[-1]
+        
+        # Normal case: get active node from current day's schedule
+        return self.get_active_node(nodes, current_time)
+    
     def get_next_node(self, nodes: List[Dict[str, Any]], current_time: time) -> Optional[Dict[str, Any]]:
         """Get the next scheduled node after the current time."""
         if not nodes:
@@ -884,6 +925,8 @@ class ScheduleStorage:
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
+        group_data = self._data["groups"][group_name]
+        
         # Check if entity is currently in a different single-entity group
         old_single_entity_group = None
         for existing_group_name, existing_group_data in self._data.get("groups", {}).items():
@@ -897,8 +940,13 @@ class ScheduleStorage:
                 existing_group_data["entities"].remove(entity_id)
                 break
         
-        if entity_id not in self._data["groups"][group_name]["entities"]:
-            self._data["groups"][group_name]["entities"].append(entity_id)
+        if entity_id not in group_data["entities"]:
+            group_data["entities"].append(entity_id)
+            
+            # If the group was a single-entity group and now has 2+ entities, convert to multi-entity group
+            if group_data.get("_is_single_entity_group") and len(group_data["entities"]) >= 2:
+                group_data["_is_single_entity_group"] = False
+                _LOGGER.info(f"Group '{group_name}' now has {len(group_data['entities'])} entities - converted to multi-entity group")
             
             # Delete the old single-entity group if it existed
             if old_single_entity_group:
@@ -917,6 +965,11 @@ class ScheduleStorage:
                 group_data = self._data["groups"][group_name]
                 
                 entities.remove(entity_id)
+                
+                # If only 1 entity remains, convert the group to a single-entity group
+                if len(entities) == 1:
+                    group_data["_is_single_entity_group"] = True
+                    _LOGGER.info(f"Group '{group_name}' now has only 1 entity - converted to single-entity group")
                 
                 # Create a new single-entity group for the removed entity using friendly name
                 friendly_name = entity_id
@@ -1067,7 +1120,34 @@ class ScheduleStorage:
         
         self._data["groups"][group_name]["enabled"] = False
         await self.async_save()
-        _LOGGER.info(f"Disabled group '{group_name}'")    
+        _LOGGER.info(f"Disabled group '{group_name}'")
+    
+    async def async_enable_schedule(self, schedule_id: str) -> None:
+        """Enable a schedule by group name or entity_id."""
+        # Check if it's a group name
+        if schedule_id in self._data.get("groups", {}):
+            await self.async_enable_group(schedule_id)
+        else:
+            # Treat as entity_id - find its group
+            group_name = await self.async_get_entity_group(schedule_id)
+            if group_name:
+                await self.async_enable_group(group_name)
+            else:
+                raise ValueError(f"Schedule '{schedule_id}' not found")
+    
+    async def async_disable_schedule(self, schedule_id: str) -> None:
+        """Disable a schedule by group name or entity_id."""
+        # Check if it's a group name
+        if schedule_id in self._data.get("groups", {}):
+            await self.async_disable_group(schedule_id)
+        else:
+            # Treat as entity_id - find its group
+            group_name = await self.async_get_entity_group(schedule_id)
+            if group_name:
+                await self.async_disable_group(group_name)
+            else:
+                raise ValueError(f"Schedule '{schedule_id}' not found")
+    
     # Profile Management Methods
     
     async def async_create_profile(self, target_id: str, profile_name: str) -> None:

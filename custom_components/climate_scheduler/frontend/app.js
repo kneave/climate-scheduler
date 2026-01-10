@@ -781,6 +781,9 @@ async function editGroupSchedule(groupName, day = null) {
     // Set initial nodes
     graph.setNodes(currentSchedule);
     
+    // Set previous day's last temperature for graph rendering
+    setPreviousDayLastTempForGraph(groupData, currentDay);
+    
     // Always attach the permanent nodesChanged listener for auto-save
     if (svg) {
         svg.removeEventListener('nodesChanged', handleGraphChange); // Remove any previous
@@ -2181,7 +2184,10 @@ function attachEditorEventListeners(editorElement) {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
             if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const newIndex = currentIndex > 0 ? currentIndex - 1 : graph.nodes.length - 1;
+                const sortedIndices = graph.getSortedNodeIndices();
+                const currentPos = sortedIndices.indexOf(currentIndex);
+                const newPos = currentPos > 0 ? currentPos - 1 : sortedIndices.length - 1;
+                const newIndex = sortedIndices[newPos];
                 graph.showNodeSettings(newIndex);
             }
         };
@@ -2192,7 +2198,10 @@ function attachEditorEventListeners(editorElement) {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
             if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const newIndex = currentIndex < graph.nodes.length - 1 ? currentIndex + 1 : 0;
+                const sortedIndices = graph.getSortedNodeIndices();
+                const currentPos = sortedIndices.indexOf(currentIndex);
+                const newPos = currentPos < graph.nodes.length - 1 ? currentPos + 1 : 0;
+                const newIndex = sortedIndices[newPos];
                 graph.showNodeSettings(newIndex);
             }
         };
@@ -2866,6 +2875,57 @@ function updateGraphProfileDropdown() {
     });
 }
 
+// Set previous day's last temperature for graph rendering
+function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
+    if (!graph || !groupData || !groupData.schedules) return;
+    
+    const scheduleMode = groupData.schedule_mode || 'all_days';
+    
+    // In all_days mode, previous day is same as current day
+    if (scheduleMode === 'all_days') {
+        graph.setPreviousDayLastTemp(null);
+        return;
+    }
+    
+    // Determine previous day based on schedule mode
+    let previousDayKey = null;
+    
+    if (scheduleMode === '5/2') {
+        // In weekday/weekend mode
+        if (currentDayParam === 'weekday') {
+            // Previous period is weekend
+            previousDayKey = 'weekend';
+        } else if (currentDayParam === 'weekend') {
+            // Previous period is weekday (Friday)
+            previousDayKey = 'weekday';
+        }
+    } else if (scheduleMode === 'individual') {
+        // In 7-day mode, get actual previous day
+        const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const currentIndex = days.indexOf(currentDayParam);
+        if (currentIndex !== -1) {
+            previousDayKey = days[(currentIndex - 1 + 7) % 7];
+        }
+    }
+    
+    // Get previous day's schedule
+    if (previousDayKey && groupData.schedules[previousDayKey]) {
+        const previousDayNodes = groupData.schedules[previousDayKey];
+        if (previousDayNodes && previousDayNodes.length > 0) {
+            // Find the last node with a temperature (not noChange)
+            const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
+            if (nodesWithTemp.length > 0) {
+                const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+                graph.setPreviousDayLastTemp(lastNode.temp);
+                return;
+            }
+        }
+    }
+    
+    // If no previous day data found, don't set it (will fall back to current day's last node)
+    graph.setPreviousDayLastTemp(null);
+}
+
 // Update graph title to show which day is being edited
 function updateGraphTitle() {
     const graphWrapper = getDocumentRoot().querySelector('.graph-wrapper');
@@ -2967,6 +3027,9 @@ async function switchScheduleMode(newMode) {
         // Update graph with new nodes
         graph.setNodes(currentSchedule);
         
+        // Set previous day's last temperature for graph rendering
+        setPreviousDayLastTempForGraph(groupData, currentDay);
+        
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
@@ -3031,6 +3094,9 @@ async function switchDay(day) {
         
         // Update graph with new nodes
         graph.setNodes(currentSchedule);
+        
+        // Set previous day's last temperature for graph rendering
+        setPreviousDayLastTempForGraph(groupData, currentDay);
         
         // Clear loading flag after a delay
         setTimeout(() => {
