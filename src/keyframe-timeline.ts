@@ -1,0 +1,1556 @@
+import { LitElement, html, css } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+
+export interface Keyframe {
+  time: number;
+  value: number;
+}
+
+export interface BackgroundGraph {
+  keyframes: Keyframe[];
+  color?: string; // Optional color (defaults to theme color with transparency)
+  label?: string; // Optional label for the graph
+}
+
+// Color palette for automatic background graph coloring
+const BACKGROUND_GRAPH_COLORS = [
+  '#f44336', // Red
+  '#9c27b0', // Purple
+  '#3f51b5', // Indigo
+  '#00bcd4', // Cyan
+  '#009688', // Teal
+  '#4caf50', // Green
+  '#8bc34a', // Light Green
+  '#cddc39', // Lime
+  '#ffeb3b', // Yellow
+  '#ffc107', // Amber
+  '#ff9800', // Orange
+  '#ff5722', // Deep Orange
+  '#795548', // Brown
+  '#607d8b', // Blue Grey
+];
+
+@customElement('keyframe-timeline')
+export class KeyframeTimeline extends LitElement {
+  static styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      --timeline-height: 200px;
+      --timeline-height-collapsed: 100px;
+      --timeline-bg: var(--card-background-color, #1c1c1c);
+      --timeline-track: var(--secondary-background-color, #2c2c2c);
+      --timeline-ruler: var(--divider-color, rgba(255, 255, 255, 0.12));
+      --keyframe-color: var(--accent-color, var(--primary-color, #03a9f4));
+      --keyframe-selected-color: var(--success-color, #4caf50);
+      --keyframe-dragging-color: var(--warning-color, #ff9800);
+      --canvas-text-primary: var(--primary-text-color, rgba(255, 255, 255, 0.9));
+      --canvas-text-secondary: var(--secondary-text-color, rgba(255, 255, 255, 0.7));
+      --canvas-grid-line: var(--divider-color, rgba(255, 255, 255, 0.1));
+      --canvas-label-bg: var(--card-background-color, rgba(0, 0, 0, 0.7));
+      --indicator-color: var(--accent-color, #ff9800);
+    }
+    
+    .timeline-container {
+      background: var(--timeline-bg);
+      border-radius: 4px;
+      padding: 16px;
+      user-select: none;
+    }
+    
+    .timeline-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary-color, #e1e1e1);
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 12px;
+    }
+    
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      color: var(--text-primary-color, #e1e1e1);
+    }
+    
+    .timeline-header span {
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .timeline-controls {
+      display: flex;
+      gap: 8px;
+    }
+    
+    button {
+      background: var(--primary-color, #03a9f4);
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      opacity: 0.9;
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    button.secondary {
+      background: var(--secondary-background-color, #2c2c2c);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.12));
+    }
+    
+    .config-panel {
+      background: var(--secondary-background-color, #2c2c2c);
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .config-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .config-row label {
+      min-width: 80px;
+      font-size: 14px;
+    }
+    
+    input[type="number"], input[type="text"] {
+      background: var(--timeline-track);
+      color: var(--text-primary-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.12));
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 14px;
+    }
+    
+    .slot-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    
+    .slot-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px;
+      background: var(--timeline-track);
+      border-radius: 4px;
+    }
+    
+    .slot-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+      cursor: pointer;
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.12));
+    }
+    
+    .timeline-canvas-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      background: var(--timeline-track);
+      border-radius: 4px;
+      transition: height 0.3s ease;
+      cursor: pointer;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    }
+    
+    .timeline-canvas-wrapper::-webkit-scrollbar {
+      height: 8px;
+    }
+    
+    .timeline-canvas-wrapper::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    .timeline-canvas-wrapper::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+    }
+    
+    .timeline-canvas-wrapper::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    
+    .timeline-canvas-wrapper.expanded {
+      cursor: default;
+    }
+    
+    .timeline-canvas-wrapper:not(.expanded) {
+      overflow-x: hidden;
+    }
+    
+    .timeline-canvas {
+      min-width: max(100%, 800px);
+      height: var(--timeline-height);
+      background: var(--timeline-track);
+      cursor: crosshair;
+      position: relative;
+      touch-action: none;
+      transition: height 0.3s ease;
+    }
+    
+    .timeline-canvas.collapsed {
+      min-width: 100%;
+      height: var(--timeline-height-collapsed);
+      cursor: pointer;
+    }
+    
+    .timeline-canvas.dragging {
+      cursor: grabbing;
+    }
+    
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    
+    @media (max-width: 800px) {
+      .timeline-canvas:not(.collapsed) {
+        min-width: 800px;
+      }
+    }
+    
+    .expand-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    
+    .timeline-canvas-wrapper:hover .expand-hint {
+      opacity: 1;
+    }
+    
+    .timeline-canvas-wrapper.expanded .expand-hint {
+      display: none;
+    }
+    
+    .scroll-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: background 0.2s ease;
+      user-select: none;
+    }
+    
+    .scroll-nav:hover {
+      background: rgba(0, 0, 0, 0.8);
+    }
+    
+    .scroll-nav.left {
+      left: 8px;
+    }
+    
+    .scroll-nav.right {
+      right: 8px;
+    }
+    
+    .info {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--secondary-text-color, #9e9e9e);
+    }
+  `;
+
+  @property({ type: Number }) duration = 24; // hours
+  @property({ type: Number }) slots = 96; // time divisions (e.g., 15-min intervals in 24h)
+  @property({ type: Array }) keyframes: Keyframe[] = [];
+  @property({ type: Number }) previousDayEndValue?: number; // Value from end of previous day for wraparound
+  @property({ type: Number }) minValue = 5; // Minimum Y axis value (default: 5°C)
+  @property({ type: Number }) maxValue = 30; // Maximum Y axis value (default: 30°C)
+  @property({ type: Number }) snapValue = 0; // Y axis snap step (0 = no snapping)
+  @property({ type: String }) xAxisLabel = ''; // X axis label
+  @property({ type: String }) yAxisLabel = ''; // Y axis label
+  @property({ type: String }) title = ''; // Title displayed in top left
+  @property({ type: Boolean }) showHeader = true; // Show header with controls
+  @property({ type: Boolean }) readonly = false; // Disable all interactions
+  @property({ type: Number }) indicatorTime?: number; // Time position for vertical indicator bar (0 to duration)
+  @property({ type: Boolean }) showCurrentTime = false; // Automatically show indicator at current time
+  @property({ type: Array }) backgroundGraphs: BackgroundGraph[] = []; // Background reference graphs
+  
+  @state() private canvasWidth = 0;
+  @state() private canvasHeight = 200;
+  @state() private showConfig = false;
+  @state() private draggingIndex: number | null = null;
+  @state() private selectedKeyframeIndex: number | null = null;
+  @state() private collapsed = false;
+  @state() private showScrollNavLeft = false;
+  @state() private showScrollNavRight = false;
+  @state() private undoStack: Keyframe[] = [];
+  
+  private canvas?: HTMLCanvasElement;
+  private ctx?: CanvasRenderingContext2D;
+  private isDragging = false;
+  private hasMoved = false;
+  private isPanning = false;
+  private panStartX = 0;
+  private panStartScrollLeft = 0;
+  private wrapperEl?: HTMLElement;
+  private lastClickTime = 0;
+  private lastClickX = 0;
+  private lastClickY = 0;
+  private holdTimer?: number;
+  private holdStartX = 0;
+  private holdStartY = 0;
+  private currentTimeTimer?: number;
+  
+  firstUpdated() {
+    const canvasEl = this.shadowRoot?.querySelector('canvas');
+    if (canvasEl) {
+      this.canvas = canvasEl;
+      this.ctx = canvasEl.getContext('2d') || undefined;
+      this.updateCanvasSize();
+      this.drawTimeline();
+    }
+    
+    this.wrapperEl = this.shadowRoot?.querySelector('.timeline-canvas-wrapper') as HTMLElement;
+    this.checkScrollVisibility();
+    
+    // Listen for scroll events to update button visibility
+    if (this.wrapperEl) {
+      this.wrapperEl.addEventListener('scroll', () => this.checkScrollVisibility());
+    }
+    
+    // Update canvas size on window resize
+    window.addEventListener('resize', () => {
+      this.updateCanvasSize();
+      this.drawTimeline();
+      this.checkScrollVisibility();
+    });
+    
+    // Ensure canvas renders correctly after initial layout
+    requestAnimationFrame(() => {
+      this.updateCanvasSize();
+      this.drawTimeline();
+    });
+    
+    // Setup current time indicator if enabled
+    if (this.showCurrentTime) {
+      this.updateCurrentTime();
+      this.startCurrentTimeTimer();
+    }
+  }
+  
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.stopCurrentTimeTimer();
+  }
+  
+  updated(changedProperties: Map<string, any>) {
+    super.updated(changedProperties);
+    
+    // Start/stop timer when showCurrentTime changes
+    if (changedProperties.has('showCurrentTime')) {
+      if (this.showCurrentTime) {
+        this.updateCurrentTime();
+        this.startCurrentTimeTimer();
+      } else {
+        this.stopCurrentTimeTimer();
+      }
+    }
+  }
+  
+  private updateCurrentTime() {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+    // Calculate time as decimal hours
+    const currentTime = hours + (minutes / 60) + (seconds / 3600);
+    
+    // Only update if within the timeline duration
+    if (currentTime <= this.duration) {
+      this.indicatorTime = currentTime;
+      this.drawTimeline();
+    }
+  }
+  
+  private startCurrentTimeTimer() {
+    // Update every 10 seconds for smooth movement
+    this.currentTimeTimer = window.setInterval(() => {
+      this.updateCurrentTime();
+    }, 10000);
+  }
+  
+  private stopCurrentTimeTimer() {
+    if (this.currentTimeTimer) {
+      window.clearInterval(this.currentTimeTimer);
+      this.currentTimeTimer = undefined;
+    }
+  }
+  
+  private updateCanvasSize() {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvasWidth = rect.width * window.devicePixelRatio;
+    
+    // Read height from CSS variables or use defaults
+    const computedStyle = getComputedStyle(this);
+    const cssHeightVar = this.collapsed ? '--timeline-height-collapsed' : '--timeline-height';
+    const cssHeight = computedStyle.getPropertyValue(cssHeightVar).trim();
+    const baseHeight = cssHeight ? parseInt(cssHeight) : (this.collapsed ? 100 : 200);
+    
+    this.canvasHeight = baseHeight * window.devicePixelRatio;
+    this.canvas.width = this.canvasWidth;
+    this.canvas.height = this.canvasHeight;
+  }
+  
+  private normalizeValue(value: number): number {
+    // Convert value from minValue-maxValue range to 0-1 range
+    return (value - this.minValue) / (this.maxValue - this.minValue);
+  }
+  
+  private denormalizeValue(normalized: number): number {
+    // Convert value from 0-1 range to minValue-maxValue range
+    return normalized * (this.maxValue - this.minValue) + this.minValue;
+  }
+
+  private getThemeColor(cssVar: string): string {
+    const computed = getComputedStyle(this).getPropertyValue(cssVar).trim();
+    if (computed) return computed;
+    
+    // Fallback colors for standalone use (outside Home Assistant)
+    const fallbacks: Record<string, string> = {
+      '--keyframe-color': getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#03a9f4',
+      '--keyframe-selected-color': '#4caf50',
+      '--keyframe-dragging-color': '#ff9800',
+      '--canvas-text-primary': 'rgba(255, 255, 255, 0.9)',
+      '--canvas-text-secondary': 'rgba(255, 255, 255, 0.7)',
+      '--canvas-grid-line': 'rgba(255, 255, 255, 0.1)',
+      '--canvas-label-bg': 'rgba(0, 0, 0, 0.7)',
+      '--indicator-color': '#ff9800',
+    };
+    
+    return fallbacks[cssVar] || 'rgba(255, 255, 255, 0.7)';
+  }
+
+  private getBaseFontSize(): number {
+    // Get computed font size from host element to respect browser/accessibility settings
+    const computedStyle = getComputedStyle(this);
+    const fontSize = parseFloat(computedStyle.fontSize);
+    return fontSize || 16; // Fallback to 16px if unable to read
+  }
+  
+  private snapValueToGrid(value: number): number {
+    // Snap value to grid if snapValue is set
+    if (this.snapValue > 0) {
+      return Math.round(value / this.snapValue) * this.snapValue;
+    }
+    return value;
+  }
+  
+  private sortKeyframes() {
+    // Keep track of what was selected/dragging before sort
+    const selectedKeyframe = this.selectedKeyframeIndex !== null ? this.keyframes[this.selectedKeyframeIndex] : null;
+    const draggingKeyframe = this.draggingIndex !== null ? this.keyframes[this.draggingIndex] : null;
+    
+    // Sort keyframes by time
+    this.keyframes = [...this.keyframes].sort((a, b) => a.time - b.time);
+    
+    // Update indices to point to same keyframes after sort
+    if (selectedKeyframe) {
+      this.selectedKeyframeIndex = this.keyframes.findIndex(kf => kf === selectedKeyframe);
+    }
+    if (draggingKeyframe) {
+      this.draggingIndex = this.keyframes.findIndex(kf => kf === draggingKeyframe);
+    }
+  }
+  
+  private drawTimeline() {
+    if (!this.ctx || !this.canvas) return;
+    
+    const dpr = window.devicePixelRatio;
+    this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+    
+    const slotWidth = this.canvasWidth / this.slots;
+    
+    // Reserve space at bottom for labels, left for Y axis, and top for margin
+    const labelHeight = 30 * dpr;
+    const yAxisWidth = 35 * dpr;
+    const topMargin = 15 * dpr;
+    const graphHeight = this.canvasHeight - labelHeight - topMargin;
+    const graphWidth = this.canvasWidth - yAxisWidth;
+    
+    // Draw Y axis labels and horizontal grid lines
+    const numYLabels = this.collapsed ? 2 : 5;
+    const baseFontSize = this.getBaseFontSize();
+    this.ctx.fillStyle = this.getThemeColor('--canvas-text-secondary');
+    this.ctx.font = `${(baseFontSize * 0.75) * dpr}px sans-serif`; // 0.75 = 12/16
+    this.ctx.textAlign = 'right';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
+    this.ctx.lineWidth = 1;
+    
+    for (let i = 0; i < numYLabels; i++) {
+      const ratio = i / (numYLabels - 1);
+      const value = this.minValue + ratio * (this.maxValue - this.minValue);
+      const y = topMargin + (graphHeight * (1 - ratio));
+      
+      // Draw label
+      this.ctx.fillText(value.toFixed(1), yAxisWidth - (5 * dpr), y);
+      
+      // Draw horizontal grid line
+      this.ctx.beginPath();
+      this.ctx.moveTo(yAxisWidth, y);
+      this.ctx.lineTo(this.canvasWidth, y);
+      this.ctx.stroke();
+    }
+    
+    // Draw Y axis label (vertical text on left side)
+    if (this.yAxisLabel && !this.collapsed) {
+      this.ctx.save();
+      this.ctx.translate(10 * dpr, this.canvasHeight / 2);
+      this.ctx.rotate(-Math.PI / 2);
+      this.ctx.fillStyle = this.getThemeColor('--canvas-text-primary');
+      this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(this.yAxisLabel, 0, 0);
+      this.ctx.restore();
+    }
+    
+    // Adjust slot width for graph area
+    const adjustedSlotWidth = graphWidth / this.slots;
+    
+    // Draw vertical time slot dividers (full height)
+    this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
+    this.ctx.lineWidth = 1;
+    for (let i = 0; i <= this.slots; i++) {
+      const x = yAxisWidth + (i * adjustedSlotWidth);
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, topMargin);
+      this.ctx.lineTo(x, topMargin + graphHeight);
+      this.ctx.stroke();
+    }
+    
+    // Draw hour markers (full height) and labels
+    this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
+    this.ctx.lineWidth = 2;
+    this.ctx.fillStyle = this.getThemeColor('--canvas-text-secondary');
+    this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    
+    const hoursToShow = Math.ceil(this.duration);
+    const labelInterval = this.collapsed ? 3 : 1; // Show labels every 3 hours when collapsed
+    
+    for (let i = 0; i <= hoursToShow; i++) {
+      const x = yAxisWidth + ((i / this.duration) * graphWidth);
+      
+      // Draw hour marker line (full height through graph area)
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, topMargin);
+      this.ctx.lineTo(x, topMargin + graphHeight);
+      this.ctx.stroke();
+      
+      // Draw hour label only at specified intervals (below graph area)
+      if (i % labelInterval === 0) {
+        const hour = i % 24;
+        const label = hour === 0 ? '00' : hour.toString().padStart(2, '0');
+        this.ctx.fillText(label, x, topMargin + graphHeight + (15 * dpr));
+      }
+    }
+    
+    // Draw X axis label (below time labels)
+    if (this.xAxisLabel && !this.collapsed) {
+      this.ctx.fillStyle = this.getThemeColor('--canvas-text-primary');
+      this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'top';
+      this.ctx.fillText(this.xAxisLabel, yAxisWidth + (graphWidth / 2), this.canvasHeight - (8 * dpr));
+    }
+    
+    // Draw background graphs (reference data)
+    this.backgroundGraphs.forEach((bgGraph, graphIndex) => {
+      if (bgGraph.keyframes.length === 0) return;
+      
+      // Sort keyframes by time for proper line drawing
+      const sortedKeyframes = [...bgGraph.keyframes].sort((a, b) => a.time - b.time);
+      
+      // Use specified color or cycle through palette
+      const color = bgGraph.color || BACKGROUND_GRAPH_COLORS[graphIndex % BACKGROUND_GRAPH_COLORS.length];
+      const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (rgbaMatch) {
+        this.ctx.strokeStyle = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.5)`;
+      } else {
+        // Try hex to rgba conversion
+        const hexMatch = color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+        if (hexMatch) {
+          const r = parseInt(hexMatch[1], 16);
+          const g = parseInt(hexMatch[2], 16);
+          const b = parseInt(hexMatch[3], 16);
+          this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+        } else {
+          this.ctx.strokeStyle = color;
+        }
+      }
+      
+      this.ctx.lineWidth = 1.5 * dpr;
+      this.ctx.setLineDash([3 * dpr, 3 * dpr]); // Dashed line for background
+      
+      // Draw lines between keyframes
+      for (let i = 0; i < sortedKeyframes.length - 1; i++) {
+        const kf1 = sortedKeyframes[i];
+        const kf2 = sortedKeyframes[i + 1];
+        
+        const x1 = yAxisWidth + ((kf1.time / this.duration) * graphWidth);
+        const y1 = topMargin + ((1 - this.normalizeValue(kf1.value)) * graphHeight);
+        const x2 = yAxisWidth + ((kf2.time / this.duration) * graphWidth);
+        const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
+        
+        // Draw line between points
+        this.ctx.beginPath();
+        this.ctx.moveTo(x1, y1);
+        this.ctx.lineTo(x2, y2);
+        this.ctx.stroke();
+      }
+      
+      this.ctx.setLineDash([]); // Reset dash
+      
+      // Draw small circle markers at each keyframe (smaller than main graph)
+      sortedKeyframes.forEach(kf => {
+        const x = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+        const y = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+        
+        this.ctx!.fillStyle = color;
+        this.ctx!.beginPath();
+        this.ctx!.arc(x, y, 2 * dpr, 0, Math.PI * 2);
+        this.ctx!.fill();
+      });
+    });
+    
+    // Draw FLAT/STEP lines between keyframes (like scheduler-card)
+    if (this.keyframes.length > 0) {
+      this.ctx.strokeStyle = this.getThemeColor('--keyframe-color');
+      this.ctx.lineWidth = 3 * dpr;
+      
+      // Keyframes are already sorted by time
+      for (let i = 0; i < this.keyframes.length - 1; i++) {
+        const kf1 = this.keyframes[i];
+        const kf2 = this.keyframes[i + 1];
+        
+        const x1 = yAxisWidth + ((kf1.time / this.duration) * graphWidth);
+        const y1 = topMargin + ((1 - this.normalizeValue(kf1.value)) * graphHeight);
+        const x2 = yAxisWidth + ((kf2.time / this.duration) * graphWidth);
+        const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
+        
+        // Draw flat line (hold value until next keyframe)
+        this.ctx.beginPath();
+        this.ctx.moveTo(x1, y1);
+        this.ctx.lineTo(x2, y1); // Horizontal to next time
+        this.ctx.lineTo(x2, y2); // Vertical step to new value
+        this.ctx.stroke();
+      }
+      
+      // Wraparound: extend last keyframe to end, then wrap to first keyframe
+      if (this.keyframes.length > 0) {
+        const lastKf = this.keyframes[this.keyframes.length - 1];
+        const firstKf = this.keyframes[0];
+        
+        const lastX = yAxisWidth + ((lastKf.time / this.duration) * graphWidth);
+        const lastY = topMargin + ((1 - this.normalizeValue(lastKf.value)) * graphHeight);
+        const firstY = topMargin + ((1 - this.normalizeValue(firstKf.value)) * graphHeight);
+        
+        // Determine the starting value (from previous day or from last keyframe)
+        const startValue = this.previousDayEndValue !== undefined ? this.previousDayEndValue : lastKf.value;
+        const startY = topMargin + ((1 - this.normalizeValue(startValue)) * graphHeight);
+        
+        // Extend last keyframe to right edge
+        this.ctx.beginPath();
+        this.ctx.moveTo(lastX, lastY);
+        this.ctx.lineTo(this.canvasWidth, lastY);
+        this.ctx.stroke();
+        
+        // Wraparound from right edge to left edge
+        const baseColor = this.getThemeColor('--keyframe-color');
+        // Apply semi-transparency for wraparound
+        const colorMatch = baseColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (colorMatch) {
+          this.ctx.strokeStyle = `rgba(${colorMatch[1]}, ${colorMatch[2]}, ${colorMatch[3]}, 0.5)`;
+        } else {
+          // Fallback for hex colors - convert to rgba
+          const hexMatch = baseColor.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+          if (hexMatch) {
+            const r = parseInt(hexMatch[1], 16);
+            const g = parseInt(hexMatch[2], 16);
+            const b = parseInt(hexMatch[3], 16);
+            this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+          } else {
+            this.ctx.strokeStyle = baseColor;
+          }
+        }
+        this.ctx.setLineDash([5 * dpr, 5 * dpr]); // Dashed line for wraparound
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.canvasWidth, lastY);
+        this.ctx.lineTo(this.canvasWidth, startY); // Vertical step at right edge
+        this.ctx.moveTo(yAxisWidth, startY); // Continue at left edge of graph
+        this.ctx.lineTo(yAxisWidth, startY);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]); // Reset dash
+        this.ctx.strokeStyle = this.getThemeColor('--keyframe-color'); // Reset color
+        
+        // Extend from left edge to first keyframe
+        if (firstKf.time > 0) {
+          const firstX = yAxisWidth + ((firstKf.time / this.duration) * graphWidth);
+          this.ctx.beginPath();
+          this.ctx.moveTo(yAxisWidth, startY);
+          this.ctx.lineTo(firstX, startY); // Hold previous day's value
+          this.ctx.lineTo(firstX, firstY); // Step to first keyframe value
+          this.ctx.stroke();
+        }
+      }
+    }
+    
+    // Draw current time indicator (vertical bar) if set
+    if (this.indicatorTime !== undefined && this.indicatorTime >= 0 && this.indicatorTime <= this.duration) {
+      const indicatorX = yAxisWidth + ((this.indicatorTime / this.duration) * graphWidth);
+      
+      this.ctx.strokeStyle = this.getThemeColor('--indicator-color');
+      this.ctx.lineWidth = 2 * dpr;
+      this.ctx.setLineDash([5 * dpr, 5 * dpr]); // Dashed line
+      
+      // Draw vertical line through graph area
+      this.ctx.beginPath();
+      this.ctx.moveTo(indicatorX, topMargin);
+      this.ctx.lineTo(indicatorX, topMargin + graphHeight);
+      this.ctx.stroke();
+      
+      this.ctx.setLineDash([]); // Reset dash
+    }
+    
+    // Draw keyframe markers
+    
+    this.keyframes.forEach((kf, index) => {
+      const x = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+      const y = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+      
+      // Highlight if being dragged or selected
+      const isDragging = this.draggingIndex === index;
+      const isSelected = this.selectedKeyframeIndex === index;
+      
+      if (isDragging) {
+        this.ctx!.fillStyle = this.getThemeColor('--keyframe-dragging-color');
+      } else if (isSelected) {
+        this.ctx!.fillStyle = this.getThemeColor('--keyframe-selected-color');
+      } else {
+        this.ctx!.fillStyle = this.getThemeColor('--keyframe-color');
+      }
+      
+      // Draw diamond marker (smaller when collapsed)
+      this.ctx!.save();
+      this.ctx!.translate(x, y);
+      this.ctx!.rotate(Math.PI / 4);
+      const baseSize = this.collapsed ? 4 : 6;
+      const size = (isDragging || isSelected) ? baseSize + 2 : baseSize;
+      this.ctx!.fillRect(-size * dpr, -size * dpr, size * 2 * dpr, size * 2 * dpr);
+      this.ctx!.restore();
+      
+      // Draw selection ring for selected keyframe (hide when collapsed)
+      if (isSelected && !isDragging && !this.collapsed) {
+        this.ctx!.strokeStyle = this.getThemeColor('--keyframe-selected-color');
+        this.ctx!.lineWidth = 2;
+        this.ctx!.beginPath();
+        this.ctx!.arc(x, y, 12 * dpr, 0, Math.PI * 2);
+        this.ctx!.stroke();
+      }
+      
+      // Draw hover ring for draggable indication (hide when collapsed)
+      if (!isDragging && !isSelected && !this.collapsed) {
+        const textColor = this.getThemeColor('--canvas-text-secondary');
+        // Apply opacity to text color for hover ring
+        const rgbaMatch = textColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (rgbaMatch) {
+          this.ctx!.strokeStyle = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.3)`;
+        } else {
+          this.ctx!.strokeStyle = textColor;
+        }
+        this.ctx!.lineWidth = 1;
+        this.ctx!.beginPath();
+        this.ctx!.arc(x, y, 10 * dpr, 0, Math.PI * 2);
+        this.ctx!.stroke();
+      }
+      
+      // Draw value label above each keyframe (hide when collapsed)
+      if (!this.collapsed) {
+        const valueText = kf.value.toFixed(this.snapValue < 1 ? 1 : 0);
+        this.ctx!.font = `${(baseFontSize * 0.8125) * dpr}px system-ui, -apple-system, sans-serif`; // 0.8125 = 13/16
+        this.ctx!.textAlign = 'center';
+        this.ctx!.textBaseline = 'bottom';
+        
+        // Position label above the keyframe with some padding
+        const labelY = y - 18 * dpr;
+        
+        // Draw background for better readability
+        const textMetrics = this.ctx!.measureText(valueText);
+        const textWidth = textMetrics.width;
+        const textHeight = 14 * dpr;
+        const padding = 4 * dpr;
+        
+        this.ctx!.fillStyle = this.getThemeColor('--canvas-label-bg');
+        this.ctx!.fillRect(
+          x - textWidth / 2 - padding,
+          labelY - textHeight - padding,
+          textWidth + padding * 2,
+          textHeight + padding * 2
+        );
+        
+        // Draw text - use keyframe color
+        if (isDragging) {
+          this.ctx!.fillStyle = this.getThemeColor('--keyframe-dragging-color');
+        } else if (isSelected) {
+          this.ctx!.fillStyle = this.getThemeColor('--keyframe-selected-color');
+        } else {
+          this.ctx!.fillStyle = this.getThemeColor('--keyframe-color');
+        }
+        this.ctx!.fillText(valueText, x, labelY);
+      }
+    });
+  }
+  
+  private handleCanvasMouseDown(e: MouseEvent | TouchEvent) {
+    if (!this.canvas || this.collapsed || this.readonly) return;
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
+    const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    
+    const labelHeight = 30;
+    const yAxisWidth = 35;
+    const topMargin = 15;
+    const graphHeight = rect.height - labelHeight - topMargin;
+    const graphWidth = rect.width - yAxisWidth;
+    
+    // Check if scrollable (only in expanded mode)
+    const isScrollable = !this.collapsed && this.wrapperEl && this.wrapperEl.scrollWidth > this.wrapperEl.clientWidth;
+    
+    // For touch devices, set up long-press detection FIRST (before any returns)
+    if (e instanceof TouchEvent) {
+      const currentTime = Date.now();
+      const timeSinceLastClick = currentTime - this.lastClickTime;
+      const dx = x - this.lastClickX;
+      const dy = y - this.lastClickY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Double-tap detected (within 300ms and 30px)
+      if (timeSinceLastClick < 300 && distance < 30) {
+        this.handleDoubleClick(x, y, rect);
+        this.lastClickTime = 0; // Reset to prevent triple-tap
+        return;
+      }
+      
+      this.lastClickTime = currentTime;
+      this.lastClickX = x;
+      this.lastClickY = y;
+      
+      // Start long-press timer for touch devices (600ms)
+      this.holdStartX = x;
+      this.holdStartY = y;
+      this.clearHoldTimer();
+      this.holdTimer = window.setTimeout(() => {
+        this.handleContextMenu(x, y, rect);
+        // Clear dragging state if long press completes
+        this.isDragging = false;
+        this.draggingIndex = null;
+      }, 600);
+    }
+    
+    // Check if clicking on existing keyframe (within 10px radius)
+    const clickedIndex = this.keyframes.findIndex(kf => {
+      const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+      const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+      const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
+      return distance < 10;
+    });
+    
+    if (clickedIndex >= 0) {
+      // Prepare to drag existing keyframe (but wait to see if it's a long press or just a click)
+      this.draggingIndex = clickedIndex;
+      this.hasMoved = false; // Reset movement tracking
+      // Don't set isDragging yet - we'll set it on first move
+      // This allows clicks to work properly
+      e.preventDefault();
+      return;
+    }
+    
+    // If scrollable and not clicking on keyframe, prepare for panning
+    if (isScrollable) {
+      this.isPanning = true;
+      this.panStartX = clientX;
+      this.panStartScrollLeft = this.wrapperEl!.scrollLeft;
+      e.preventDefault();
+    }
+  }
+  
+  private handleCanvasMouseMove(e: MouseEvent | TouchEvent) {
+    // Handle panning first (takes priority when active)
+    if (this.isPanning && this.wrapperEl) {
+      const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
+      const deltaX = clientX - this.panStartX;
+      this.wrapperEl.scrollLeft = this.panStartScrollLeft - deltaX;
+      e.preventDefault();
+      return;
+    }
+    
+    // Cancel long-press if moving during touch hold
+    if (e instanceof TouchEvent && this.holdTimer) {
+      const rect = this.canvas?.getBoundingClientRect();
+      if (rect) {
+        const x = e.touches[0].clientX - rect.left;
+        const y = e.touches[0].clientY - rect.top;
+        const dx = x - this.holdStartX;
+        const dy = y - this.holdStartY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Cancel hold if moved more than 10px - user is dragging
+        if (distance > 10) {
+          this.clearHoldTimer();
+          // Now we can confirm they're dragging
+          if (this.draggingIndex !== null && !this.isDragging) {
+            this.isDragging = true;
+            this.hasMoved = true;
+          }
+        }
+      }
+    }
+    
+    if (!this.canvas || this.draggingIndex === null) return;
+    
+    // Start dragging on first move
+    if (!this.isDragging) {
+      this.isDragging = true;
+    }
+    this.hasMoved = true; // Track that movement occurred
+    
+    if (!this.isDragging) return;
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
+    const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
+    let x = clientX - rect.left;
+    let y = clientY - rect.top;
+    
+    const labelHeight = 30;
+    const yAxisWidth = 35;
+    const topMargin = 15;
+    const graphHeight = rect.height - labelHeight - topMargin;
+    const graphWidth = rect.width - yAxisWidth;
+    
+    // Clamp to canvas bounds (graph area only)
+    x = Math.max(yAxisWidth, Math.min(x, rect.width));
+    y = Math.max(topMargin, Math.min(y, topMargin + graphHeight));
+    
+    // Snap time to nearest slot (adjust for Y axis offset)
+    const adjustedX = x - yAxisWidth;
+    const slotWidth = graphWidth / this.slots;
+    const slotIndex = Math.round(adjustedX / slotWidth);
+    let time = (slotIndex / this.slots) * this.duration;
+    
+    // Constrain time to not pass adjacent keyframes (array is already sorted)
+    if (this.draggingIndex! > 0) {
+      const prevTime = this.keyframes[this.draggingIndex! - 1].time;
+      const minTime = prevTime + (this.duration / this.slots); // At least one slot apart
+      time = Math.max(time, minTime);
+    }
+    if (this.draggingIndex! < this.keyframes.length - 1) {
+      const nextTime = this.keyframes[this.draggingIndex! + 1].time;
+      const maxTime = nextTime - (this.duration / this.slots); // At least one slot apart
+      time = Math.min(time, maxTime);
+    }
+    
+    // Value is in minValue-maxValue range (adjust for top margin)
+    const adjustedY = y - topMargin;
+    const normalizedValue = Math.max(0, Math.min(1, 1 - (adjustedY / graphHeight)));
+    let value = Math.max(this.minValue, Math.min(this.maxValue, this.denormalizeValue(normalizedValue)));
+    
+    // Apply snapping if configured
+    value = this.snapValueToGrid(value);
+    
+    // Update keyframe position
+    const oldTime = this.keyframes[this.draggingIndex!].time;
+    this.keyframes = this.keyframes.map((kf, i) => 
+      i === this.draggingIndex ? { time, value } : kf
+    );
+    
+    // Re-sort if time changed (might change position in array)
+    if (Math.abs(time - oldTime) > 0.01) {
+      this.sortKeyframes();
+    }
+    
+    this.drawTimeline();
+    
+    e.preventDefault();
+  }
+  
+  private handleCanvasMouseUp(e: MouseEvent | TouchEvent) {
+    this.clearHoldTimer();
+    
+    if (this.draggingIndex !== null && this.hasMoved) {
+      this.dispatchEvent(new CustomEvent('keyframe-moved', {
+        detail: { 
+          index: this.draggingIndex,
+          keyframe: this.keyframes[this.draggingIndex]
+        },
+        bubbles: true,
+        composed: true
+      }));
+    }
+    this.draggingIndex = null;
+    this.isDragging = false;
+    this.hasMoved = false;
+    this.isPanning = false; // Reset panning state
+  }
+  
+  private handleCanvasClick(e: MouseEvent) {
+    if (!this.canvas || this.collapsed || this.readonly) return;
+    
+    // If we just finished dragging, don't process click
+    if (this.hasMoved) return;
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const labelHeight = 30;
+    const yAxisWidth = 35;
+    const topMargin = 15;
+    const graphHeight = rect.height - labelHeight - topMargin;
+    const graphWidth = rect.width - yAxisWidth;
+    
+    // Check if clicking on existing keyframe
+    const clickedIndex = this.keyframes.findIndex(kf => {
+      const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+      const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+      const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
+      return distance < 10;
+    });
+    
+    if (clickedIndex >= 0) {
+      // Select the keyframe
+      this.selectedKeyframeIndex = clickedIndex;
+      this.drawTimeline();
+      
+      console.log('Clicked on keyframe:', this.keyframes[clickedIndex]);
+      this.dispatchEvent(new CustomEvent('keyframe-clicked', {
+        detail: { 
+          index: clickedIndex,
+          keyframe: this.keyframes[clickedIndex]
+        },
+        bubbles: true,
+        composed: true
+      }));
+    } else {
+      // Clicked on empty area - deselect
+      this.selectedKeyframeIndex = null;
+      this.drawTimeline();
+    }
+  }
+  
+  private handleCanvasContextMenu(e: MouseEvent) {
+    if (!this.canvas || this.collapsed || this.readonly) return;
+    
+    e.preventDefault(); // Prevent default context menu
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    this.handleContextMenu(x, y, rect);
+  }
+  
+  private handleContextMenu(x: number, y: number, rect: DOMRect) {
+    const labelHeight = 30;
+    const yAxisWidth = 35;
+    const topMargin = 15;
+    const graphHeight = rect.height - labelHeight - topMargin;
+    const graphWidth = rect.width - yAxisWidth;
+    
+    // Check if clicking on existing keyframe
+    const clickedIndex = this.keyframes.findIndex(kf => {
+      const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+      const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+      const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
+      return distance < 10;
+    });
+    
+    // Delete keyframe if clicked on one
+    if (clickedIndex >= 0) {
+      const deletedKeyframe = this.keyframes[clickedIndex];
+      // Add to undo stack
+      this.undoStack = [...this.undoStack, deletedKeyframe];
+      // Remove from keyframes
+      this.keyframes = this.keyframes.filter((_, i) => i !== clickedIndex);
+      // Clear selection if deleting selected keyframe
+      if (this.selectedKeyframeIndex === clickedIndex) {
+        this.selectedKeyframeIndex = null;
+      } else if (this.selectedKeyframeIndex !== null && this.selectedKeyframeIndex > clickedIndex) {
+        // Adjust selection index if it was after the deleted keyframe
+        this.selectedKeyframeIndex--;
+      }
+      this.drawTimeline();
+      
+      this.dispatchEvent(new CustomEvent('keyframe-deleted', {
+        detail: { keyframe: deletedKeyframe, index: clickedIndex },
+        bubbles: true,
+        composed: true
+      }));
+    }
+  }
+  
+  private clearHoldTimer() {
+    if (this.holdTimer) {
+      window.clearTimeout(this.holdTimer);
+      this.holdTimer = undefined;
+    }
+  }
+  
+  private handleCanvasDoubleClick(e: MouseEvent) {
+    if (!this.canvas || this.collapsed || this.readonly) return;
+    
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    this.handleDoubleClick(x, y, rect);
+  }
+  
+  private handleDoubleClick(x: number, y: number, rect: DOMRect) {
+    const labelHeight = 30;
+    const yAxisWidth = 35;
+    const topMargin = 15;
+    const graphHeight = rect.height - labelHeight - topMargin;
+    const graphWidth = rect.width - yAxisWidth;
+    
+    // Check if clicking on existing keyframe
+    const clickedIndex = this.keyframes.findIndex(kf => {
+      const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+      const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+      const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
+      return distance < 10;
+    });
+    
+    if (clickedIndex >= 0) return; // Don't add if clicking on existing
+    
+    // Check if click is within graph area
+    if (x < yAxisWidth || y < topMargin || y > topMargin + graphHeight) return;
+    
+    // Snap time to nearest slot (adjust for Y axis offset)
+    const adjustedX = x - yAxisWidth;
+    const slotWidth = graphWidth / this.slots;
+    const slotIndex = Math.round(adjustedX / slotWidth);
+    const time = (slotIndex / this.slots) * this.duration;
+    
+    // Value is in minValue-maxValue range (adjust for top margin)
+    const adjustedY = y - topMargin;
+    const normalizedValue = 1 - (adjustedY / graphHeight);
+    let value = this.denormalizeValue(normalizedValue);
+    
+    // Apply snapping if configured
+    value = this.snapValueToGrid(value);
+    
+    this.keyframes = [...this.keyframes, { time, value }];
+    this.sortKeyframes(); // Keep array sorted
+    this.drawTimeline();
+    
+    this.dispatchEvent(new CustomEvent('keyframe-added', {
+      detail: { time, value },
+      bubbles: true,
+      composed: true
+    }));
+  }
+  
+  private clearKeyframes() {
+    this.keyframes = [];
+    this.undoStack = []; // Clear undo stack when clearing all keyframes
+    this.selectedKeyframeIndex = null; // Clear selection
+    this.drawTimeline();
+    
+    this.dispatchEvent(new CustomEvent('keyframes-cleared', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+  
+  private undoDelete() {
+    if (this.undoStack.length === 0) return;
+    
+    // Pop last deleted keyframe from undo stack
+    const restoredKeyframe = this.undoStack[this.undoStack.length - 1];
+    this.undoStack = this.undoStack.slice(0, -1);
+    
+    // Add back to keyframes
+    this.keyframes = [...this.keyframes, restoredKeyframe];
+    this.sortKeyframes(); // Keep array sorted
+    this.drawTimeline();
+    
+    this.dispatchEvent(new CustomEvent('keyframe-restored', {
+      detail: { keyframe: restoredKeyframe },
+      bubbles: true,
+      composed: true
+    }));
+  }
+  
+  private selectPrevious() {
+    if (this.keyframes.length === 0) return;
+    
+    // Array is already sorted by time
+    if (this.selectedKeyframeIndex === null || this.selectedKeyframeIndex === 0) {
+      // No selection or at start - select last keyframe
+      this.selectedKeyframeIndex = this.keyframes.length - 1;
+    } else {
+      // Select previous
+      this.selectedKeyframeIndex--;
+    }
+    
+    this.drawTimeline();
+    this.dispatchEvent(new CustomEvent('keyframe-selected', {
+      detail: { 
+        index: this.selectedKeyframeIndex,
+        keyframe: this.keyframes[this.selectedKeyframeIndex]
+      },
+      bubbles: true,
+      composed: true
+    }));
+  }
+  
+  private selectNext() {
+    if (this.keyframes.length === 0) return;
+    
+    // Array is already sorted by time
+    if (this.selectedKeyframeIndex === null || this.selectedKeyframeIndex >= this.keyframes.length - 1) {
+      // No selection or at end - select first keyframe
+      this.selectedKeyframeIndex = 0;
+    } else {
+      // Select next
+      this.selectedKeyframeIndex++;
+    }
+    
+    this.drawTimeline();
+    this.dispatchEvent(new CustomEvent('keyframe-selected', {
+      detail: { 
+        index: this.selectedKeyframeIndex,
+        keyframe: this.keyframes[this.selectedKeyframeIndex]
+      },
+      bubbles: true,
+      composed: true
+    }));
+  }
+  
+  private toggleConfig() {
+    this.showConfig = !this.showConfig;
+  }
+  
+  private toggleCollapse() {
+    this.collapsed = !this.collapsed;
+    // Update canvas height after state change
+    setTimeout(() => {
+      this.updateCanvasSize();
+      this.drawTimeline();
+      this.checkScrollVisibility();
+    }, 50);
+  }
+  
+  private checkScrollVisibility() {
+    if (!this.wrapperEl) return;
+    
+    const isScrollable = !this.collapsed && this.wrapperEl.scrollWidth > this.wrapperEl.clientWidth;
+    
+    if (!isScrollable) {
+      this.showScrollNavLeft = false;
+      this.showScrollNavRight = false;
+      return;
+    }
+    
+    const scrollLeft = this.wrapperEl.scrollLeft;
+    const maxScroll = this.wrapperEl.scrollWidth - this.wrapperEl.clientWidth;
+    
+    // Show left button if not at start (with 1px tolerance)
+    this.showScrollNavLeft = scrollLeft > 1;
+    
+    // Show right button if not at end (with 1px tolerance)
+    this.showScrollNavRight = scrollLeft < maxScroll - 1;
+  }
+  
+  private scrollToStart() {
+    if (this.wrapperEl) {
+      this.wrapperEl.scrollTo({ left: 0, behavior: 'smooth' });
+    }
+  }
+  
+  private scrollToEnd() {
+    if (this.wrapperEl) {
+      this.wrapperEl.scrollTo({ left: this.wrapperEl.scrollWidth, behavior: 'smooth' });
+    }
+  }
+  
+  private updateSlots(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const newSlots = Math.max(1, Math.min(288, parseInt(input.value) || 1));
+    if (newSlots !== this.slots) {
+      this.slots = newSlots;
+      this.updateCanvasSize();
+      this.drawTimeline();
+    }
+  }
+  
+  private updateDuration(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const newDuration = Math.max(1, Math.min(168, parseInt(input.value) || 1));
+    if (newDuration !== this.duration) {
+      this.duration = newDuration;
+      this.drawTimeline();
+    }
+  }
+  
+  private updatePreviousDayEnd(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.value === '') {
+      this.previousDayEndValue = undefined;
+    } else {
+      const value = parseFloat(input.value);
+      this.previousDayEndValue = Math.max(this.minValue, Math.min(this.maxValue, value));
+    }
+    this.drawTimeline();
+  }
+  
+  private updateMinValue(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const newMin = parseFloat(input.value);
+    if (!isNaN(newMin) && newMin < this.maxValue) {
+      this.minValue = newMin;
+      this.drawTimeline();
+    }
+  }
+  
+  private updateMaxValue(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const newMax = parseFloat(input.value);
+    if (!isNaN(newMax) && newMax > this.minValue) {
+      this.maxValue = newMax;
+      this.drawTimeline();
+    }
+  }
+  
+  private updateSnapValue(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.value === '') {
+      this.snapValue = 0;
+    } else {
+      const newSnap = parseFloat(input.value);
+      this.snapValue = !isNaN(newSnap) && newSnap >= 0 ? newSnap : 0;
+    }
+  }
+  
+  private updateXAxisLabel(e: Event) {
+    const input = e.target as HTMLInputElement;
+    this.xAxisLabel = input.value;
+    this.drawTimeline();
+  }
+  
+  private updateYAxisLabel(e: Event) {
+    const input = e.target as HTMLInputElement;
+    this.yAxisLabel = input.value;
+    this.drawTimeline();
+  }
+
+  render() {
+    const slotDuration = this.duration / this.slots;
+    const slotMinutes = slotDuration * 60;
+    
+    return html`
+      <div class="timeline-container">
+        ${!this.showHeader && this.title ? html`
+          <div class="timeline-title" @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+            ${this.title}
+          </div>
+        ` : ''}
+        
+        ${this.showHeader ? html`
+          <div class="timeline-header">
+            <span @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+              ${this.title || `Timeline Editor (${this.duration}h • ${this.slots} slots @ ${slotMinutes.toFixed(0)}min)`}
+            </span>
+            <div class="timeline-controls">
+              <button class="secondary" @click=${this.selectPrevious} ?disabled=${this.keyframes.length === 0} title="Previous keyframe">
+                ◀
+              </button>
+              <button class="secondary" @click=${this.selectNext} ?disabled=${this.keyframes.length === 0} title="Next keyframe">
+                ▶
+              </button>
+              <button class="secondary" @click=${this.toggleCollapse}>
+                ${this.collapsed ? '▼ Expand' : '▲ Collapse'}
+              </button>
+              <button class="secondary" @click=${this.toggleConfig}>
+                ${this.showConfig ? 'Hide' : 'Show'} Config
+              </button>
+              <button class="secondary" @click=${this.undoDelete} ?disabled=${this.undoStack.length === 0}>
+                ↶ Undo
+              </button>
+              <button @click=${this.clearKeyframes}>Clear</button>
+            </div>
+          </div>
+        ` : ''}
+        
+        ${this.showConfig ? html`
+          <div class="config-panel">
+            <div class="config-row">
+              <label>Duration (hours):</label>
+              <input 
+                type="number" 
+                min="1" 
+                max="168" 
+                .value=${this.duration.toString()}
+                @change=${this.updateDuration}
+              />
+            </div>
+            <div class="config-row">
+              <label>Time Slots:</label>
+              <input 
+                type="number" 
+                min="1" 
+                max="288" 
+                .value=${this.slots.toString()}
+                @change=${this.updateSlots}
+              />
+            </div>
+            <div class="config-row">
+              <label>Prev Day End:</label>
+              <input 
+                type="number" 
+                min="${this.minValue}" 
+                max="${this.maxValue}" 
+                step="0.01"
+                placeholder="Auto"
+                .value=${this.previousDayEndValue?.toString() || ''}
+                @change=${this.updatePreviousDayEnd}
+              />
+            </div>
+            <div class="config-row">
+              <label>Min Value:</label>
+              <input 
+                type="number" 
+                step="0.1"
+                .value=${this.minValue.toString()}
+                @change=${this.updateMinValue}
+              />
+            </div>
+            <div class="config-row">
+              <label>Max Value:</label>
+              <input 
+                type="number" 
+                step="0.1"
+                .value=${this.maxValue.toString()}
+                @change=${this.updateMaxValue}
+              />
+            </div>
+            <div class="config-row">
+              <label>Snap Value:</label>
+              <input 
+                type="number" 
+                min="0"
+                step="0.01"
+                placeholder="None"
+                .value=${this.snapValue > 0 ? this.snapValue.toString() : ''}
+                @change=${this.updateSnapValue}
+              />
+            </div>
+            <div class="config-row">
+              <label>X Axis Label:</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Time"
+                .value=${this.xAxisLabel}
+                @input=${this.updateXAxisLabel}
+              />
+            </div>
+            <div class="config-row">
+              <label>Y Axis Label:</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Value"
+                .value=${this.yAxisLabel}
+                @input=${this.updateYAxisLabel}
+              />
+            </div>
+          </div>
+        ` : ''}
+        
+        <div style="position: relative;">
+          <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed ? this.toggleCollapse : null}>
+            <div class="timeline-canvas ${this.collapsed ? 'collapsed' : ''} ${this.isDragging ? 'dragging' : ''}">
+              <canvas 
+                @click=${this.handleCanvasClick}
+                @dblclick=${this.handleCanvasDoubleClick}
+                @contextmenu=${this.handleCanvasContextMenu}
+                @mousedown=${this.handleCanvasMouseDown}
+                @mousemove=${this.handleCanvasMouseMove}
+                @mouseup=${this.handleCanvasMouseUp}
+                @mouseleave=${this.handleCanvasMouseUp}
+                @touchstart=${this.handleCanvasMouseDown}
+                @touchmove=${this.handleCanvasMouseMove}
+                @touchend=${this.handleCanvasMouseUp}
+                @touchcancel=${this.handleCanvasMouseUp}
+              ></canvas>
+            </div>
+            ${this.collapsed ? html`<div class="expand-hint">Click to expand</div>` : ''}
+          </div>
+          ${this.showScrollNavLeft ? html`
+            <div class="scroll-nav left" @click=${this.scrollToStart}>◀</div>
+          ` : ''}
+          ${this.showScrollNavRight ? html`
+            <div class="scroll-nav right" @click=${this.scrollToEnd}>▶</div>
+          ` : ''}
+        </div>
+        
+        <div class="info">
+          Double-click to add • Drag to move • Right-click/hold to delete • ${this.keyframes.length} keyframes
+        </div>
+      </div>
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'keyframe-timeline': KeyframeTimeline;
+  }
+}

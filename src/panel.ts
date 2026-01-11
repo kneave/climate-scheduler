@@ -3,6 +3,9 @@
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
 
+import { LitElement, html, css, PropertyValues } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+
 // Version checking - detect if browser cache is stale
 (async function() {
   try {
@@ -101,39 +104,40 @@ const loadScripts = () => {
     });
 };
 
-class ClimateSchedulerPanel extends HTMLElement {
+@customElement('climate-scheduler-panel')
+class ClimateSchedulerPanel extends LitElement {
+    @property({ type: Object }) hass: any = null;
+    @property({ type: Boolean }) narrow = false;
+    @property({ type: Object }) route: any = null;
+    @property({ type: Object }) panel: any = null;
+    @state() private _scriptsLoaded = false;
+
+    static get styles() {
+        return css`
+            :host {
+                display: block;
+            }
+        `;
+    }
+
     constructor() {
         super();
         this.hass = null;
         this.narrow = false;
         this.panel = null;
-    }
-
-    // Declare properties that Home Assistant looks for
-    static get properties() {
-        return {
-            hass: { type: Object },
-            narrow: { type: Boolean },
-            route: { type: Object },
-            panel: { type: Object }
-        };
-    }
-
-    async connectedCallback() {
-        this.render();
-
         // Store reference to this panel element globally so app.js can query within it
         window.climateSchedulerPanelRoot = this;
 
         // Wait for scripts to load before initializing
         try {
             await loadScripts();
+            this._scriptsLoaded = true;
 
             // Small delay to ensure DOM is fully rendered
             await new Promise(resolve => setTimeout(resolve, 100));
 
             // Update version info in footer
-            const versionElement = this.querySelector('#version-info');
+            const versionElement = this.shadowRoot.querySelector('#version-info');
             if (versionElement) {
                 try {
                     const scriptUrl = import.meta.url;
@@ -172,75 +176,66 @@ class ClimateSchedulerPanel extends HTMLElement {
         }
     }
 
-    set hass(value) {
-        this._hass = value;
-        
-        // Apply theme based on Home Assistant theme mode
-        if (value && value.themes) {
-            const isDark = value.themes.darkMode;
-            if (isDark) {
-                // Dark mode is default, remove attribute
-                document.documentElement.removeAttribute('data-theme');
-                this.removeAttribute('data-theme');
-            } else {
-                // Light mode needs explicit attribute
-                document.documentElement.setAttribute('data-theme', 'light');
-                this.setAttribute('data-theme', 'light');
+    updated(changedProperties) {
+        if (changedProperties.has('hass') && this.hass) {
+            // Apply theme based on Home Assistant theme mode
+            if (this.hass.themes) {
+                const isDark : PropertyValues= this.hass.themes.darkMode;
+                if (isDark) {
+                    // Dark mode is default, remove attribute
+                    document.documentElement.removeAttribute('data-theme');
+                    this.removeAttribute('data-theme');
+                } else {
+                    // Light mode needs explicit attribute
+                    document.documentElement.setAttribute('data-theme', 'light');
+                    this.setAttribute('data-theme', 'light');
+                }
+            }
+            
+            // Pass hass object to app if it's already initialized
+            if (window.updateHassConnection) {
+                window.updateHassConnection(this.hass);
             }
         }
-        
-        // Pass hass object to app if it's already initialized
-        if (window.updateHassConnection && value) {
-            window.updateHassConnection(value);
-        }
-    }
-
-    get hass() {
-        return this._hass;
     }
 
     render() {
-        if (!this.querySelector('.container')) {
-            // Load CSS using same base path detection as scripts
-            const scriptUrl = import.meta.url;
-            const url = new URL(scriptUrl);
-            const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
-            const version = getVersion();
-            const styleLink = document.createElement('link');
-            styleLink.rel = 'stylesheet';
-            styleLink.href = `${basePath}/styles.css?v=${version}`;
-            this.appendChild(styleLink);
-
-            // Create container div for content
-            const container = document.createElement('div');
-            container.innerHTML = `
-                <div class="container">
-                    <section class="entity-selector">
-                        <div class="groups-section">
-                            <h3 class="section-title">Monitored (<span id="groups-count">0</span>)</h3>
-                            <div id="groups-list" class="groups-list">
-                                <!-- Dynamically populated with groups -->
-                            </div>
-                            <button id="create-group-btn" class="btn-primary" style="margin-top: 10px; width: 100%;">
-                                + Create New Group
-                            </button>
+        // Load CSS using same base path detection as scripts
+        const scriptUrl = import.meta.url;
+        const url = new URL(scriptUrl);
+        const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
+        const version = getVersion();
+        
+        return html`
+            <link rel="stylesheet" href="${basePath}/styles.css?v=${version}">
+            
+            <div class="container">
+                <section class="entity-selector">
+                    <div class="groups-section">
+                        <h3 class="section-title">Monitored (<span id="groups-count">0</span>)</h3>
+                        <div id="groups-list" class="groups-list">
+                            <!-- Dynamically populated with groups -->
                         </div>
-                        
-                        <div class="ignored-section">
-                            <button id="toggle-ignored" class="ignored-toggle">
-                                <span class="toggle-icon">▶</span>
-                                <span class="toggle-text">Unmonitored (<span id="ignored-count">0</span>)</span>
-                            </button>
-                            <div id="ignored-entity-list" class="entity-list ignored-list" style="display: none;">
-                                <div class="filter-box">
-                                    <input type="text" id="ignored-filter" placeholder="Filter by name..." />
-                                </div>
-                                <div id="ignored-entities-container">
-                                    <!-- Dynamically populated -->
-                                </div>
+                        <button id="create-group-btn" class="btn-primary" style="margin-top: 10px; width: 100%;">
+                            + Create New Group
+                        </button>
+                    </div>
+                    
+                    <div class="ignored-section">
+                        <button id="toggle-ignored" class="ignored-toggle">
+                            <span class="toggle-icon">▶</span>
+                            <span class="toggle-text">Unmonitored (<span id="ignored-count">0</span>)</span>
+                        </button>
+                        <div id="ignored-entity-list" class="entity-list ignored-list" style="display: none;">
+                            <div class="filter-box">
+                                <input type="text" id="ignored-filter" placeholder="Filter by name..." />
+                            </div>
+                            <div id="ignored-entities-container">
+                                <!-- Dynamically populated -->
                             </div>
                         </div>
-                    </section>
+                    </div>
+                </section>
 
                     <!-- Modals -->
                     <div id="confirm-modal" class="modal" style="display: none;">
@@ -404,14 +399,6 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
                                             </div>
-                                            <div class="setting-item" style="flex:1; min-width:220px;">
-                                                <label for="graph-type">Graph Type:</label>
-                                                <select id="graph-type">
-                                                    <option value="svg">SVG Graph (Classic)</option>
-                                                    <option value="canvas">Canvas Graph (Experimental)</option>
-                                                </select>
-                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose which graphing system to use</p>
-                                            </div>
                                             <div style="display:flex; gap:12px; align-items:center;">
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="min-temp" style="font-weight:600;">Min Temp (<span id="min-unit">°C</span>)</label>
@@ -491,18 +478,23 @@ class ClimateSchedulerPanel extends HTMLElement {
                         </div>
                     </div>
 
-                    <footer>
-                        <p id="version-info">Climate Scheduler</p>
-                            <div class="panel-footer" style="margin-top: 16px; text-align: center;">
-                                <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
-                            </div>
-                    </footer>
-                </div>
-            `;
-            
-            this.appendChild(container);
-        }
+                <footer>
+                    <p id="version-info">Climate Scheduler</p>
+                    <div class="panel-footer" style="margin-top: 16px; text-align: center;">
+                        <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
+                    </div>
+                </footer>
+            </div>
+        `;
     }
 }
 
 customElements.define('climate-scheduler-panel', ClimateSchedulerPanel);
+// Declare global types
+declare global {
+    interface Window {
+        climateSchedulerPanelRoot?: ClimateSchedulerPanel;
+        initClimateSchedulerApp?: (hass: any) => void;
+        updateHassConnection?: (hass: any) => void;
+    }
+}

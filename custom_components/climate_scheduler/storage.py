@@ -170,6 +170,8 @@ class ScheduleStorage:
                 settings["max_temp"] = 30.0  # Celsius
         if "create_derivative_sensors" not in settings:
             settings["create_derivative_sensors"] = True  # Default to enabled
+        if "graph_type" not in settings:
+            settings["graph_type"] = "svg"  # Default to SVG graph (classic)
         self._data["settings"] = settings
         # Persist cleaned settings if we flattened/cleaned nested layers
         if locals().get("changed_settings"):

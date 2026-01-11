@@ -50,6 +50,8 @@ let currentGroup = null; // Currently selected group
 let currentEntityId = null; // Currently selected individual entity (legacy path, mostly unused now)
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
+let graphType = 'svg'; // 'svg' or 'canvas'
+let keyframeTimelineLoaded = false; // Track if keyframe-timeline.js is loaded
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
@@ -623,7 +625,158 @@ function createGroupContainer(groupName, groupData) {
     container.appendChild(header);
     
     return container;
-}// Edit group schedule - load group schedule into editor
+}
+
+// Load keyframe-timeline.js dynamically
+async function loadKeyframeTimeline() {
+    if (keyframeTimelineLoaded) return true;
+    
+    try {
+        // Get the base path from where scripts are loaded (same as graph.js, ha-api.js)
+        // We can infer this from the current location or use a known path
+        const basePath = '/climate_scheduler/static';
+        // Try to get version from graph.js or ha-api.js script tags
+        let version = null;
+        const scripts = document.querySelectorAll('script[src*="graph.js"], script[src*="ha-api.js"]');
+        for (const s of scripts) {
+            const url = new URL(s.src, window.location.href);
+            version = url.searchParams.get('v');
+            if (version) break;
+        }
+        
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = `${basePath}/keyframe-timeline.js${version ? `?v=${version}` : ''}`;
+        
+        await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+        
+        keyframeTimelineLoaded = true;
+        console.log('Loaded keyframe-timeline.js');
+        return true;
+    } catch (error) {
+        console.error('Failed to load keyframe-timeline.js:', error);
+        showToast('Failed to load canvas graph component', 'error');
+        return false;
+    }
+}
+
+// Convert schedule nodes {time: "HH:MM", temp: number} to keyframes {time: decimal_hours, value: number}
+function scheduleNodesToKeyframes(nodes) {
+    const keyframes = nodes
+        .filter(node => !node.noChange && node.temp !== null && node.temp !== undefined)
+        .map(node => {
+            const [hours, minutes] = node.time.split(':').map(Number);
+            const decimalHours = hours + (minutes / 60);
+            return {
+                time: decimalHours,
+                value: node.temp
+            };
+        })
+        .sort((a, b) => a.time - b.time); // Sort by time
+    return keyframes;
+}
+
+// Convert keyframes {time: decimal_hours, value: number} to schedule nodes {time: "HH:MM", temp: number}
+function keyframesToScheduleNodes(keyframes) {
+    return keyframes.map(kf => {
+        const hours = Math.floor(kf.time);
+        const minutes = Math.round((kf.time - hours) * 60);
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        return {
+            time: timeStr,
+            temp: kf.value
+        };
+    });
+}
+
+// Get nodes from graph (works with both SVG and canvas)
+function getGraphNodes() {
+    if (!graph) return [];
+    
+    if (graphType === 'svg') {
+        return graph.getNodes ? graph.getNodes() : [];
+    } else {
+        // Canvas graph - convert keyframes to nodes
+        return graph.keyframes ? keyframesToScheduleNodes(graph.keyframes) : [];
+    }
+}
+
+// Set nodes on graph (type-safe wrapper)
+function setGraphNodes(nodes) {
+    if (!graph) return;
+    
+    if (graphType === 'svg') {
+        if (graph.setNodes) graph.setNodes(nodes);
+    } else {
+        // Canvas graph - convert nodes to keyframes
+        const keyframes = scheduleNodesToKeyframes(nodes);
+        // Force reactivity by creating new array reference
+        graph.keyframes = [...keyframes];
+    }
+}
+
+// Set history data on graph (type-safe wrapper)
+function setGraphHistoryData(historyDataArray) {
+    if (!graph) return;
+    
+    if (graphType === 'svg') {
+        // SVG graph - use setHistoryData method
+        if (graph.setHistoryData) graph.setHistoryData(historyDataArray);
+    } else {
+        // Canvas graph - convert to backgroundGraphs format
+        if (!historyDataArray || historyDataArray.length === 0) {
+            graph.backgroundGraphs = [];
+            return;
+        }
+        
+        // Detect format: old format [{time, temp}] or new format [{entityId, data, color}]
+        const isNewFormat = historyDataArray[0] && historyDataArray[0].entityId !== undefined;
+        
+        if (isNewFormat) {
+            // New format: array of {entityId, entityName, data, color}
+            const backgroundGraphs = historyDataArray.map((entity) => {
+                const keyframes = entity.data
+                    .map(node => ({
+                        time: timeStringToDecimalHours(node.time),
+                        value: node.temp
+                    }))
+                    .sort((a, b) => a.time - b.time); // Sort by time
+                return {
+                    keyframes: keyframes,
+                    color: entity.color ? entity.color + '80' : undefined, // Add transparency
+                    label: entity.entityName || entity.entityId
+                };
+            });
+            // Force reactivity by creating new array reference
+            graph.backgroundGraphs = [...backgroundGraphs];
+        } else {
+            // Old format: single array of {time, temp}
+            const keyframes = historyDataArray
+                .map(node => ({
+                    time: timeStringToDecimalHours(node.time),
+                    value: node.temp
+                }))
+                .sort((a, b) => a.time - b.time); // Sort by time
+            graph.backgroundGraphs = [{
+                keyframes: keyframes,
+                color: '#2196f380',
+                label: 'Temperature'
+            }];
+        }
+    }
+}
+
+// Helper function to convert time string "HH:MM" to decimal hours
+function timeStringToDecimalHours(timeStr) {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours + minutes / 60;
+}
+
+// Edit group schedule - load group schedule into editor
 async function editGroupSchedule(groupName, day = null) {
     // Fetch fresh group data from server before editing
     try {
@@ -684,49 +837,102 @@ async function editGroupSchedule(groupName, day = null) {
         entityStatus.style.display = 'none';
     }
     
-    // Recreate graph with the new SVG element
-    const svgElement = editor.querySelector('#temperature-graph');
-    if (svgElement) {
-        graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep);
-        graph.setTooltipMode(tooltipMode);
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
-            graph.setMinMax(minTempSetting, maxTempSetting);
+    // Recreate graph with the new element based on graph type
+    if (graphType === 'canvas') {
+        // Use keyframe-timeline component
+        const canvasLoaded = await loadKeyframeTimeline();
+        if (!canvasLoaded) {
+            // Fall back to SVG if canvas fails to load
+            graphType = 'svg';
         }
-        
-        // Attach graph event listeners (permanent listeners)
-        svgElement.addEventListener('nodeSettings', handleNodeSettings);
-        
-        // Handle node updates during dragging
-        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
-            const { nodeIndex, node } = event.detail;
-            const panel = editor.querySelector('#node-settings-panel');
-            
-            // Only update if this node's panel is currently showing
-            if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
-                const tempInput = panel.querySelector('#node-temp-input');
-                const tempNoChange = panel.querySelector('#temp-no-change');
-                const tempUpBtn = panel.querySelector('#temp-up');
-                const tempDownBtn = panel.querySelector('#temp-down');
-                const timeInput = panel.querySelector('#node-time-input');
-                
-                // Update time
-                if (timeInput) timeInput.value = node.time;
-                
-                // Update temperature and checkbox state
-                const isNoChange = node.noChange === true;
-                if (tempNoChange) tempNoChange.checked = isNoChange;
-                if (tempInput) {
-                    tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
-                    tempInput.disabled = isNoChange;
-                }
-                if (tempUpBtn) tempUpBtn.disabled = isNoChange;
-                if (tempDownBtn) tempDownBtn.disabled = isNoChange;
+    }
+    
+    if (graphType === 'svg') {
+        // Use existing SVG graph
+        const svgElement = editor.querySelector('#temperature-graph');
+        if (svgElement) {
+            graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep);
+            graph.setTooltipMode(tooltipMode);
+            // Apply configured min/max if available
+            if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
+                graph.setMinMax(minTempSetting, maxTempSetting);
             }
-        });
-        
+            
+            // Attach graph event listeners (permanent listeners)
+            svgElement.addEventListener('nodeSettings', handleNodeSettings);
+            
+            // Handle node updates during dragging
+            svgElement.addEventListener('nodeSettingsUpdate', (event) => {
+                const { nodeIndex, node } = event.detail;
+                const panel = editor.querySelector('#node-settings-panel');
+                
+                // Only update if this node's panel is currently showing
+                if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
+                    const tempInput = panel.querySelector('#node-temp-input');
+                    const tempNoChange = panel.querySelector('#temp-no-change');
+                    const tempUpBtn = panel.querySelector('#temp-up');
+                    const tempDownBtn = panel.querySelector('#temp-down');
+                    const timeInput = panel.querySelector('#node-time-input');
+                    
+                    // Update time
+                    if (timeInput) timeInput.value = node.time;
+                    
+                    // Update temperature and checkbox state
+                    const isNoChange = node.noChange === true;
+                    if (tempNoChange) tempNoChange.checked = isNoChange;
+                    if (tempInput) {
+                        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
+                        tempInput.disabled = isNoChange;
+                    }
+                    if (tempUpBtn) tempUpBtn.disabled = isNoChange;
+                    if (tempDownBtn) tempDownBtn.disabled = isNoChange;
+                }
+            });
+        }
+    } else {
+        // Use keyframe-timeline component
+        const graphContainer = editor.querySelector('.graph-container');
+        if (graphContainer) {
+            // Remove SVG element if present
+            const svgElement = graphContainer.querySelector('#temperature-graph');
+            if (svgElement) {
+                svgElement.remove();
+            }
+            
+            // Create keyframe-timeline element
+            const timeline = document.createElement('keyframe-timeline');
+            timeline.id = 'keyframe-timeline-graph';
+            timeline.style.width = '100%';
+            timeline.duration = 24;
+            timeline.slots = 96;
+            timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
+            timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
+            timeline.snapValue = graphSnapStep;
+            timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
+            timeline.showCurrentTime = true;
+            
+            graphContainer.appendChild(timeline);
+            
+            // Store reference
+            graph = timeline;
+            
+            // Attach event listeners for keyframe changes
+            timeline.addEventListener('keyframe-moved', handleKeyframeTimelineChange);
+            timeline.addEventListener('keyframe-added', handleKeyframeTimelineChange);
+            timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
+            timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
+            timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
+        }
+    }
+    
+    // Get graph element (either SVG or canvas timeline)
+    const graphElement = graphType === 'svg' 
+        ? editor.querySelector('#temperature-graph')
+        : editor.querySelector('#keyframe-timeline-graph');
+    
+    if (graphElement) {
         // Create and insert settings panel after the graph container but before instructions
-        const graphContainer = svgElement.closest('.graph-container') || svgElement.parentElement;
+        const graphContainer = graphElement.closest('.graph-container') || graphElement.parentElement;
         const instructionsContainer = editor.querySelector('.instructions-container');
         
         if (graphContainer && instructionsContainer) {
@@ -780,19 +986,30 @@ async function editGroupSchedule(groupName, day = null) {
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
     
-    // Find the SVG element
-    const svg = editor.querySelector('#temperature-graph');
-    
-    // Set initial nodes
-    graph.setNodes(currentSchedule);
-    
-    // Set previous day's last temperature for graph rendering
-    setPreviousDayLastTempForGraph(groupData, currentDay);
-    
-    // Always attach the permanent nodesChanged listener for auto-save
-    if (svg) {
-        svg.removeEventListener('nodesChanged', handleGraphChange); // Remove any previous
-        svg.addEventListener('nodesChanged', handleGraphChange);
+    // Set initial nodes based on graph type
+    if (graphType === 'svg') {
+        graph.setNodes(currentSchedule);
+        
+        // Set previous day's last temperature for graph rendering
+        setPreviousDayLastTempForGraph(groupData, currentDay);
+        
+        // Always attach the permanent nodesChanged listener for auto-save
+        const svg = editor.querySelector('#temperature-graph');
+        if (svg) {
+            svg.removeEventListener('nodesChanged', handleGraphChange);
+            svg.addEventListener('nodesChanged', handleGraphChange);
+        }
+    } else {
+        // Canvas graph - set keyframes
+        const keyframes = scheduleNodesToKeyframes(currentSchedule);
+        // Force reactivity by creating new array reference
+        graph.keyframes = [...keyframes];
+        
+        // Set previous day's last temperature
+        const prevTemp = getPreviousDayLastTemp(groupData, currentDay);
+        if (prevTemp !== null) {
+            graph.previousDayEndValue = prevTemp;
+        }
     }
     
     // Update schedule mode UI
@@ -955,7 +1172,7 @@ function createSettingsPanel(groupData, editor) {
     // Connect undo button to graph and add delete group handler
     setTimeout(() => {
         const undoBtn = container.querySelector('#undo-btn');
-        if (undoBtn && graph) {
+        if (undoBtn && graph && graphType === 'svg') {
             graph.setUndoButton(undoBtn);
         }
         
@@ -1022,7 +1239,7 @@ function showEditingProfileIndicator(editingProfile, activeProfile) {
                             const nodes = schedules[day] || schedules['all_days'] || [];
                             
                             if (graph) {
-                                graph.setNodes(nodes);
+                                setGraphNodes(nodes);
                             }
                             
                             // Update UI
@@ -1083,7 +1300,7 @@ async function setupProfileHandlers(container, groupData) {
                     const nodes = schedules[day] || schedules['all_days'] || [];
                     
                     if (graph) {
-                        graph.setNodes(nodes);
+                        setGraphNodes(nodes);
                     }
                     
                     // Show editing indicator if editing a different profile than active
@@ -1337,7 +1554,7 @@ function createGroupMembersTable(entityIds) {
             // Refresh table data
             const now = new Date();
             const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-            const groupSchedule = graph ? graph.getNodes() : [];
+            const groupSchedule = getGraphNodes();
             
             // Update each row with fresh data
             entityIds.forEach(entityId => {
@@ -1388,7 +1605,7 @@ function createGroupMembersTable(entityIds) {
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     
     // Get the group's schedule if it exists
-    const groupSchedule = graph ? graph.getNodes() : [];
+    const groupSchedule = getGraphNodes();
     
     // Create rows for each entity
     entityIds.forEach(entityId => {
@@ -1892,6 +2109,17 @@ function createScheduleEditor() {
             </div>
         </div>
         
+        <!-- Timeline Comparison Section (Collapsible with Canvas Timelines) -->
+        <div class="timeline-comparison-container">
+            <div class="timeline-comparison-toggle">
+                <span class="toggle-icon" style="transform: rotate(90deg);">▶</span>
+                <span class="toggle-text">Timeline Comparison</span>
+            </div>
+            <div class="timeline-comparison-content" style="display: block;">
+                <div id="timeline-comparison-canvas-container"></div>
+            </div>
+        </div>
+        
         <!-- Instructions Section (Collapsible) -->
         <div class="instructions-container">
             <div class="instructions-toggle">
@@ -1935,8 +2163,173 @@ function collapseAllEditors() {
     allGroupContainers.forEach(container => container.classList.remove('expanded'));
 }
 
+// Populate timeline comparison with canvas timelines
+async function populateTimelineComparison(editorElement) {
+    const container = editorElement.querySelector('#timeline-comparison-canvas-container');
+    if (!container) return;
+    
+    // Ensure keyframe-timeline component is loaded
+    const canvasLoaded = await loadKeyframeTimeline();
+    if (!canvasLoaded) {
+        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">Failed to load timeline component</p>';
+        return;
+    }
+    
+    // Clear existing content
+    container.innerHTML = '';
+    
+    // Get current day index
+    const currentDayIndex = editorElement.dataset.dayIndex;
+    
+    // Only show the timeline for the currently edited group
+    if (!currentGroup) {
+        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">No group selected</p>';
+        return;
+    }
+    
+    const groupData = allGroups[currentGroup];
+    if (!groupData) {
+        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">Group not found</p>';
+        return;
+    }
+    
+    // Create canvas timeline directly in container
+    const timeline = document.createElement('keyframe-timeline');
+    timeline.style.width = '100%';
+    timeline.style.setProperty('--timeline-height', '400px');
+    timeline.style.setProperty('--timeline-height-collapsed', '400px');
+    timeline.style.display = 'block';
+    timeline.duration = 24;
+    timeline.slots = 96;
+    timeline.snapValue = graphSnapStep;
+    timeline.title = currentGroup; // Set group name as title
+    timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
+    timeline.showCurrentTime = true;
+    timeline.showHeader = false; // Hide the UI header
+    timeline.readonly = true; // Make it read-only
+    
+    // Set min/max from global settings
+    timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
+    timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
+    
+    // Get schedule for this group - use the same data as the main graph
+    const nodes = getGraphNodes();
+    if (nodes && nodes.length > 0) {
+        const keyframes = scheduleNodesToKeyframes(nodes);
+        timeline.keyframes = [...keyframes];
+    }
+    
+    // Get history data from the main graph and apply it to the timeline
+    if (graph && graphType === 'svg') {
+        // For SVG graphs, we need to fetch history data directly
+        if (groupData.entities && groupData.entities.length > 0) {
+            try {
+                // Get start of today
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                // Get current time
+                const now = new Date();
+                
+                const allHistoryData = [];
+                const defaultColors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#ffeb3b', '#795548'];
+                
+                // Load history for each entity
+                for (let i = 0; i < groupData.entities.length; i++) {
+                    const entityId = groupData.entities[i];
+                    const entity = climateEntities.find(e => e.entity_id === entityId);
+                    
+                    try {
+                        const historyResult = await haAPI.getHistory(entityId, today, now);
+                        
+                        if (historyResult && historyResult[entityId]) {
+                            const historyData = [];
+                            const stateHistory = historyResult[entityId] || [];
+                            
+                            for (const state of stateHistory) {
+                                const attributes = state.a || state.attributes;
+                                const lastUpdated = state.lu || state.last_updated;
+                                
+                                if (!attributes) continue;
+                                
+                                const temp = parseFloat(attributes.current_temperature);
+                                if (!isNaN(temp)) {
+                                    let stateTime;
+                                    if (typeof lastUpdated === 'string') {
+                                        stateTime = new Date(lastUpdated);
+                                    } else if (typeof lastUpdated === 'number') {
+                                        stateTime = lastUpdated > 10000000000 
+                                            ? new Date(lastUpdated) 
+                                            : new Date(lastUpdated * 1000);
+                                    } else {
+                                        continue;
+                                    }
+                                    
+                                    const hours = stateTime.getHours();
+                                    const minutes = stateTime.getMinutes();
+                                    const decimalTime = hours + (minutes / 60);
+                                    
+                                    historyData.push({
+                                        time: decimalTime,
+                                        value: temp
+                                    });
+                                }
+                            }
+                            
+                            if (historyData.length > 0) {
+                                allHistoryData.push({
+                                    keyframes: historyData.sort((a, b) => a.time - b.time),
+                                    color: defaultColors[i % defaultColors.length] + '80',
+                                    label: entity?.attributes?.friendly_name || entityId
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Failed to load history for ${entityId}:`, error);
+                    }
+                }
+                
+                if (allHistoryData.length > 0) {
+                    timeline.backgroundGraphs = allHistoryData;
+                }
+            } catch (error) {
+                console.error('Failed to load history data for timeline:', error);
+            }
+        }
+    } else if (graph && graphType === 'canvas') {
+        // For canvas graphs, copy the background graphs from the main timeline
+        if (graph.backgroundGraphs && graph.backgroundGraphs.length > 0) {
+            timeline.backgroundGraphs = [...graph.backgroundGraphs];
+        }
+    }
+    
+    container.appendChild(timeline);
+}
+
 // Attach event listeners to editor elements (for dynamically created editors)
 function attachEditorEventListeners(editorElement) {
+    
+    
+    // Timeline comparison toggle
+    const timelineComparisonToggle = editorElement.querySelector('.timeline-comparison-toggle');
+    const timelineComparisonContent = editorElement.querySelector('.timeline-comparison-content');
+    if (timelineComparisonToggle && timelineComparisonContent) {
+        // Populate timeline on load since it starts expanded
+        populateTimelineComparison(editorElement);
+        
+        timelineComparisonToggle.onclick = async () => {
+            const isCollapsed = timelineComparisonContent.style.display === 'none';
+            if (isCollapsed) {
+                timelineComparisonContent.style.display = 'block';
+                timelineComparisonToggle.querySelector('.toggle-icon').style.transform = 'rotate(90deg)';
+                // Populate timeline comparison when expanded
+                await populateTimelineComparison(editorElement);
+            } else {
+                timelineComparisonContent.style.display = 'none';
+                timelineComparisonToggle.querySelector('.toggle-icon').style.transform = 'rotate(0deg)';
+            }
+        };
+    }
     
     // Instructions toggle
     const instructionsToggle = editorElement.querySelector('.instructions-toggle');
@@ -2188,7 +2581,7 @@ function attachEditorEventListeners(editorElement) {
         prevNodeBtn.onclick = () => {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
+            if (!isNaN(currentIndex) && graph && graph.nodes && graph.nodes.length > 0 && graphType === 'svg') {
                 const sortedIndices = graph.getSortedNodeIndices();
                 const currentPos = sortedIndices.indexOf(currentIndex);
                 const newPos = currentPos > 0 ? currentPos - 1 : sortedIndices.length - 1;
@@ -2202,7 +2595,7 @@ function attachEditorEventListeners(editorElement) {
         nextNodeBtn.onclick = () => {
             const panel = editorElement.querySelector('#node-settings-panel');
             const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
+            if (!isNaN(currentIndex) && graph && graph.nodes && graph.nodes.length > 0 && graphType === 'svg') {
                 const sortedIndices = graph.getSortedNodeIndices();
                 const currentPos = sortedIndices.indexOf(currentIndex);
                 const newPos = currentPos < graph.nodes.length - 1 ? currentPos + 1 : 0;
@@ -2563,7 +2956,7 @@ function attachEditorEventListeners(editorElement) {
     }
     
     const graphUndoBtn = editorElement.querySelector('#graph-undo-btn');
-    if (graphUndoBtn && graph) {
+    if (graphUndoBtn && graph && graphType === 'svg') {
         graph.setUndoButton(graphUndoBtn);
     }
 }
@@ -2585,7 +2978,7 @@ function updatePasteButtonState() {
 
 // Copy current schedule to clipboard
 function copySchedule() {
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     if (nodes && nodes.length > 0) {
         // Deep copy the nodes
         scheduleClipboard = nodes.map(n => ({...n}));
@@ -2615,7 +3008,7 @@ async function pasteSchedule() {
     const nodes = scheduleClipboard.map(n => ({...n}));
     
     // Update graph
-    graph.setNodes(nodes);
+    setGraphNodes(nodes);
     
     // Save the pasted schedule
     await saveSchedule();
@@ -2645,7 +3038,7 @@ async function clearScheduleForEntity(entityId) {
         
         // Update graph with default schedule
         if (graph) {
-            graph.setNodes(defaultSchedule);
+            setGraphNodes(defaultSchedule);
         }
         
         // Update current schedule reference
@@ -2699,7 +3092,7 @@ async function clearScheduleForGroup(groupName) {
         
         // Update graph with default schedule for current day
         if (graph) {
-            graph.setNodes(defaultSchedule);
+            setGraphNodes(defaultSchedule);
         }
         
         // Update current schedule reference
@@ -2888,7 +3281,9 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
     
     // In all_days mode, previous day is same as current day
     if (scheduleMode === 'all_days') {
-        graph.setPreviousDayLastTemp(null);
+        if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
+            graph.setPreviousDayLastTemp(null);
+        }
         return;
     }
     
@@ -2921,14 +3316,64 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
             const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
             if (nodesWithTemp.length > 0) {
                 const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
-                graph.setPreviousDayLastTemp(lastNode.temp);
+                if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
+                    graph.setPreviousDayLastTemp(lastNode.temp);
+                }
                 return;
             }
         }
     }
     
     // If no previous day data found, don't set it (will fall back to current day's last node)
-    graph.setPreviousDayLastTemp(null);
+    if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
+        graph.setPreviousDayLastTemp(null);
+    }
+}
+
+// Get previous day's last temperature value (for canvas graph)
+function getPreviousDayLastTemp(groupData, currentDayParam) {
+    if (!groupData || !groupData.schedules) return null;
+    
+    const scheduleMode = groupData.schedule_mode || 'all_days';
+    
+    // In all_days mode, previous day is same as current day
+    if (scheduleMode === 'all_days') {
+        return null;
+    }
+    
+    // Determine previous day based on schedule mode
+    let previousDayKey = null;
+    
+    if (scheduleMode === '5/2') {
+        // In weekday/weekend mode
+        if (currentDayParam === 'weekday') {
+            previousDayKey = 'weekend';
+        } else if (currentDayParam === 'weekend') {
+            previousDayKey = 'weekday';
+        }
+    } else if (scheduleMode === 'individual') {
+        // In 7-day mode, get actual previous day
+        const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const currentIndex = days.indexOf(currentDayParam);
+        if (currentIndex !== -1) {
+            previousDayKey = days[(currentIndex - 1 + 7) % 7];
+        }
+    }
+    
+    // Get previous day's schedule
+    if (previousDayKey && groupData.schedules[previousDayKey]) {
+        const previousDayNodes = groupData.schedules[previousDayKey];
+        if (previousDayNodes && previousDayNodes.length > 0) {
+            // Find the last node with a temperature (not noChange)
+            const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
+            if (nodesWithTemp.length > 0) {
+                const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+                return lastNode.temp;
+            }
+        }
+    }
+    
+    return null;
 }
 
 // Update graph title to show which day is being edited
@@ -2984,7 +3429,7 @@ async function switchScheduleMode(newMode) {
     
     // Save the mode change to backend first
     if (currentGroup) {
-        const nodes = graph.getNodes();
+        const nodes = getGraphNodes();
         await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
         
         // Update local group data
@@ -3030,7 +3475,7 @@ async function switchScheduleMode(newMode) {
         //
         
         // Update graph with new nodes
-        graph.setNodes(currentSchedule);
+        setGraphNodes(currentSchedule);
         
         // Set previous day's last temperature for graph rendering
         setPreviousDayLastTempForGraph(groupData, currentDay);
@@ -3098,7 +3543,7 @@ async function switchDay(day) {
         //
         
         // Update graph with new nodes
-        graph.setNodes(currentSchedule);
+        setGraphNodes(currentSchedule);
         
         // Set previous day's last temperature for graph rendering
         setPreviousDayLastTempForGraph(groupData, currentDay);
@@ -3132,7 +3577,7 @@ async function loadHistoryData(entityId) {
         const historyResult = await haAPI.getHistory(entityId, today, now);
         
         if (!historyResult || !historyResult[entityId]) {
-            graph.setHistoryData([]);
+            setGraphHistoryData([]);
             return;
         }
         
@@ -3173,17 +3618,17 @@ async function loadHistoryData(entityId) {
             }
         }
         
-        graph.setHistoryData(historyData);
+        setGraphHistoryData([historyData]);
     } catch (error) {
         console.error('Failed to load history data:', error);
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
     }
 }
 
 // Load history data for multiple entities (used for groups)
 async function loadGroupHistoryData(entityIds) {
     if (!entityIds || entityIds.length === 0) {
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
         return;
     }
     
@@ -3257,10 +3702,10 @@ async function loadGroupHistoryData(entityIds) {
             }
         }
         
-        graph.setHistoryData(allHistoryData);
+        setGraphHistoryData(allHistoryData);
     } catch (error) {
         console.error('Failed to load group history data:', error);
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
     }
 }
 
@@ -3320,7 +3765,7 @@ async function performSave() {
     
     // Check if we're editing a group schedule
     if (currentGroup) {
-        const nodes = graph.getNodes();
+        const nodes = getGraphNodes();
         console.debug('[SAVE] Group mode detected', {
             groupName: currentGroup,
             nodeCount: nodes.length,
@@ -3440,7 +3885,7 @@ async function handleGraphChange(event, force = false) {
     // Check if we need to update thermostats immediately
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     // Find active node
     const sorted = [...nodes].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
@@ -3628,6 +4073,27 @@ async function handleGraphChange(event, force = false) {
     }
 }
 
+// Handle keyframe-timeline changes (canvas graph)
+function handleKeyframeTimelineChange(event) {
+    if (isLoadingSchedule) return;
+    
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Convert keyframes to schedule nodes
+    const nodes = keyframesToScheduleNodes(keyframes);
+    currentSchedule = nodes;
+    
+    // Trigger auto-save with debouncing
+    if (saveTimeout) {
+        clearTimeout(saveTimeout);
+    }
+    
+    saveTimeout = setTimeout(() => {
+        saveSchedule();
+    }, SAVE_DEBOUNCE_MS);
+}
+
 // Update scheduled temperature display
 function updateScheduledTemp() {
     const scheduledTempEl = getDocumentRoot().querySelector('#scheduled-temp');
@@ -3637,7 +4103,7 @@ function updateScheduledTemp() {
     
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
@@ -3820,7 +4286,7 @@ function updateGroupMemberRow(entityId, entityState) {
     if (scheduledCell && currentGroup && graph) {
         const now = new Date();
         const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        const nodes = graph.getNodes();
+        const nodes = getGraphNodes();
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
@@ -3840,7 +4306,7 @@ function updateAllGroupMemberScheduledTemps() {
     
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     rows.forEach(row => {
         const scheduledCell = row.children[3];
@@ -4738,6 +5204,14 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
+        // Load graph type setting
+        if (settings && settings.graph_type) {
+            graphType = settings.graph_type;
+            const graphTypeSelect = getDocumentRoot().querySelector('#graph-type');
+            if (graphTypeSelect) {
+                graphTypeSelect.value = graphType;
+            }
+        }
         // Load derivative sensor setting
         if (settings && typeof settings.create_derivative_sensors !== 'undefined') {
             const checkbox = getDocumentRoot().querySelector('#create-derivative-sensors');
@@ -4804,7 +5278,8 @@ async function saveSettings() {
     try {
         const settings = {
             defaultSchedule: defaultScheduleSettings,
-            tooltipMode: tooltipMode
+            tooltipMode: tooltipMode,
+            graph_type: graphType
         };
         // Read min/max inputs
         const minInput = getDocumentRoot().querySelector('#min-temp');
@@ -4900,7 +5375,7 @@ async function setupSettingsPanel() {
             tooltipMode = e.target.value;
             
             // Update all graph instances
-            if (graph) {
+            if (graph && graphType === 'svg') {
                 graph.setTooltipMode(tooltipMode);
             }
             if (defaultScheduleGraph) {
@@ -4909,6 +5384,25 @@ async function setupSettingsPanel() {
             
             // Auto-save the setting
             saveSettings();
+        });
+    }
+    
+    // Graph type selector
+    const graphTypeSelect = getDocumentRoot().querySelector('#graph-type');
+    if (graphTypeSelect) {
+        graphTypeSelect.addEventListener('change', async (e) => {
+            graphType = e.target.value;
+            await saveSettings();
+            
+            // Reload current schedule editor if one is open
+            if (currentGroup) {
+                collapseAllEditors();
+                setTimeout(async () => {
+                    await editGroupSchedule(currentGroup, currentDay);
+                }, 100);
+            }
+            
+            showToast(`Graph type changed to ${graphType === 'svg' ? 'SVG (Classic)' : 'Canvas (Experimental)'}`, 'success');
         });
     }
     
@@ -5398,7 +5892,7 @@ function handleDefaultNodeSettings(event) {
 async function loadAdvanceHistory(entityId) {
     try {
         const status = await haAPI.getAdvanceStatus(entityId);
-        if (status && status.history && graph) {
+        if (status && status.history && graph && graphType === 'svg' && graph.setAdvanceHistory) {
             graph.setAdvanceHistory(status.history);
         }
     } catch (error) {
