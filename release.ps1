@@ -8,7 +8,7 @@
     pushes to GitHub, and creates a GitHub release.
 
 .PARAMETER Version
-    The version number to release (e.g., 1.0.5). If not provided, reads current version from manifest.json.
+    The version number to release (e.g., 1.0.5 for main, 1.0.5-develop.1 for develop). If not provided, reads current version from manifest.json.
 
 .PARAMETER DryRun
     Run in dry-run mode - shows what would happen without making any changes.
@@ -127,26 +127,28 @@ else {
     $latestTag = "0.0.0.0"
 }
 
-# Parse version and suggest next versions (supports major.minor.patch[b].build or major.minor.patch.build[b])
-if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)(?:b)?(?:\.(\d+))?(?:b)?$') {
+# Parse version and suggest next versions (supports both old and new formats)
+# Old: major.minor.patch[b].build or major.minor.patch.build[b]
+# New: major.minor.patch or major.minor.patch-develop.build
+if ($latestTag -match '^(\d+)\.(\d+)\.(\d+)(?:(?:-develop|b)?\.(\d+))?(?:b)?$') {
     $major = [int]$matches[1]
     $minor = [int]$matches[2]
     $patch = [int]$matches[3]
     $build = if ($matches[4]) { [int]$matches[4] } else { 0 }
-    $hasBeta = $latestTag -match 'b'
+    $hasBeta = ($latestTag -match '-develop') -or ($latestTag -match 'b')
     
     # Different version format based on branch
     if ($isPreRelease) {
-        # Develop branch: use 4-part versions (major.minor.patch.build)
-        $suggestedPatch = "$major.$minor.$($patch + 1).1"
-        $suggestedMinor = "$major.$($minor + 1).0.1"
-        $suggestedMajor = "$($major + 1).0.0.1"
-        $suggestedBuild = "$major.$minor.$patch.$($build + 1)"
+        # Develop branch: use semantic versioning (major.minor.patch-develop.build)
+        $suggestedPatch = "$major.$minor.$($patch + 1)-develop.1"
+        $suggestedMinor = "$major.$($minor + 1).0-develop.1"
+        $suggestedMajor = "$($major + 1).0.0-develop.1"
+        $suggestedBuild = "$major.$minor.$patch-develop.$($build + 1)"
         
         # If latest tag is a pre-release, suggest incrementing build on same version
         $suggestedPreReleaseBuild = $null
         if ($hasBeta -and $build -gt 0) {
-            $suggestedPreReleaseBuild = "$major.$minor.$patch.$($build + 1)"
+            $suggestedPreReleaseBuild = "$major.$minor.$patch-develop.$($build + 1)"
         }
     }
     else {
@@ -170,8 +172,8 @@ if (-not $Version) {
     # Check if manifest version is valid for release
     $canUseManifest = $true
     $canReRelease = $false
-    # Strip 'b' suffix from tag for comparison with manifest version
-    $latestTagNumeric = $latestTag -replace 'b$', ''
+    # Strip -develop suffix or 'b' suffix from tag for comparison with manifest version
+    $latestTagNumeric = $latestTag -replace '-develop\.\d+$', '' -replace 'b$', '' -replace '\.\d+b$', ''
     if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTagNumeric) {
         $canUseManifest = $false
         $canReRelease = $true  # Allow re-release option
@@ -180,8 +182,8 @@ if (-not $Version) {
     if ($suggestedPatch) {
         Write-Host "`nSelect version to release:" -ForegroundColor Yellow
         
-        # Add 'b' suffix to displayed versions if this is a pre-release
-        $displaySuffix = if ($isPreRelease) { "b" } else { "" }
+        # Versions already include -develop suffix if needed, no additional display suffix needed
+        $displaySuffix = ""
         
         # Initialize option variables
         $optionNum = 1
@@ -196,30 +198,25 @@ if (-not $Version) {
         
         # Show pre-release build increment option first if available
         if ($suggestedPreReleaseBuild) {
-            $displayPreReleaseBuild = $suggestedPreReleaseBuild -replace '\.(\d+)$', "b.`$1"
-            Write-Host "  $optionNum. Pre-release build:         $displayPreReleaseBuild (increment build only)"
+            Write-Host "  $optionNum. Pre-release build:         $suggestedPreReleaseBuild (increment build only)"
             $preReleaseBuildOption = $optionNum
             $optionNum++
         }
         
-        $displayPatch = $suggestedPatch -replace '\.(\d+)$', "$displaySuffix.`$1"
-        Write-Host "  $optionNum. Patch (bug fixes):        $displayPatch"
+        Write-Host "  $optionNum. Patch (bug fixes):        $suggestedPatch"
         $patchOption = $optionNum
         $optionNum++
         
-        $displayMinor = $suggestedMinor -replace '\.(\d+)$', "$displaySuffix.`$1"
-        Write-Host "  $optionNum. Minor (new features):     $displayMinor"
+        Write-Host "  $optionNum. Minor (new features):     $suggestedMinor"
         $minorOption = $optionNum
         $optionNum++
         
-        $displayMajor = $suggestedMajor -replace '\.(\d+)$', "$displaySuffix.`$1"
-        Write-Host "  $optionNum. Major (breaking changes): $displayMajor"
+        Write-Host "  $optionNum. Major (breaking changes): $suggestedMajor"
         $majorOption = $optionNum
         $optionNum++
         
         if ($build -gt 0 -and -not $suggestedPreReleaseBuild) {
-            $displayBuild = $suggestedBuild -replace '\.(\d+)$', "$displaySuffix.`$1"
-            Write-Host "  $optionNum. Build (increment build):  $displayBuild"
+            Write-Host "  $optionNum. Build (increment build):  $suggestedBuild"
             $buildOption = $optionNum
             $optionNum++
         }
@@ -276,7 +273,7 @@ if (-not $Version) {
         }
         { $_ -eq $customOption.ToString() } {
             if ($isPreRelease) {
-                $Version = Read-Host "Enter custom version number (format: major.minor.patch.build)"
+                $Version = Read-Host "Enter custom version number (format: major.minor.patch-develop.build)"
             }
             else {
                 $Version = Read-Host "Enter custom version number (format: major.minor.patch)"
@@ -303,8 +300,8 @@ if (-not $Version) {
         }
         default {
             # Try to parse as direct version input
-            $versionPattern = if ($isPreRelease) { '^\d+\.\d+\.\d+\.\d+$' } else { '^\d+\.\d+\.\d+$' }
-            $formatExample = if ($isPreRelease) { "major.minor.patch.build" } else { "major.minor.patch" }
+            $versionPattern = if ($isPreRelease) { '^\d+\.\d+\.\d+-develop\.\d+$' } else { '^\d+\.\d+\.\d+$' }
+            $formatExample = if ($isPreRelease) { "major.minor.patch-develop.build" } else { "major.minor.patch" }
             
             if ($choice -match $versionPattern) {
                 $Version = $choice
@@ -320,9 +317,9 @@ if (-not $Version) {
 
 # Validate version format based on branch
 if ($isPreRelease) {
-    # Develop branch: require 4-part version (major.minor.patch.build)
-    if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-        Write-Error "Invalid version format for develop branch. Use format: major.minor.patch.build (e.g., 1.0.5.1)"
+    # Develop branch: require semantic versioning (major.minor.patch-develop.build)
+    if ($Version -notmatch '^\d+\.\d+\.\d+-develop\.\d+$') {
+        Write-Error "Invalid version format for develop branch. Use format: major.minor.patch-develop.build (e.g., 1.0.5-develop.1)"
         exit 1
     }
 }
@@ -332,8 +329,8 @@ else {
         Write-Error "Invalid version format for main branch. Use format: major.minor.patch (e.g., 1.0.5)"
         exit 1
     }
-    if ($Version -match '^\d+\.\d+\.\d+\.\d+$') {
-        Write-Error "Build numbers should not be used on main branch. Use format: major.minor.patch (e.g., 1.0.5)"
+    if ($Version -match '-develop') {
+        Write-Error "Development versions should not be used on main branch. Use format: major.minor.patch (e.g., 1.0.5)"
         exit 1
     }
 }
@@ -346,8 +343,11 @@ if ($latestTag -ne "0.0.0.0") {
     }
     else {
         # Parse versions for comparison (with build number)
-        $latestParts = $latestTag -replace 'b', '' -split '\.'
-        $newParts = $Version -split '\.'
+        # Remove -develop suffix or 'b' suffix for parsing
+        $latestTagNumeric = $latestTag -replace '-develop', '' -replace 'b', ''
+        $versionNumeric = $Version -replace '-develop', ''
+        $latestParts = $latestTagNumeric -split '\.'
+        $newParts = $versionNumeric -split '\.'
         
         $latestMajor = [int]$latestParts[0]
         $latestMinor = [int]$latestParts[1]
@@ -360,7 +360,7 @@ if ($latestTag -ne "0.0.0.0") {
         $newBuild = if ($newParts.Count -gt 3) { [int]$newParts[3] } else { 0 }
         
         # Check if version is the same or lower
-        if ($Version -eq ($latestTag -replace 'b', '')) {
+        if ($versionNumeric -eq $latestTagNumeric) {
             Write-Error "Version $Version is the same as the latest tag v$latestTag. Please increment the version."
             exit 1
         }
@@ -382,15 +382,21 @@ if ($latestTag -ne "0.0.0.0") {
     }
 }
 # Create full version string for git tags and GitHub releases
-# Note: manifest.json gets numeric-only version, git tags get version with 'b' suffix for pre-releases
-$versionSuffix = ""
+# Note: For develop branch, version already includes -develop.build format
+# For manifest.json, we'll strip -develop suffix as Home Assistant needs numeric version
 $fullVersion = $Version
+$manifestVersion = $Version
 if ($isPreRelease) {
-    $versionSuffix = "b"
-    $fullVersion = "$Version$versionSuffix"
+    # Extract just the major.minor.patch for manifest.json (strip -develop.build)
+    if ($Version -match '^(\d+\.\d+\.\d+)-develop\.\d+$') {
+        $manifestVersion = $matches[1]
+    }
     Write-Host "`nPre-release detected:" -ForegroundColor Yellow
-    Write-Host "  manifest.json version: $Version (numeric only, required by Home Assistant)" -ForegroundColor Cyan
-    Write-Host "  Git tag version: $fullVersion (with beta suffix)" -ForegroundColor Cyan
+    Write-Host "  manifest.json version: $manifestVersion (semantic version base only, required by Home Assistant)" -ForegroundColor Cyan
+    Write-Host "  Git tag version: $fullVersion (full semantic version with -develop.build)" -ForegroundColor Cyan
+}
+else {
+    $manifestVersion = $Version
 }
 # Check for uncommitted changes
 $status = git status --porcelain
@@ -694,17 +700,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 }
 
 # Update manifest.json only if version changed
-# Always use numeric-only version for manifest.json (Home Assistant requirement)
-if ($Version -ne $currentVersion) {
+# Always use semantic version base for manifest.json (Home Assistant requirement)
+if ($manifestVersion -ne $currentVersion) {
     Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
     if (-not $DryRun) {
-        $manifest.version = $Version
+        $manifest.version = $manifestVersion
         $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath
     }
-    Write-Host "Version: $currentVersion -> $Version" -ForegroundColor Green
+    Write-Host "Version: $currentVersion -> $manifestVersion" -ForegroundColor Green
 }
 else {
-    Write-Host "`nVersion unchanged: $Version" -ForegroundColor Yellow
+    Write-Host "`nVersion unchanged: $manifestVersion" -ForegroundColor Yellow
 }
 
 # Commit the version change

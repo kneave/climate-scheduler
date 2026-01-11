@@ -1,5 +1,11 @@
 # Changelog
 
+
+## [1.15.0-develop.1] - 2026-01-11
+### Changed
+- Updated version number format to match symantic versioning better
+- This release purely to test that HACS can install with this format
+
 ## [1.14.7] - 2026-01-10
 
 ### Added
@@ -336,6 +342,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
