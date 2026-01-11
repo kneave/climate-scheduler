@@ -35,6 +35,11 @@ Thumbs.db
 # Dev deployment marker
 custom_components/climate_scheduler/.dev
 
+# TypeScript / Node.js
+node_modules/
+package-lock.json
+*.js.map
+
 # Testing
 .pytest_cache/
 .coverage

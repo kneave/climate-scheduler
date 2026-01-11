@@ -11,6 +11,16 @@ Write-Host "Source: $SOURCE" -ForegroundColor Gray
 Write-Host "Target: $TARGET" -ForegroundColor Gray
 Write-Host ""
 
+# Build TypeScript first
+Write-Host "Building TypeScript files..." -ForegroundColor Yellow
+npm run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Build failed!" -ForegroundColor Red
+    exit 1
+}
+Write-Host "Build complete" -ForegroundColor Green
+Write-Host ""
+
 # Check if source exists
 if (-not (Test-Path $SOURCE)) {
     Write-Host "ERROR: Source directory not found!" -ForegroundColor Red
@@ -94,6 +104,12 @@ if ($currentVersion -match '^(\d+)\.(\d+)\.(\d+)\.(\d+)$') {
 } else {
     Write-Host "Warning: Version format not recognized, skipping build increment" -ForegroundColor Yellow
 }
+
+# Update .version file in frontend directory with current manifest version
+$versionFilePath = Join-Path $SOURCE "frontend\.version"
+$versionContent = "$($manifest.version)"
+Set-Content -Path $versionFilePath -Value $versionContent -NoNewline
+Write-Host "Updated .version file: $versionContent" -ForegroundColor Green
 
 # Create .dev_version file with timestamp to mark as dev deployment
 $unixTimestamp = [int][double]::Parse((Get-Date -UFormat %s))

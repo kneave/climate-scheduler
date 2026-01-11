@@ -5,6 +5,11 @@
 
 // Helper function to get the correct document root for DOM queries
 function getDocumentRoot() {
+    // If panel is using shadow DOM (LitElement), use shadowRoot
+    if (window.climateSchedulerPanelRoot?.shadowRoot) {
+        return window.climateSchedulerPanelRoot.shadowRoot;
+    }
+    // Otherwise use the panel element directly or document
     return window.climateSchedulerPanelRoot || document;
 }
 

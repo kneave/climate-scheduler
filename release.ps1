@@ -704,6 +704,31 @@ else {
     Write-Host "`nVersion unchanged: $manifestVersion" -ForegroundColor Yellow
 }
 
+# Update .version file in frontend directory with current manifest version
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) .version file..." -ForegroundColor Yellow
+$versionFilePath = Join-Path $PSScriptRoot "custom_components\climate_scheduler\frontend\.version"
+if (-not $DryRun) {
+    Set-Content -Path $versionFilePath -Value $manifestVersion -NoNewline
+    Write-Host "Updated .version file: $manifestVersion" -ForegroundColor Green
+}
+else {
+    Write-Host "Would set .version to: $manifestVersion" -ForegroundColor Cyan
+}
+
+# Build TypeScript files
+Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would build' } else { 'Building' }) TypeScript files..." -ForegroundColor Yellow
+if (-not $DryRun) {
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to build TypeScript files"
+        exit 1
+    }
+    Write-Host "Build complete" -ForegroundColor Green
+}
+else {
+    Write-Host "Would run: npm run build" -ForegroundColor Cyan
+}
+
 # Commit the version change
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
 if (-not $DryRun) {
@@ -715,6 +740,11 @@ if (-not $DryRun) {
         if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
             git add CHANGELOG.md
         }
+        # Add .version file
+        git add custom_components/climate_scheduler/frontend/.version
+        # Add built files
+        git add custom_components/climate_scheduler/frontend/climate-scheduler-card.js
+        git add custom_components/climate_scheduler/frontend/climate-scheduler-card.js.map
         git commit -m "Release v$fullVersion"
 
         if ($LASTEXITCODE -ne 0) {
@@ -732,6 +762,8 @@ if (-not $DryRun) {
 }
 else {
     Write-Host "Files to commit: manifest.json" -ForegroundColor Cyan
+    Write-Host "                 climate-scheduler-card.js (built from TypeScript)" -ForegroundColor Cyan
+    Write-Host "                 climate-scheduler-card.js.map" -ForegroundColor Cyan
     if ($needsChangelogUpdate) {
         Write-Host "                 CHANGELOG.md (updated with new entries)" -ForegroundColor Cyan
     }

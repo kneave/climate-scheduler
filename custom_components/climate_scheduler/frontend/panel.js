@@ -200,7 +200,7 @@ class ClimateSchedulerPanel extends HTMLElement {
     }
 
     render() {
-        if (!this.innerHTML) {
+        if (!this.querySelector('.container')) {
             // Load CSS using same base path detection as scripts
             const scriptUrl = import.meta.url;
             const url = new URL(scriptUrl);
