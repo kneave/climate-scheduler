@@ -172,9 +172,8 @@ if (-not $Version) {
     # Check if manifest version is valid for release
     $canUseManifest = $true
     $canReRelease = $false
-    # Strip -develop suffix or 'b' suffix from tag for comparison with manifest version
-    $latestTagNumeric = $latestTag -replace '-develop\.\d+$', '' -replace 'b$', '' -replace '\.\d+b$', ''
-    if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTagNumeric) {
+    # Compare full versions (including -develop suffix) to determine if it's a re-release
+    if ($latestTag -ne "0.0.0" -and $currentVersion -eq $latestTag) {
         $canUseManifest = $false
         $canReRelease = $true  # Allow re-release option
     }
@@ -383,20 +382,12 @@ if ($latestTag -ne "0.0.0.0") {
 }
 # Create full version string for git tags and GitHub releases
 # Note: For develop branch, version already includes -develop.build format
-# For manifest.json, we'll strip -develop suffix as Home Assistant needs numeric version
 $fullVersion = $Version
 $manifestVersion = $Version
 if ($isPreRelease) {
-    # Extract just the major.minor.patch for manifest.json (strip -develop.build)
-    if ($Version -match '^(\d+\.\d+\.\d+)-develop\.\d+$') {
-        $manifestVersion = $matches[1]
-    }
     Write-Host "`nPre-release detected:" -ForegroundColor Yellow
-    Write-Host "  manifest.json version: $manifestVersion (semantic version base only, required by Home Assistant)" -ForegroundColor Cyan
+    Write-Host "  manifest.json version: $manifestVersion (full semantic version with -develop.build)" -ForegroundColor Cyan
     Write-Host "  Git tag version: $fullVersion (full semantic version with -develop.build)" -ForegroundColor Cyan
-}
-else {
-    $manifestVersion = $Version
 }
 # Check for uncommitted changes
 $status = git status --porcelain
@@ -700,7 +691,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 }
 
 # Update manifest.json only if version changed
-# Always use semantic version base for manifest.json (Home Assistant requirement)
+# Use full semantic version including -develop.build for manifest.json
 if ($manifestVersion -ne $currentVersion) {
     Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) manifest.json..." -ForegroundColor Yellow
     if (-not $DryRun) {
