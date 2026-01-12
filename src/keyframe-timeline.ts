@@ -46,13 +46,14 @@ export class KeyframeTimeline extends LitElement {
       --keyframe-dragging-color: var(--warning-color, #ff9800);
       --canvas-text-primary: var(--primary-text-color, rgba(255, 255, 255, 0.9));
       --canvas-text-secondary: var(--secondary-text-color, rgba(255, 255, 255, 0.7));
-      --canvas-grid-line: var(--divider-color, rgba(255, 255, 255, 0.1));
+      --canvas-grid-line: rgba(68, 68, 68, 0.3);
+      --canvas-grid-line-major: rgba(68, 68, 68, 0.5);
       --canvas-label-bg: var(--card-background-color, rgba(0, 0, 0, 0.7));
       --indicator-color: var(--accent-color, #ff9800);
     }
     
     .timeline-container {
-      background: var(--timeline-bg);
+      background: var(--background);
       border-radius: 4px;
       padding: 16px;
       user-select: none;
@@ -500,8 +501,6 @@ export class KeyframeTimeline extends LitElement {
     
     const dpr = window.devicePixelRatio;
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
-    // Keep canvas background transparent
-    this.ctx.fillStyle = 'transparent';
     
     const slotWidth = this.canvasWidth / this.slots;
     
@@ -521,7 +520,7 @@ export class KeyframeTimeline extends LitElement {
     this.ctx.textAlign = 'right';
     this.ctx.textBaseline = 'middle';
     this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
-    this.ctx.lineWidth = 1;
+    this.ctx.lineWidth = 1 * dpr;
     
     for (let i = 0; i < numYLabels; i++) {
       const ratio = i / (numYLabels - 1);
@@ -555,8 +554,6 @@ export class KeyframeTimeline extends LitElement {
     const adjustedSlotWidth = graphWidth / this.slots;
     
     // Draw hour markers (full height) and labels
-    this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
-    this.ctx.lineWidth = 2;
     this.ctx.fillStyle = this.getThemeColor('--canvas-text-secondary');
     this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
     this.ctx.textAlign = 'center';
@@ -568,7 +565,13 @@ export class KeyframeTimeline extends LitElement {
     for (let i = 0; i <= hoursToShow; i++) {
       const x = yAxisWidth + ((i / this.duration) * graphWidth);
       
-      // Draw hour marker line (full height through graph area)
+      // Draw hour marker line with thicker lines every 6 hours
+      const isMajorLine = i % 6 === 0;
+      this.ctx.strokeStyle = isMajorLine 
+        ? this.getThemeColor('--canvas-grid-line-major') 
+        : this.getThemeColor('--canvas-grid-line');
+      this.ctx.lineWidth = isMajorLine ? 2 * dpr : 1 * dpr;
+      
       this.ctx.beginPath();
       this.ctx.moveTo(x, topMargin);
       this.ctx.lineTo(x, topMargin + graphHeight);
@@ -581,6 +584,48 @@ export class KeyframeTimeline extends LitElement {
         this.ctx.fillText(label, x, topMargin + graphHeight + (15 * dpr));
       }
     }
+    
+    // Draw axis lines (like SVG graph)
+    this.ctx.strokeStyle = this.getThemeColor('--canvas-text-primary');
+    this.ctx.lineWidth = 2 * dpr;
+    
+    // X-axis (bottom)
+    this.ctx.beginPath();
+    this.ctx.moveTo(yAxisWidth, topMargin + graphHeight);
+    this.ctx.lineTo(yAxisWidth + graphWidth, topMargin + graphHeight);
+    this.ctx.stroke();
+    
+    // Y-axis (left)
+    this.ctx.beginPath();
+    this.ctx.moveTo(yAxisWidth, topMargin);
+    this.ctx.lineTo(yAxisWidth, topMargin + graphHeight);
+    this.ctx.stroke();
+    
+    // Current time indicator (green dashed line like SVG)
+    const now = new Date();
+    const currentHours = now.getHours() + now.getMinutes() / 60;
+    const currentX = yAxisWidth + ((currentHours / this.duration) * graphWidth);
+    
+    this.ctx.strokeStyle = '#00ff00';
+    this.ctx.lineWidth = 2 * dpr;
+    this.ctx.setLineDash([5 * dpr, 5 * dpr]);
+    this.ctx.globalAlpha = 0.7;
+    this.ctx.beginPath();
+    this.ctx.moveTo(currentX, topMargin);
+    this.ctx.lineTo(currentX, topMargin + graphHeight);
+    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+    this.ctx.globalAlpha = 1.0;
+    
+    // Current time label at top
+    const hours = Math.floor(currentHours);
+    const minutes = Math.floor((currentHours - hours) * 60);
+    const timeLabel = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    this.ctx.fillStyle = '#00ff00';
+    this.ctx.font = `bold ${(baseFontSize * 0.75) * dpr}px sans-serif`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'bottom';
+    this.ctx.fillText(timeLabel, currentX, topMargin - (5 * dpr));
     
     // Draw X axis label (below time labels)
     if (this.xAxisLabel && !this.collapsed) {
