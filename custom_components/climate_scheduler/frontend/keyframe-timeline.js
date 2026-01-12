@@ -269,13 +269,16 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return;
         const dpr = window.devicePixelRatio;
         this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+        // Keep canvas background transparent
+        this.ctx.fillStyle = 'transparent';
         this.canvasWidth / this.slots;
-        // Reserve space at bottom for labels, left for Y axis, and top for margin
+        // Reserve space at bottom for labels, left for Y axis, right margin, and top for margin
         const labelHeight = 30 * dpr;
         const yAxisWidth = 35 * dpr;
+        const rightMargin = 35 * dpr;
         const topMargin = 15 * dpr;
         const graphHeight = this.canvasHeight - labelHeight - topMargin;
-        const graphWidth = this.canvasWidth - yAxisWidth;
+        const graphWidth = this.canvasWidth - yAxisWidth - rightMargin;
         // Draw Y axis labels and horizontal grid lines
         const numYLabels = this.collapsed ? 2 : 5;
         const baseFontSize = this.getBaseFontSize();
@@ -294,7 +297,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             // Draw horizontal grid line
             this.ctx.beginPath();
             this.ctx.moveTo(yAxisWidth, y);
-            this.ctx.lineTo(this.canvasWidth, y);
+            this.ctx.lineTo(yAxisWidth + graphWidth, y);
             this.ctx.stroke();
         }
         // Draw Y axis label (vertical text on left side)
@@ -310,17 +313,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.ctx.restore();
         }
         // Adjust slot width for graph area
-        const adjustedSlotWidth = graphWidth / this.slots;
-        // Draw vertical time slot dividers (full height)
-        this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
-        this.ctx.lineWidth = 1;
-        for (let i = 0; i <= this.slots; i++) {
-            const x = yAxisWidth + (i * adjustedSlotWidth);
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, topMargin);
-            this.ctx.lineTo(x, topMargin + graphHeight);
-            this.ctx.stroke();
-        }
+        graphWidth / this.slots;
         // Draw hour markers (full height) and labels
         this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
         this.ctx.lineWidth = 2;
@@ -433,10 +426,12 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 // Determine the starting value (from previous day or from last keyframe)
                 const startValue = this.previousDayEndValue !== undefined ? this.previousDayEndValue : lastKf.value;
                 const startY = topMargin + ((1 - this.normalizeValue(startValue)) * graphHeight);
+                // Calculate the position of the last hour marker (24:00/00:00)
+                const endX = yAxisWidth + ((this.duration / this.duration) * graphWidth);
                 // Extend last keyframe to right edge
                 this.ctx.beginPath();
                 this.ctx.moveTo(lastX, lastY);
-                this.ctx.lineTo(this.canvasWidth, lastY);
+                this.ctx.lineTo(endX, lastY);
                 this.ctx.stroke();
                 // Wraparound from right edge to left edge
                 const baseColor = this.getThemeColor('--keyframe-color');
@@ -460,8 +455,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 }
                 this.ctx.setLineDash([5 * dpr, 5 * dpr]); // Dashed line for wraparound
                 this.ctx.beginPath();
-                this.ctx.moveTo(this.canvasWidth, lastY);
-                this.ctx.lineTo(this.canvasWidth, startY); // Vertical step at right edge
+                this.ctx.moveTo(endX, lastY);
+                this.ctx.lineTo(endX, startY); // Vertical step at right edge
                 this.ctx.moveTo(yAxisWidth, startY); // Continue at left edge of graph
                 this.ctx.lineTo(yAxisWidth, startY);
                 this.ctx.stroke();
