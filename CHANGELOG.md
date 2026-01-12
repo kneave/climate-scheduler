@@ -1,6 +1,11 @@
 # Changelog
 
 
+
+## [1.15.0-develop.2] - 2026-01-12
+### Added
+- Added "Timeline Comparison" to each schedule to preview the new graph system
+
 ## [1.15.0-develop.1] - 2026-01-11
 ### Changed
 - Updated version number format to match symantic versioning better
@@ -342,6 +347,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
