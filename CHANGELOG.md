@@ -1,6 +1,11 @@
 # Changelog
 
 
+
+## [1.14.9] - 2026-01-13
+### Added
+- Diagnostics action to help with missing cards
+
 ## [1.14.8] - 2026-01-13
 ### Fixed
 - Issue 109: Unable to add directly to a group
@@ -343,6 +348,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
