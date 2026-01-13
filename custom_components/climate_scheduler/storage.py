@@ -921,17 +921,23 @@ class ScheduleStorage:
         _LOGGER.info(f"Renamed group from '{old_name}' to '{new_name}'")
 
     async def async_add_entity_to_group(self, group_name: str, entity_id: str) -> None:
-        """Add an entity to a group."""
+        """Add an entity to a group.
+        
+        If the entity is unmonitored (not in any group), it will be added to the target group.
+        If the entity is in a single-entity group, that group will be deleted and the entity moved.
+        """
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
         group_data = self._data["groups"][group_name]
         
-        # Check if entity is currently in a different single-entity group
+        # Check if entity is currently in a different group
         old_single_entity_group = None
+        entity_found_in_group = False
         for existing_group_name, existing_group_data in self._data.get("groups", {}).items():
             if existing_group_name != group_name and entity_id in existing_group_data.get("entities", []):
                 # Found entity in a different group
+                entity_found_in_group = True
                 if existing_group_data.get("_is_single_entity_group") and len(existing_group_data.get("entities", [])) == 1:
                     # It's a single-entity group - mark for deletion
                     old_single_entity_group = existing_group_name
@@ -939,6 +945,10 @@ class ScheduleStorage:
                 # Remove entity from the old group
                 existing_group_data["entities"].remove(entity_id)
                 break
+        
+        # Log if entity wasn't in any group (unmonitored entity being added)
+        if not entity_found_in_group:
+            _LOGGER.info(f"Adding unmonitored entity {entity_id} to group '{group_name}'")
         
         if entity_id not in group_data["entities"]:
             group_data["entities"].append(entity_id)

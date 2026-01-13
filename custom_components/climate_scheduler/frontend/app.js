@@ -4135,30 +4135,15 @@ function setupEventListeners() {
             }
             
             try {
-                // If this is an unmonitored entity being added, monitor it first
-                if (isUnmonitoredAdd) {
-                    await haAPI.setIgnored(entityId, false);
-                    
-                    // Verify the entity was created successfully
-                    const schedule = await haAPI.getSchedule(entityId);
-                    if (!schedule || schedule.ignored !== false) {
-                        if (modal) {
-                            modal.style.display = 'none';
-                            delete modal.dataset.currentGroup;
-                            delete modal.dataset.isMove;
-                            delete modal.dataset.isUnmonitoredAdd;
-                        }
-                        showToast(`Failed to monitor entity. Try refreshing the page.`, 'error');
-                        return;
-                    }
-                }
-                
                 // If moving, remove from current group first
                 if (isMove && currentGroupName) {
                     await haAPI.removeFromGroup(currentGroupName, entityId);
                 }
                 
                 // Add to new group
+                // Note: This works for both monitored and unmonitored entities
+                // - For unmonitored entities, it adds them directly to the group
+                // - For monitored entities in other groups, it moves them
                 await haAPI.addToGroup(groupName, entityId);
                 
                 // Close modal and clear move state
