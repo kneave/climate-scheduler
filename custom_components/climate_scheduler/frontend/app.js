@@ -1770,6 +1770,9 @@ async function removeEntityFromGroup(groupName, entityId) {
     try {
         await haAPI.removeFromGroup(groupName, entityId);
         
+        // Close any open editors to prevent stale data
+        collapseAllEditors();
+        
         // Reload groups
         await loadGroups();
         
@@ -4606,30 +4609,15 @@ function setupEventListeners() {
             }
             
             try {
-                // If this is an unmonitored entity being added, monitor it first
-                if (isUnmonitoredAdd) {
-                    await haAPI.setIgnored(entityId, false);
-                    
-                    // Verify the entity was created successfully
-                    const schedule = await haAPI.getSchedule(entityId);
-                    if (!schedule || schedule.ignored !== false) {
-                        if (modal) {
-                            modal.style.display = 'none';
-                            delete modal.dataset.currentGroup;
-                            delete modal.dataset.isMove;
-                            delete modal.dataset.isUnmonitoredAdd;
-                        }
-                        showToast(`Failed to monitor entity. Try refreshing the page.`, 'error');
-                        return;
-                    }
-                }
-                
                 // If moving, remove from current group first
                 if (isMove && currentGroupName) {
                     await haAPI.removeFromGroup(currentGroupName, entityId);
                 }
                 
                 // Add to new group
+                // Note: This works for both monitored and unmonitored entities
+                // - For unmonitored entities, it adds them directly to the group
+                // - For monitored entities in other groups, it moves them
                 await haAPI.addToGroup(groupName, entityId);
                 
                 // Close modal and clear move state
@@ -4639,6 +4627,9 @@ function setupEventListeners() {
                     delete modal.dataset.isMove;
                     delete modal.dataset.isUnmonitoredAdd;
                 }
+                
+                // Close any open editors to prevent stale data
+                collapseAllEditors();
                 
                 // Reload groups
                 await loadGroups();
@@ -4650,7 +4641,7 @@ function setupEventListeners() {
                 if (isMove && currentGroupName) {
                     showToast(`Moved entity from ${currentGroupName} to ${groupName}`, 'success');
                 } else if (isUnmonitoredAdd) {
-                    showToast(`Added entity to ${groupName}. Refresh the page to edit its schedule.`, 'success');
+                    showToast(`Added entity to ${groupName}`, 'success');
                 } else {
                     showToast(`Added entity to ${groupName}`, 'success');
                 }
