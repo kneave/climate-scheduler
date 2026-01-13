@@ -354,6 +354,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         "reload_integration": {
             "name": "Reload integration",
             "description": "Reload the Climate Scheduler integration",
+            "fields": {},
         },
         
         "advance_schedule": {
