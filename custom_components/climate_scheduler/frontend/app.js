@@ -1548,6 +1548,9 @@ async function removeEntityFromGroup(groupName, entityId) {
     try {
         await haAPI.removeFromGroup(groupName, entityId);
         
+        // Close any open editors to prevent stale data
+        collapseAllEditors();
+        
         // Reload groups
         await loadGroups();
         
@@ -4154,6 +4157,9 @@ function setupEventListeners() {
                     delete modal.dataset.isUnmonitoredAdd;
                 }
                 
+                // Close any open editors to prevent stale data
+                collapseAllEditors();
+                
                 // Reload groups
                 await loadGroups();
                 
@@ -4164,7 +4170,7 @@ function setupEventListeners() {
                 if (isMove && currentGroupName) {
                     showToast(`Moved entity from ${currentGroupName} to ${groupName}`, 'success');
                 } else if (isUnmonitoredAdd) {
-                    showToast(`Added entity to ${groupName}. Refresh the page to edit its schedule.`, 'success');
+                    showToast(`Added entity to ${groupName}`, 'success');
                 } else {
                     showToast(`Added entity to ${groupName}`, 'success');
                 }
