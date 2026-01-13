@@ -1,5 +1,12 @@
 # Changelog
 
+
+## [1.14.8] - 2026-01-13
+### Fixed
+- Issue 109: Unable to add directly to a group
+- improving UI flow to remove redresh requirement
+- fix the reload integration issue
+
 ## [1.14.7] - 2026-01-10
 
 ### Added
@@ -336,6 +343,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
