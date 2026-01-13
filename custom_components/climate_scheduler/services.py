@@ -578,6 +578,11 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                 }
             },
         },
+        
+        "diagnostics": {
+            "name": "Run Diagnostics",
+            "description": "Run comprehensive diagnostics to troubleshoot card visibility and integration issues. Returns version info, card registration status, and accessibility checks.",
+        },
     }
 
 
@@ -639,9 +644,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
         "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
         "reregister_card": vol.Schema({
-            vol.Required("resource_url"): cv.string,
+            vol.Optional("resource_url"): cv.string,
             vol.Optional("resource_type", default="module"): cv.string,
         }),
+        "diagnostics": vol.Schema({}),
     }
 
     async def handle_recreate_all_sensors(call: ServiceCall) -> dict:
@@ -1380,15 +1386,30 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_reregister_card(call: ServiceCall) -> dict:
         """Handle reregister_card service call.
 
-        Deletes any existing frontend resource entries matching the provided
-        `resource_url` and appends a fresh resource entry with the given
-        `resource_type`.
+        Deletes any existing frontend resource entries and registers the card.
+        If resource_url is not provided, automatically uses the bundled card URL.
         """
         resource_url = call.data.get("resource_url")
         resource_type = call.data.get("resource_type", "module")
 
+        # If no URL provided, use the bundled card URL with current version
         if not resource_url:
-            raise ValueError("'resource_url' is required")
+            # Get version from manifest
+            manifest_path = Path(__file__).parent / "manifest.json"
+            try:
+                import json
+                import time
+                manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
+                manifest = json.loads(manifest_text)
+                frontend_version = manifest.get("version", f"u{int(time.time())}")
+            except Exception as e:
+                _LOGGER.warning("Failed to read manifest version: %s", e)
+                import time
+                frontend_version = f"u{int(time.time())}"
+            
+            base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
+            resource_url = f"{base_url}?v={frontend_version}"
+            _LOGGER.info("Auto-generated card URL: %s", resource_url)
 
         # Use the Lovelace resources API to manage frontend resources.
         lovelace = hass.data.get("lovelace")
@@ -1451,6 +1472,164 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         return {"removed": [r.get("url") for r in removed], "added": added, "message": f"Reregistered resource {url}"}
     
+    async def handle_diagnostics(call: ServiceCall) -> dict:
+        """Handle diagnostics service call - returns troubleshooting info about the integration and card."""
+        _LOGGER.info("Running integration diagnostics")
+        
+        result = {
+            "integration": {},
+            "card_registration": {},
+            "card_accessibility": {},
+            "recommendations": []
+        }
+        
+        # Get integration version from manifest
+        try:
+            manifest_path = Path(__file__).parent / "manifest.json"
+            import json
+            manifest_text = await hass.async_add_executor_job(manifest_path.read_text)
+            manifest = json.loads(manifest_text)
+            result["integration"]["version"] = manifest.get("version", "unknown")
+            result["integration"]["domain"] = manifest.get("domain", DOMAIN)
+            result["integration"]["name"] = manifest.get("name", "Climate Scheduler")
+        except Exception as e:
+            result["integration"]["version"] = "error reading manifest"
+            result["integration"]["error"] = str(e)
+            result["recommendations"].append("Unable to read manifest.json - integration may be corrupted")
+        
+        # Check if card is registered in Lovelace resources
+        try:
+            lovelace_data = hass.data.get("lovelace")
+            if lovelace_data is None:
+                result["card_registration"]["status"] = "lovelace_unavailable"
+                result["card_registration"]["message"] = "Lovelace integration not available"
+                result["recommendations"].append("Lovelace is not available - this is unusual")
+            else:
+                # Get resources based on HA version
+                from homeassistant.const import __version__ as ha_version
+                result["integration"]["ha_version"] = ha_version
+                
+                version_parts = [int(x) for x in ha_version.split(".")[:2]]
+                version_number = version_parts[0] * 1000 + version_parts[1]
+                
+                if version_number >= 2025002:
+                    resources = lovelace_data.resources
+                else:
+                    resources = lovelace_data.get("resources")
+                
+                if resources is None:
+                    result["card_registration"]["status"] = "resources_unavailable"
+                    result["card_registration"]["message"] = "Lovelace resources not available"
+                    result["recommendations"].append("Lovelace resources API not available")
+                elif not hasattr(resources, "store") or resources.store is None:
+                    result["card_registration"]["status"] = "yaml_mode"
+                    result["card_registration"]["message"] = "Lovelace is in YAML mode"
+                    result["recommendations"].append("You are using Lovelace YAML mode - you must manually add the card resource to your configuration")
+                    result["recommendations"].append("Add to your lovelace config: resources: [{url: /climate_scheduler/static/climate-scheduler-card.js, type: module}]")
+                else:
+                    # Ensure resources are loaded
+                    if not resources.loaded:
+                        await resources.async_load()
+                    
+                    # Look for our card in registered resources
+                    expected_base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
+                    registered_cards = []
+                    
+                    for entry in resources.async_items():
+                        entry_url = entry.get("url", "")
+                        entry_base = entry_url.split("?")[0]
+                        
+                        # Check for our card
+                        if expected_base_url in entry_base or "climate-scheduler-card.js" in entry_url:
+                            # Try multiple possible field names for type
+                            entry_type = entry.get("type") or entry.get("res_type") or "module"
+                            registered_cards.append({
+                                "url": entry_url,
+                                "type": entry_type,
+                                "id": entry.get("id", "unknown")
+                            })
+                    
+                    if registered_cards:
+                        result["card_registration"]["status"] = "registered"
+                        result["card_registration"]["count"] = len(registered_cards)
+                        result["card_registration"]["resources"] = registered_cards
+                        
+                        if len(registered_cards) > 1:
+                            result["recommendations"].append(f"Found {len(registered_cards)} card registrations - you may have duplicate entries")
+                            result["recommendations"].append("Run the climate_scheduler.reregister_card service to clean up and register a fresh entry")
+                    else:
+                        result["card_registration"]["status"] = "not_registered"
+                        result["card_registration"]["message"] = "Card not found in Lovelace resources"
+                        result["recommendations"].append("Card is not registered! Run the climate_scheduler.reregister_card service to register it")
+                        result["recommendations"].append("Or try reloading the integration or restarting Home Assistant")
+        except Exception as e:
+            result["card_registration"]["status"] = "error"
+            result["card_registration"]["error"] = str(e)
+            result["recommendations"].append(f"Error checking card registration: {e}")
+        
+        # Check if card file is accessible via URL
+        try:
+            import aiohttp
+            import asyncio
+            
+            card_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
+            
+            # Get the base URL for this HA instance
+            base_url = hass.config.internal_url or hass.config.external_url or "http://localhost:8123"
+            full_url = f"{base_url}{card_url}"
+            
+            result["card_accessibility"]["url"] = card_url
+            result["card_accessibility"]["full_url"] = full_url
+            
+            # Try to fetch the card content
+            try:
+                session = aiohttp.ClientSession()
+                try:
+                    async with asyncio.timeout(5):
+                        async with session.get(full_url, ssl=False) as response:
+                            if response.status == 200:
+                                content = await response.text()
+                                lines = content.split('\n')
+                                first_lines = lines[:10]
+                                
+                                result["card_accessibility"]["status"] = "accessible"
+                                result["card_accessibility"]["http_status"] = 200
+                                result["card_accessibility"]["content_length"] = len(content)
+                                result["card_accessibility"]["total_lines"] = len(lines)
+                                result["card_accessibility"]["first_10_lines"] = first_lines
+                                
+                                # Basic validation that it looks like the card
+                                content_lower = content.lower()
+                                if "climate" in content_lower and "scheduler" in content_lower:
+                                    result["card_accessibility"]["appears_valid"] = True
+                                else:
+                                    result["card_accessibility"]["appears_valid"] = False
+                                    result["recommendations"].append("Card file is accessible but content doesn't look like Climate Scheduler card")
+                            else:
+                                result["card_accessibility"]["status"] = "http_error"
+                                result["card_accessibility"]["http_status"] = response.status
+                                result["recommendations"].append(f"Card returned HTTP {response.status} - file may not be accessible")
+                finally:
+                    await session.close()
+            except asyncio.TimeoutError:
+                result["card_accessibility"]["status"] = "timeout"
+                result["card_accessibility"]["error"] = "Request timed out after 5 seconds"
+                result["recommendations"].append("Card request timed out - may indicate server issues")
+        except Exception as e:
+            result["card_accessibility"]["status"] = "error"
+            result["card_accessibility"]["error"] = str(e)
+            result["recommendations"].append(f"Error checking card accessibility: {e}")
+        
+        # Add general recommendations
+        if not result["recommendations"]:
+            result["recommendations"].append("Everything looks good! If you still can't find the card:")
+            result["recommendations"].append("1. Clear your browser cache (Ctrl+Shift+Delete)")
+            result["recommendations"].append("2. Do a hard refresh (Ctrl+Shift+R or Ctrl+F5)")
+            result["recommendations"].append("3. Try a different browser or incognito mode")
+            result["recommendations"].append("4. Check browser console for JavaScript errors (F12)")
+        
+        return result
+    
     # Register all services (schemas come from async_get_services() dynamically)
     hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, service_schemas.get("recreate_all_sensors"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, service_schemas.get("cleanup_malformed_sensors"), supports_response=SupportsResponse.ONLY)
@@ -1491,5 +1670,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, service_schemas.get("cleanup_derivative_sensors"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "diagnostics", handle_diagnostics, service_schemas.get("diagnostics"), supports_response=SupportsResponse.ONLY)
     
     _LOGGER.debug("[BACKEND] All Climate Scheduler services registered successfully (including set_group_schedule)")

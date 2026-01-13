@@ -271,12 +271,17 @@ reload_integration:
   fields: {}
 
 reregister_card:
-  name: Reregister custom card
-  description: Remove any existing frontend resource matching `resource_url` and create a new resource entry
+  name: Reregister card
+  description: >-
+    Automatically registers the Climate Scheduler card in Lovelace resources.
+    Removes any existing registrations and creates a fresh entry.
+    Use this if the card is not appearing in the card picker.
   fields:
     resource_url:
-      description: URL of the custom card resource to register
-      required: true
+      description: >-
+        (Optional) Custom URL for the card resource. If not provided,
+        automatically uses the bundled card with the current integration version.
+      required: false
       example: /climate_scheduler/static/climate-scheduler-card.js
       selector:
         text: {}
@@ -456,3 +461,10 @@ factory_reset:
       required: true
       selector:
         boolean: {}
+
+diagnostics:
+  name: Run diagnostics
+  description: >-
+    Run comprehensive diagnostics to troubleshoot card visibility issues.
+    Returns integration version, card registration status, and accessibility checks.
+    Use this when users report they cannot find the card in Lovelace.

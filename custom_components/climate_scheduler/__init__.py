@@ -105,6 +105,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "cleanup_derivative_sensors",
             "factory_reset",
             "reregister_card",
+            "diagnostics",
         )
         missing = [s for s in expected_services if not hass.services.has_service(DOMAIN, s)]
         if not missing:

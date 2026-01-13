@@ -1,13 +1,123 @@
 # Climate Scheduler Card Not Found
 
-The most common problem folks seem to see with this is the card not being found after installation, it's a bit hit and miss as to when this occurs and has been a pain to try and fix. 
+The most common problem folks seem to see with this is the card not being found after installation. **Good news!** The integration now includes an automated diagnostics service to help identify and fix these issues.
 
-Steps to troubleshoot:
-1. Visit the [integrations](http://homeassistant.local:8123/config/integrations/dashboard) page and confirm Climate Scheduler is listed, if not click Add Integrations to do so. You may need to reboot at this point.
-2. If the Climate Scheduler card still isn't listed when trying to add a card to a dashboard, visit [this](http://homeassistant.local:8123/config/lovelace/resources) url and confirm that something similar to below is on the list.
-`/climate_scheduler/static/climate-scheduler-card.js`
-3. If it is in the list then visit [this](http://homeassistant.local:8123/climate_scheduler/static/climate-scheduler-card.js) link, you should see a page full of code. 
-4. Home Assistant has a knack for preventing UI refreshes so it's worth trying to nuke your browser cache. Press F12 to open the Dev Tools in your browser, right click on the refresh button, and choose "clear cache and refresh". 
-5. If the above hasn't helped try another reboot, sometimes this is needed for Home Assistant to properly serve the card.
+## 🔍 STEP 1: Run Automated Diagnostics (Recommended)
 
-If all of these prove true it *should* be working, if not please raise an issue for me to investigate.
+The fastest way to diagnose your issue:
+
+1. Go to **Developer Tools** → **Services** in Home Assistant
+2. Select service: **`Climate Scheduler: Run Diagnostics`**
+3. Click **Call Service**
+4. Read the response - it will tell you:
+   - ✅ Your integration version
+   - ✅ If the card is registered properly
+   - ✅ If the card file is accessible
+   - ✅ **Specific recommendations** for your situation
+
+The diagnostics service automatically checks everything and provides tailored solutions. **Start here before trying manual troubleshooting!**
+
+## 🛠️ Manual Troubleshooting Steps
+
+If you prefer to troubleshoot manually or the diagnostics service indicates specific issues:
+
+### Step 1: Verify Integration is Installed
+Visit the [integrations page](http://homeassistant.local:8123/config/integrations/dashboard) and confirm **Climate Scheduler** is listed. If not:
+- Click **Add Integration** and search for Climate Scheduler
+- After adding, **reload the integration** or restart Home Assistant
+
+### Step 2: Check Card Registration
+Visit the [Lovelace resources page](http://homeassistant.local:8123/config/lovelace/resources) and look for:
+```
+/climate_scheduler/static/climate-scheduler-card.js
+```
+
+**If it's NOT in the list:**
+- Reload the Climate Scheduler integration
+- If still missing, restart Home Assistant
+- Run the diagnostics service to see if you're in YAML mode
+
+**If you see MULTIPLE entries** for the card:
+- Remove old entries (especially any with `/hacsfiles/` or `/local/community/`)
+- Keep only the `/climate_scheduler/static/` version
+- Or use the `reregister_card` service to clean them up
+
+### Step 3: Verify Card File is Accessible
+Visit [this link](http://homeassistant.local:8123/climate_scheduler/static/climate-scheduler-card.js) - you should see a page full of JavaScript code.
+
+**If you get a 404 error:**
+- The card files may not be installed correctly
+- Try reinstalling the integration
+- Check that the `custom_components/climate_scheduler/frontend/` folder exists
+
+### Step 4: Clear Browser Cache
+Home Assistant aggressively caches resources. **This is the most common cause** when everything else looks correct:
+
+1. **Hard Refresh**: Press `Ctrl + Shift + R` (Windows/Linux) or `Cmd + Shift + R` (Mac)
+2. **Full Cache Clear**: 
+   - Press `F12` to open Developer Tools
+   - Right-click the refresh button
+   - Select **"Empty Cache and Hard Reload"** (Chrome) or **"Clear Cache and Refresh"**
+3. **Try Incognito/Private Mode**: Open a private window to test without cache
+4. **Different Browser**: Try Chrome, Firefox, or Edge
+
+### Step 5: Restart Home Assistant
+Sometimes Home Assistant needs a full restart to properly serve the card. After restarting:
+- Wait 2-3 minutes for everything to load
+- Clear your browser cache again
+- Try adding the card
+
+## 📋 Special Cases
+
+### YAML Mode Users
+If you're using Lovelace in YAML mode (the diagnostics service will tell you), you **must** manually add the card to your configuration:
+
+```yaml
+# In your lovelace configuration file
+resources:
+  - url: /climate_scheduler/static/climate-scheduler-card.js
+    type: module
+```
+
+After adding this, restart Home Assistant and clear your browser cache.
+
+### After Upgrading
+After upgrading the integration:
+1. Always clear your browser cache (the version may be cached)
+2. Do a hard refresh (`Ctrl + Shift + R`)
+3. If issues persist, reload the integration from the Integrations page
+
+### Migrating from HACS to Built-in Card
+If you previously installed the card separately via HACS:
+1. The integration now bundles the card - no separate installation needed
+2. Remove the old HACS card installation
+3. Remove old resource entries from the Lovelace resources page
+4. Reload the Climate Scheduler integration
+5. The card will auto-register at `/climate_scheduler/static/climate-scheduler-card.js`
+
+## 🐛 Still Not Working?
+
+If you've tried everything above:
+
+1. **Run the diagnostics service** (if you haven't already) and save the output
+2. **Check browser console for errors**:
+   - Press `F12`
+   - Click the **Console** tab
+   - Look for red error messages
+   - Take a screenshot
+3. **Create a GitHub issue** with:
+   - The full diagnostics service output
+   - Browser console errors (screenshot)
+   - Steps you've already tried
+   - Your Home Assistant version
+   - Your browser and version
+
+**GitHub Issues**: https://github.com/kneave/climate-scheduler/issues
+
+## 💡 Pro Tips
+
+- Always run diagnostics first - it saves time!
+- Clear browser cache after every integration update
+- Use incognito mode to quickly test if it's a cache issue
+- The card appears in the "Add Card" menu, not in Settings → Devices & Services
+- Check you're looking in **Lovelace dashboards**, not the device page
