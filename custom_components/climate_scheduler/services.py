@@ -1433,6 +1433,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if resources is None:
             raise RuntimeError("Lovelace resources API not available; cannot reregister resource")
 
+        # Check if resources are in YAML mode (read-only)
+        if not hasattr(resources, "async_create_item"):
+            return {
+                "error": "yaml_mode",
+                "message": (
+                    "Lovelace resources are configured via YAML and cannot be modified programmatically. "
+                    f"Please add the resource manually to your lovelace configuration:\n\n"
+                    f"lovelace:\n"
+                    f"  mode: yaml\n"
+                    f"  resources:\n"
+                    f"    - url: {resource_url}\n"
+                    f"      type: {resource_type}"
+                )
+            }
+
         # Ensure resources are loaded and available
         if not getattr(resources, "loaded", True):
             await resources.async_load()
@@ -1454,21 +1469,24 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             # remove exact matches of provided url
             if entry_url == resource_url:
                 removed.append(entry)
-                await resources.async_delete_item(entry["id"])
+                if hasattr(resources, "async_delete_item"):
+                    await resources.async_delete_item(entry["id"])
 
         url = resource_url
         added = None
         if existing_entry:
             # update existing item to new url
-            await resources.async_update_item(existing_entry["id"], {"url": url})
-            added = {"id": existing_entry["id"], "url": url}
-            _LOGGER.info("Updated existing Lovelace resource to %s", url)
+            if hasattr(resources, "async_update_item"):
+                await resources.async_update_item(existing_entry["id"], {"url": url})
+                added = {"id": existing_entry["id"], "url": url}
+                _LOGGER.info("Updated existing Lovelace resource to %s", url)
         else:
             # create new resource item
             item = {"res_type": resource_type, "url": url}
-            await resources.async_create_item(item)
-            added = item
-            _LOGGER.info("Created new Lovelace resource %s", url)
+            if hasattr(resources, "async_create_item"):
+                await resources.async_create_item(item)
+                added = item
+                _LOGGER.info("Created new Lovelace resource %s", url)
 
         return {"removed": [r.get("url") for r in removed], "added": added, "message": f"Reregistered resource {url}"}
     
