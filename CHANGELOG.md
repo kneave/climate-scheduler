@@ -2,6 +2,49 @@
 
 
 
+## [Unreleased]
+
+## [1.14.10] - 2026-01-14
+
+### Fixed
+- **YAML Mode Compatibility**: Fixed AttributeError when Lovelace resources are configured via YAML
+  - Service `reregister_card` no longer crashes with `AttributeError: 'ResourceYAMLCollection' object has no attribute 'async_create_item'`
+  - Added detection for YAML vs UI mode before attempting resource modifications
+  - Service now returns helpful error message with manual configuration instructions for YAML mode users
+  - All resource operations (create, update, delete) now check if methods exist before calling
+
+### Added
+- **YAML Mode Notification**: Persistent notification for YAML mode users who need manual card registration
+  - Automatically detects when Lovelace is in YAML mode during initialization
+  - Only shows notification if card is not already registered in YAML configuration
+  - Provides clear instructions with exact YAML configuration needed
+  - Notification automatically dismisses when card is detected in configuration
+  - Includes integration version in notification for proper cache busting
+
+### Changed
+- Card registration now checks for YAML mode before attempting auto-registration
+- Improved logging for YAML mode detection and card registration status
+- Updated CARD_TROUBLESHOOTING.md with comprehensive YAML mode instructions including three configuration methods
+### Fixed
+- **YAML Mode Compatibility**: Fixed AttributeError when Lovelace resources are configured via YAML
+  - Service `reregister_card` no longer crashes with `AttributeError: 'ResourceYAMLCollection' object has no attribute 'async_create_item'`
+  - Added detection for YAML vs UI mode before attempting resource modifications
+  - Service now returns helpful error message with manual configuration instructions for YAML mode users
+  - All resource operations (create, update, delete) now check if methods exist before calling
+
+### Added
+- **YAML Mode Notification**: Persistent notification for YAML mode users who need manual card registration
+  - Automatically detects when Lovelace is in YAML mode during initialization
+  - Only shows notification if card is not already registered in YAML configuration
+  - Provides clear instructions with exact YAML configuration needed
+  - Notification automatically dismisses when card is detected in configuration
+  - Includes integration version in notification for proper cache busting
+
+### Changed
+- Card registration now checks for YAML mode before attempting auto-registration
+- Improved logging for YAML mode detection and card registration status
+- Updated CARD_TROUBLESHOOTING.md with comprehensive YAML mode instructions including three configuration methods
+
 ## [1.14.9] - 2026-01-13
 ### Added
 - Diagnostics action to help with missing cards
@@ -348,6 +391,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
