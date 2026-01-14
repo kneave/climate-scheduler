@@ -70,16 +70,51 @@ Sometimes Home Assistant needs a full restart to properly serve the card. After 
 ## 📋 Special Cases
 
 ### YAML Mode Users
-If you're using Lovelace in YAML mode (the diagnostics service will tell you), you **must** manually add the card to your configuration:
+If you're using Lovelace in YAML mode (the diagnostics service will tell you, or you'll receive a persistent notification), the card **cannot be auto-registered** and you **must** manually add it to your configuration.
+
+**How to identify YAML mode:**
+- You see a persistent notification: "Climate Scheduler: Manual Card Registration Required"
+- The diagnostics service reports "Lovelace YAML mode detected"
+- Your `configuration.yaml` has `lovelace: mode: yaml`
+
+**Method 1: In configuration.yaml**
+
+If your Lovelace configuration is in `configuration.yaml`:
 
 ```yaml
-# In your lovelace configuration file
-resources:
-  - url: /climate_scheduler/static/climate-scheduler-card.js
-    type: module
+lovelace:
+  mode: yaml
+  resources:
+    - url: /climate_scheduler/static/climate-scheduler-card.js
+      type: module
 ```
 
-After adding this, restart Home Assistant and clear your browser cache.
+**Method 2: Separate resources file**
+
+If you have a separate resources file (e.g., `lovelace/resources.yaml`):
+
+```yaml
+# In configuration.yaml
+lovelace:
+  mode: yaml
+  resources: !include lovelace/resources.yaml
+
+# In lovelace/resources.yaml
+- url: /climate_scheduler/static/climate-scheduler-card.js
+  type: module
+```
+
+**Method 3: Dashboard-specific YAML mode**
+
+If you have per-dashboard YAML mode, add it in the specific dashboard's configuration file under its resources section.
+
+**After adding:**
+1. **Save the configuration file**
+2. **Restart Home Assistant** (full restart required for YAML changes)
+3. **Hard refresh your browser** (`Ctrl+F5` or `Cmd+Shift+R`)
+4. The persistent notification will automatically dismiss on next startup
+
+**Note:** The version parameter (`?v=...`) is optional but can be added for cache busting. The notification shows the current version to use.
 
 ### After Upgrading
 After upgrading the integration:
