@@ -36,20 +36,32 @@ async def async_setup_entry(
     storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
     coordinator: HeatingSchedulerCoordinator = hass.data[DOMAIN]["coordinator"]
     
-    # Get all groups (excluding single-entity groups)
+    # Get all groups - create climate cards for all groups with entities
     groups = await storage.async_get_groups()
     entities = []
+    groups_normalized = False
     
     for group_name, group_data in groups.items():
-        # Skip single-entity groups (internal wrappers)
-        if group_data.get("_is_single_entity_group", False):
+        # Normalize _is_single_entity_group flag based on actual entity count
+        # This fixes inconsistency where groups with 1 entity might not have the flag set
+        entity_count = len(group_data.get("entities", []))
+        is_single_entity = entity_count == 1
+        has_flag = group_data.get("_is_single_entity_group", False)
+        
+        # If flag doesn't match actual entity count, normalize it
+        if is_single_entity != has_flag:
+            group_data["_is_single_entity_group"] = is_single_entity
+            groups_normalized = True
+            _LOGGER.info(
+                f"Normalized _is_single_entity_group flag for group '{group_name}': "
+                f"entity_count={entity_count}, flag={is_single_entity}"
+            )
+        
+        # Skip virtual groups (no entities) - but include all groups with at least one entity
+        if entity_count == 0:
             continue
         
-        # Skip virtual groups (no entities)
-        if not group_data.get("entities"):
-            continue
-        
-        # Create climate entity for this group
+        # Create climate entity for this group (including single-entity groups)
         entities.append(
             ClimateSchedulerGroupEntity(
                 coordinator,
@@ -58,7 +70,12 @@ async def async_setup_entry(
                 group_data,
             )
         )
-        _LOGGER.info(f"Created climate entity for group '{group_name}'")
+        _LOGGER.info(f"Created climate entity for group '{group_name}' with {entity_count} entities")
+    
+    # Save normalized flags if any were updated
+    if groups_normalized:
+        await storage.async_save()
+        _LOGGER.info("Saved normalized group flags to storage")
     
     if entities:
         async_add_entities(entities, True)
