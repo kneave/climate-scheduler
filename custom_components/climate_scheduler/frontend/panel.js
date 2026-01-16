@@ -462,11 +462,11 @@ class ClimateSchedulerPanel extends HTMLElement {
                             </div>
 
                             <div class="settings-actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap;">
-                                <button id="refresh-entities-menu" class="btn-secondary">↻ Refresh Entities</button>
-                                <button id="sync-all-menu" class="btn-secondary">⟲ Sync All Thermostats</button>
-                                <button id="reload-integration-menu" class="btn-secondary">🔄 Reload Integration</button>
+                                <button id="refresh-entities-menu" class="btn-secondary">Refresh Entities</button>
+                                <button id="sync-all-menu" class="btn-secondary">Sync All Thermostats</button>
+                                <button id="reload-integration-menu" class="btn-secondary">Reload Integration</button>
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
-                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">🧹 Cleanup Derivative Sensors</button>
+                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">Cleanup Derivative Sensors</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                             </div>
                         </div>
@@ -484,10 +484,10 @@ class ClimateSchedulerPanel extends HTMLElement {
                     </div>
 
                     <footer>
-                        <p id="version-info">Climate Scheduler</p>
-                            <div class="panel-footer" style="margin-top: 16px; text-align: center;">
-                                <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
-                            </div>
+                        <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
+                            <p><span id="version-info">Climate Scheduler</span>, created by <a href="https://neave.engineering" target="_blank" rel="noopener noreferrer" style="color: var(--primary)">Keegan Neave</a></p>
+                            <p><a href="https://www.buymeacoffee.com/kneave" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">🤖 Buy me robot parts!</a></p>
+                        </div>
                     </footer>
                 </div>
             `;
