@@ -8,7 +8,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP
+from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP, SETTING_USE_WORKDAY
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,14 +100,53 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self.last_node_times = {}  # Track last node time for each entity to detect time transitions
         self.override_until = {}  # Track entities with advance override (entity_id -> time)
         self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
+        self._workday_available = None  # Cache for workday integration availability
 
     async def async_config_entry_first_refresh(self) -> None:
         """Handle the first refresh."""
         # Load advance history from storage
         self.advance_history = await self.storage.async_get_advance_history()
         _LOGGER.debug(f"Loaded advance history from storage: {self.advance_history}")
+        # Check for workday integration
+        self._check_workday_integration()
         # Call parent's first refresh
         await super().async_config_entry_first_refresh()
+
+    def _check_workday_integration(self) -> bool:
+        """Check if the Workday integration is available."""
+        if self._workday_available is not None:
+            return self._workday_available
+        
+        # Check if workday component is loaded
+        self._workday_available = "workday" in self.hass.config.components
+        
+        if self._workday_available:
+            _LOGGER.info("Workday integration detected - available for 5/2 mode scheduling")
+        else:
+            _LOGGER.debug("Workday integration not found - 5/2 mode will use basic day matching")
+        
+        return self._workday_available
+
+    async def is_workday_enabled(self) -> bool:
+        """Return whether Workday integration should be used for 5/2 scheduling."""
+        # First check if integration is available
+        if not self.is_workday_available():
+            return False
+        
+        # Then check if user has enabled it in settings
+        try:
+            settings = await self.storage.async_get_settings()
+            use_workday = settings.get(SETTING_USE_WORKDAY, False)
+            return use_workday
+        except Exception as e:
+            _LOGGER.debug(f"Failed to check workday setting: {e}")
+            return False
+
+    def is_workday_available(self) -> bool:
+        """Return whether the Workday integration is available."""
+        if self._workday_available is None:
+            self._check_workday_integration()
+        return self._workday_available or False
 
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
