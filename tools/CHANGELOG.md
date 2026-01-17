@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+### Added
+- **Workday Integration Support**: Optional integration with Home Assistant's Workday integration for 5/2 scheduling
+  - Backend detection of Workday integration (checks for `binary_sensor.workday_sensor`)
+  - User-configurable option to enable/disable Workday integration usage
+  - Manual workday selection with 7 day checkboxes when Workday integration is disabled or unavailable
+  - Settings stored persistently: `use_workday_integration` (boolean) and `workdays` (array)
+  - UI automatically shows/hides day selector based on Workday availability and user preference
+  - Frontend detection with connection wait logic to handle timing issues
+  - New constants: `SETTING_USE_WORKDAY`, `SETTING_WORKDAYS`, `DEFAULT_WORKDAYS`
+  
+- **Orphaned Entity Cleanup**: New service and UI button to cleanup orphaned entities
+  - Service `cleanup_orphaned_climate_entities` scans and removes orphaned entities
+  - Checks climate entities, sensor entities, and switch entities
+  - Dry-run mode by default (delete=false) to preview orphaned entities
+  - UI button in settings with scan-first workflow and confirmation dialog
+  - Lists all orphaned entities before deletion
+  - Identifies entities without matching groups or climate entities in storage
+
+### Changed
+- **UI Layout Improvements**: Settings text labels and descriptions can now use full width
+  - Increased min-width from 220px to 280px on Graph Options and Temperature Precision sections
+  - Added flex-wrap to allow responsive layout on smaller screens
+  - Added max-width: 100% to Derivative Sensors and Workday Integration sections
+  - Settings descriptions no longer constrained by fixed-width parent containers
+
+- **Entity Filtering**: Climate Scheduler's own entities are now filtered from unmonitored entity list
+  - Entities starting with `climate.climate_scheduler_` are excluded from the list
+  - Prevents confusion from seeing integration's own proxy entities
+
+- **Release Script Enhancement**: `.version` file is now updated during release process
+  - Added to git commits automatically
+  - Included in dry-run output for verification
+
+### Fixed
+- Workday integration detection timing issue resolved with connection wait logic
+- Removed redundant status icon from Workday integration setting
+- Filtering Climate Scheduler entities from the Unmonitored list
+
 ## [1.14.10] - 2026-01-14
 
 ### Fixed

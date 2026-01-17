@@ -429,7 +429,7 @@ function Get-ChangelogForVersion {
         [string]$VersionString
     )
 
-    $path = "CHANGELOG.md"
+    $path = "tools\CHANGELOG.md"
     if (-not (Test-Path $path)) { return $null }
 
     $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
@@ -453,7 +453,7 @@ function Get-ChangelogForVersion {
 
 # Helper: extract Unreleased section
 function Get-UnreleasedChangelog {
-    $path = "CHANGELOG.md"
+    $path = "tools\CHANGELOG.md"
     if (-not (Test-Path $path)) { return $null }
 
     $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
@@ -475,7 +475,7 @@ function Get-UnreleasedChangelog {
  
 
 # If CHANGELOG.md already contains a section for this version, offer to use it
-$changelogPath = "CHANGELOG.md"
+$changelogPath = "tools\CHANGELOG.md"
 $usePreparedNotes = $false
 $useUnreleasedSection = $false
 $preparedNotes = $null
@@ -638,7 +638,7 @@ else {
 
 # Update or create CHANGELOG.md only if we generated new content or converting Unreleased
 if ($needsChangelogUpdate) {
-    $changelogPath = "CHANGELOG.md"
+    $changelogPath = "tools\CHANGELOG.md"
     if (Test-Path $changelogPath) {
         $existingChangelog = Get-Content $changelogPath -Raw
         
