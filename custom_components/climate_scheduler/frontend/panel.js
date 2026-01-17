@@ -14,8 +14,8 @@
     if (response.ok) {
       const serverVersion = (await response.text()).trim().split(',')[0];
       
-      // Compare versions - if they don't match, user has stale cache
-      if (loadedVersion && serverVersion && loadedVersion !== serverVersion) {
+      // Compare versions - check the aren't None and if they don't match, user has stale cache
+      if ((loadedVersion && serverVersion) && loadedVersion !== serverVersion) {
         console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
         
         // Store in sessionStorage to avoid showing repeatedly
