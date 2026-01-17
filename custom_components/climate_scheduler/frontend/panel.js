@@ -395,8 +395,8 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     
                                     <div class="settings-section">
                                         <h4>Graph Options</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1; min-width:220px;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="tooltip-mode">Tooltip Display:</label>
                                                 <select id="tooltip-mode">
                                                     <option value="history">Show Historical Temperature</option>
@@ -424,8 +424,8 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     
                                     <div class="settings-section">
                                         <h4>Temperature Precision</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="graph-snap-step">Graph Snap Step:</label>
                                                 <select id="graph-snap-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -434,7 +434,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Temperature rounding when dragging nodes on the graph</p>
                                             </div>
-                                            <div class="setting-item" style="flex:1;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="input-temp-step">Input Field Step:</label>
                                                 <select id="input-temp-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -449,11 +449,58 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     <div class="settings-section">
                                         <h4>Derivative Sensors</h4>
                                         <p class="settings-description">Automatically create sensors to track heating/cooling rates for performance analysis</p>
-                                        <div class="setting-item">
+                                        <div class="setting-item" style="max-width: 100%;">
                                             <label>
                                                 <input type="checkbox" id="create-derivative-sensors" style="margin-right: 8px;"> Auto-create derivative sensors
                                             </label>
                                             <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">When enabled, creates sensor.climate_scheduler_[name]_rate for each thermostat to track temperature change rate (°C/h)</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="settings-section">
+                                        <h4>Workday Integration</h4>
+                                        <p class="settings-description">Configure which days are workdays for 5/2 mode scheduling</p>
+                                        <div class="setting-item" style="max-width: 100%;">
+                                            <label id="use-workday-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                <input type="checkbox" id="use-workday-integration" style="margin-right: 8px;" disabled> 
+                                                <span>Use Workday integration for 5/2 scheduling</span>
+                                            </label>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;" id="workday-help-text">Checking if Workday integration is installed...</p>
+                                        </div>
+                                        
+                                        <div id="workday-selector" style="margin-top: 16px; display: none;">
+                                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Select Workdays:</label>
+                                            <p class="settings-description" style="margin-bottom: 8px; font-size: 0.85rem;">Choose which days are considered workdays when Workday integration is disabled</p>
+                                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="mon" style="cursor: pointer;">
+                                                    <span>Monday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="tue" style="cursor: pointer;">
+                                                    <span>Tuesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="wed" style="cursor: pointer;">
+                                                    <span>Wednesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="thu" style="cursor: pointer;">
+                                                    <span>Thursday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="fri" style="cursor: pointer;">
+                                                    <span>Friday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sat" style="cursor: pointer;">
+                                                    <span>Saturday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sun" style="cursor: pointer;">
+                                                    <span>Sunday</span>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

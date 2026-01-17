@@ -4670,6 +4670,106 @@ async function convertAllSchedules(fromUnit, toUnit) {
     }
 }
 
+// Check if Workday integration is available
+async function checkWorkdayIntegration(settings) {
+    const checkbox = getDocumentRoot().querySelector('#use-workday-integration');
+    const helpText = getDocumentRoot().querySelector('#workday-help-text');
+    const label = getDocumentRoot().querySelector('#use-workday-label');
+    const workdaySelector = getDocumentRoot().querySelector('#workday-selector');
+    
+    if (!checkbox || !helpText) {
+        console.warn('Workday UI elements not found');
+        return;
+    }
+    
+    try {
+        // Wait for haAPI to be connected
+        let hassObj = haAPI?.hass;
+        
+        // If hass not ready yet, wait a bit and retry
+        if (!hassObj || !hassObj.states) {
+            console.debug('[Climate Scheduler] Waiting for hass connection...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            hassObj = haAPI?.hass;
+        }
+        
+        // Debug logging
+        console.debug('[Climate Scheduler] Checking for Workday integration');
+        console.debug('[Climate Scheduler] haAPI available:', !!haAPI);
+        console.debug('[Climate Scheduler] hass object available:', !!hassObj);
+        console.debug('[Climate Scheduler] hass.states available:', !!hassObj?.states);
+        console.debug('[Climate Scheduler] binary_sensor.workday_sensor:', hassObj?.states?.['binary_sensor.workday_sensor']);
+        
+        // List all binary_sensor.workday* entities for debugging
+        if (hassObj?.states) {
+            const workdayEntities = Object.keys(hassObj.states).filter(id => id.startsWith('binary_sensor.workday'));
+            console.debug('[Climate Scheduler] Found workday entities:', workdayEntities);
+        }
+        
+        const hasWorkday = hassObj?.states?.['binary_sensor.workday_sensor'] !== undefined;
+        
+        if (hasWorkday) {
+            // Workday is available - enable the checkbox
+            checkbox.disabled = false;
+            helpText.textContent = 'When enabled, uses the Workday integration for accurate 5/2 scheduling (respects holidays and custom workdays). When disabled, uses the selected workdays below.';
+            if (label) label.style.cursor = 'pointer';
+            
+            // Load saved setting
+            if (settings && typeof settings.use_workday_integration !== 'undefined') {
+                checkbox.checked = settings.use_workday_integration;
+            }
+            
+            // Show/hide workday selector based on checkbox state
+            updateWorkdaySelectorVisibility(checkbox.checked);
+        } else {
+            // Workday not available - disable and show message
+            checkbox.disabled = true;
+            checkbox.checked = false;
+            helpText.innerHTML = 'Workday integration not detected. Configure workdays manually below. <a href="https://www.home-assistant.io/integrations/workday/" target="_blank" style="color: var(--primary);">Install Workday integration</a>';
+            if (label) {
+                label.style.cursor = 'not-allowed';
+                label.style.opacity = '0.6';
+            }
+            
+            // Always show workday selector when Workday integration is not available
+            if (workdaySelector) workdaySelector.style.display = 'block';
+        }
+        
+        // Load workdays setting
+        loadWorkdaysSetting(settings);
+        
+    } catch (error) {
+        console.error('Failed to check Workday integration:', error);
+        helpText.textContent = 'Could not determine if Workday integration is installed.';
+    }
+}
+
+// Update visibility of workday selector based on use_workday_integration setting
+function updateWorkdaySelectorVisibility(useWorkdayIntegration) {
+    const workdaySelector = getDocumentRoot().querySelector('#workday-selector');
+    if (workdaySelector) {
+        // Show selector when NOT using Workday integration
+        workdaySelector.style.display = useWorkdayIntegration ? 'none' : 'block';
+    }
+}
+
+// Load workdays setting from settings
+function loadWorkdaysSetting(settings) {
+    const defaultWorkdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    const workdays = settings?.workdays || defaultWorkdays;
+    
+    const checkboxes = getDocumentRoot().querySelectorAll('.workday-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = workdays.includes(checkbox.value);
+    });
+}
+
+// Get selected workdays from checkboxes
+function getSelectedWorkdays() {
+    const checkboxes = getDocumentRoot().querySelectorAll('.workday-checkbox:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
 // Load settings from server
 async function loadSettings() {
     try {
@@ -4731,6 +4831,10 @@ async function loadSettings() {
                 checkbox.checked = settings.create_derivative_sensors;
             }
         }
+        
+        // Check for Workday integration and load setting
+        await checkWorkdayIntegration(settings);
+        
         // Load min/max temps if present (convert if unit changed)
         if (settings && typeof settings.min_temp !== 'undefined') {
             let minTemp = parseFloat(settings.min_temp);
@@ -4797,11 +4901,25 @@ async function saveSettings() {
         const maxInput = getDocumentRoot().querySelector('#max-temp');
         if (minInput && minInput.value !== '') settings.min_temp = parseFloat(minInput.value);
         if (maxInput && maxInput.value !== '') settings.max_temp = parseFloat(maxInput.value);
+        
         // Read derivative sensor checkbox
         const derivativeCheckbox = getDocumentRoot().querySelector('#create-derivative-sensors');
         if (derivativeCheckbox) {
             settings.create_derivative_sensors = derivativeCheckbox.checked;
         }
+        
+        // Read workday integration checkbox
+        const workdayCheckbox = getDocumentRoot().querySelector('#use-workday-integration');
+        if (workdayCheckbox) {
+            settings.use_workday_integration = workdayCheckbox.checked;
+        }
+        
+        // Read selected workdays
+        const selectedWorkdays = getSelectedWorkdays();
+        if (selectedWorkdays.length > 0) {
+            settings.workdays = selectedWorkdays;
+        }
+        
         await haAPI.saveSettings(settings);
         // Update runtime globals and graphs
         if (typeof settings.min_temp !== 'undefined') {
@@ -5046,6 +5164,24 @@ async function setupSettingsPanel() {
             }
         });
     }
+    
+    // Workday integration checkbox
+    const workdayCheckbox = getDocumentRoot().querySelector('#use-workday-integration');
+    if (workdayCheckbox) {
+        workdayCheckbox.addEventListener('change', async () => {
+            // Update visibility of workday selector
+            updateWorkdaySelectorVisibility(workdayCheckbox.checked);
+            await saveSettings();
+        });
+    }
+    
+    // Workday day checkboxes
+    const workdayDayCheckboxes = getDocumentRoot().querySelectorAll('.workday-checkbox');
+    workdayDayCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', async () => {
+            await saveSettings();
+        });
+    });
     
     // Clear default schedule button
     const clearDefaultScheduleBtn = getDocumentRoot().querySelector('#clear-default-schedule-btn');

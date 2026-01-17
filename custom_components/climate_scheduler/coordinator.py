@@ -8,7 +8,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP, SETTING_USE_WORKDAY
+from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP, SETTING_USE_WORKDAY, SETTING_WORKDAYS, DEFAULT_WORKDAYS
 from .storage import ScheduleStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,13 +117,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         if self._workday_available is not None:
             return self._workday_available
         
-        # Check if workday component is loaded
-        self._workday_available = "workday" in self.hass.config.components
+        # Check if binary_sensor.workday_sensor exists
+        workday_state = self.hass.states.get("binary_sensor.workday_sensor")
+        self._workday_available = workday_state is not None
         
         if self._workday_available:
-            _LOGGER.info("Workday integration detected - available for 5/2 mode scheduling")
+            _LOGGER.info("Workday integration detected (binary_sensor.workday_sensor found) - available for 5/2 mode scheduling")
         else:
-            _LOGGER.debug("Workday integration not found - 5/2 mode will use basic day matching")
+            _LOGGER.debug("Workday integration not found (binary_sensor.workday_sensor not present) - 5/2 mode will use basic day matching")
         
         return self._workday_available
 
@@ -141,6 +142,32 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.debug(f"Failed to check workday setting: {e}")
             return False
+
+    async def get_workdays(self) -> List[str]:
+        """Return list of days considered workdays from settings."""
+        try:
+            settings = await self.storage.async_get_settings()
+            workdays = settings.get(SETTING_WORKDAYS, DEFAULT_WORKDAYS)
+            # Validate workdays list
+            if not isinstance(workdays, list) or not workdays:
+                _LOGGER.warning(f"Invalid workdays setting: {workdays}, using defaults")
+                return DEFAULT_WORKDAYS.copy()
+            return workdays
+        except Exception as e:
+            _LOGGER.debug(f"Failed to get workdays setting: {e}")
+            return DEFAULT_WORKDAYS.copy()
+
+    async def is_workday(self, day: str) -> bool:
+        """Check if a given day (e.g., 'mon', 'tue') is a workday.
+        
+        Args:
+            day: Three-letter day abbreviation (mon, tue, wed, thu, fri, sat, sun)
+        
+        Returns:
+            True if the day is configured as a workday, False otherwise
+        """
+        workdays = await self.get_workdays()
+        return day.lower() in [d.lower() for d in workdays]
 
     def is_workday_available(self) -> bool:
         """Return whether the Workday integration is available."""
