@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.14.11] - 2026-01-17
+
 ### Added
 - **Workday Integration Support**: Optional integration with Home Assistant's Workday integration for 5/2 scheduling
   - Backend detection of Workday integration (checks for `binary_sensor.workday_sensor`)
@@ -429,6 +431,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 

@@ -643,14 +643,22 @@ if ($needsChangelogUpdate) {
         $existingChangelog = Get-Content $changelogPath -Raw
         
         if ($useUnreleasedSection) {
-            # Replace [Unreleased] section with versioned section and add new empty [Unreleased]
-            $unreleasedMarker = "## [Unreleased]"
-            $newUnreleasedSection = @"
-## [Unreleased]
+            # Replace [Unreleased] section and its content with new empty [Unreleased] and versioned section
+            # Find the [Unreleased] section and extract everything until the next ## [ marker
+            $unreleasedPattern = '(?s)(## \[Unreleased\])(.*?)((?=\n## \[)|$)'
+            if ($existingChangelog -match $unreleasedPattern) {
+                $beforeUnreleased = $existingChangelog.Substring(0, $matches[0].Index + $matches[1].Length)
+                $afterUnreleased = $existingChangelog.Substring($matches[0].Index + $matches[0].Length)
+                
+                # Create new structure: empty [Unreleased] followed by versioned content
+                $newContent = @"
+$beforeUnreleased
 
 $changelogContent
+$afterUnreleased
 "@
-            $existingChangelog = $existingChangelog -replace [regex]::Escape("## [Unreleased]"), $newUnreleasedSection
+                $existingChangelog = $newContent
+            }
             
             if (-not $DryRun) {
                 Set-Content $changelogPath $existingChangelog
