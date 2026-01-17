@@ -30,6 +30,20 @@ cleanup_malformed_sensors:
       selector:
         boolean: {}
 
+cleanup_orphaned_climate_entities:
+  name: Cleanup orphaned entities
+  description: >-
+    Scan for orphaned Climate Scheduler entities (climate, sensor, and switch entities without matching
+    groups or climate entities in storage) and optionally remove them. Returns expected count and orphaned entity lists.
+  fields:
+    delete:
+      description: Whether to actually delete the orphaned entities (default
+        is false for dry-run)
+      required: false
+      example: true
+      selector:
+        boolean: {}
+
 set_schedule:
   name: Set climate schedule
   description: Configure temperature schedule for a schedule target

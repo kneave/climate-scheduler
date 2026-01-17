@@ -5271,6 +5271,62 @@ async function setupSettingsPanel() {
         });
     }
 
+    const cleanupClimateBtn = getDocumentRoot().querySelector('#cleanup-orphaned-climate-btn');
+    if (cleanupClimateBtn) {
+        cleanupClimateBtn.addEventListener('click', async () => {
+            try {
+                // First do a dry run to see what would be deleted
+                cleanupClimateBtn.textContent = '🔍 Scanning...';
+                cleanupClimateBtn.disabled = true;
+                
+                const dryRunResult = await haAPI.cleanupOrphanedClimateEntities(false);
+                
+                if (!dryRunResult.orphaned_entities || dryRunResult.orphaned_entities.length === 0) {
+                    showToast('No orphaned entities found', 'success');
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                    return;
+                }
+                
+                // Ask for confirmation with list of entities
+                const entityList = dryRunResult.orphaned_entities.join('\n• ');
+                const confirmed = confirm(
+                    `Found ${dryRunResult.orphaned_entities.length} orphaned entities:\n\n` +
+                    `• ${entityList}\n\n` +
+                    'These entities no longer have matching groups or climate entities in storage.\n\n' +
+                    'Delete these entities?'
+                );
+                
+                if (!confirmed) {
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                    return;
+                }
+                
+                cleanupClimateBtn.textContent = '🗑️ Deleting...';
+                
+                const deleteResult = await haAPI.cleanupOrphanedClimateEntities(true);
+                
+                if (deleteResult.removed && deleteResult.removed.length > 0) {
+                    showToast(`Removed ${deleteResult.removed.length} orphaned entities`, 'success', 4000);
+                } else {
+                    showToast('No entities were removed', 'warning');
+                }
+                
+                cleanupClimateBtn.textContent = '✓ Cleanup Complete!';
+                setTimeout(() => {
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to cleanup orphaned entities:', error);
+                showToast('Failed to cleanup orphaned entities', 'error');
+                cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                cleanupClimateBtn.disabled = false;
+            }
+        });
+    }
+
 }
 
 // Handle node settings for default schedule

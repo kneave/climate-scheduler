@@ -593,6 +593,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     service_schemas: dict[str, vol.Schema] = {
         "recreate_all_sensors": vol.Schema({vol.Required("confirm"): cv.boolean}),
         "cleanup_malformed_sensors": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
+        "cleanup_orphaned_climate_entities": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
         "set_schedule": vol.Schema({
             vol.Required("schedule_id"): cv.string,
             # Accept either a JSON string (legacy) or a structured list/object from the UI
@@ -783,6 +784,123 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return {
             "expected_entities": sorted(list(expected_entity_ids)),
             "unexpected_entities": [p["entity_id"] for p in problematic]
+        }
+
+    async def handle_cleanup_orphaned_climate_entities(call: ServiceCall) -> dict:
+        """Handle cleanup_orphaned_climate_entities service call - identify and optionally remove orphaned entities."""
+        delete = call.data.get("delete", False)
+        _LOGGER.info(f"Scanning for orphaned Climate Scheduler entities (delete={delete})")
+
+        # Get entity registry
+        from homeassistant.helpers import entity_registry as er
+        entity_reg = er.async_get(hass)
+
+        # Get all entities created by this integration (climate, sensor, switch)
+        integration_entities = [
+            e for e in entity_reg.entities.values() 
+            if e.platform == DOMAIN and e.domain in ["climate", "sensor", "switch"]
+        ]
+
+        # Get storage to check which groups exist
+        storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
+        groups = await storage.async_get_groups()
+        settings = storage._data.get("settings", {})
+
+        # Build expected unique IDs from existing groups
+        expected_unique_ids = set()
+        
+        # Always expect coldest/warmest sensors
+        expected_unique_ids.add("climate_scheduler_coldest_entity")
+        expected_unique_ids.add("climate_scheduler_warmest_entity")
+        
+        # Collect all climate entities from all groups
+        all_climate_entities = set()
+        for group_name, group_data in groups.items():
+            entities_list = group_data.get("entities", [])
+            
+            # Skip empty groups
+            if len(entities_list) == 0:
+                continue
+            
+            all_climate_entities.update(entities_list)
+            
+            # Climate entity for this group
+            unique_id = f"climate_scheduler_group_{group_name.lower().replace(' ', '_')}"
+            expected_unique_ids.add(unique_id)
+            
+            # Switch entity for this group (if not ignored)
+            if not group_data.get("ignored", False):
+                import hashlib
+                token = hashlib.md5(group_name.encode()).hexdigest()[:6]
+                if group_name.startswith("__entity_"):
+                    entity_id = group_name.replace("__entity_", "")
+                    expected_unique_ids.add(f"climate_scheduler_schedule_{entity_id}_{token}")
+                else:
+                    expected_unique_ids.add(f"climate_scheduler_schedule_{group_name}_{token}")
+        
+        # Add derivative sensors if enabled
+        if settings.get("create_derivative_sensors", True):
+            for climate_entity_id in all_climate_entities:
+                if "." in climate_entity_id:
+                    entity_name = climate_entity_id.split(".", 1)[1]
+                    expected_unique_ids.add(f"climate_scheduler_{entity_name}_rate")
+                    
+                    # Check for floor sensors on same device
+                    climate_entry = entity_reg.async_get(climate_entity_id)
+                    if climate_entry and climate_entry.device_id:
+                        device_id = climate_entry.device_id
+                        device_sensors = [
+                            e for e in entity_reg.entities.values()
+                            if e.device_id == device_id 
+                            and e.domain == "sensor"
+                            and "floor" in e.entity_id.lower()
+                        ]
+                        
+                        for sensor in device_sensors:
+                            floor_sensor_name = sensor.entity_id.split(".", 1)[1]
+                            expected_unique_ids.add(f"climate_scheduler_{entity_name}_{floor_sensor_name}_rate")
+
+        # Find orphaned entities
+        orphaned = []
+        for entry in integration_entities:
+            if entry.unique_id not in expected_unique_ids:
+                orphaned.append({
+                    "entity_id": entry.entity_id,
+                    "unique_id": entry.unique_id,
+                    "domain": entry.domain,
+                    "name": entry.name or entry.original_name,
+                    "reason": "No matching group/entity in storage"
+                })
+
+        if not orphaned:
+            _LOGGER.info("No orphaned entities found")
+            return {
+                "expected_count": len(expected_unique_ids),
+                "orphaned_entities": []
+            }
+
+        _LOGGER.warning(f"Found {len(orphaned)} orphaned entities")
+
+        if delete:
+            removed = []
+            for info in orphaned:
+                try:
+                    entity_reg.async_remove(info["entity_id"])
+                    removed.append(info["entity_id"])
+                    _LOGGER.info(f"Removed orphaned entity: {info['entity_id']} ({info['domain']})")
+                except Exception as e:
+                    _LOGGER.error(f"Failed to remove entity {info['entity_id']}: {e}")
+
+            return {
+                "expected_count": len(expected_unique_ids),
+                "orphaned_entities": [o["entity_id"] for o in orphaned],
+                "removed": removed
+            }
+
+        # Dry run
+        return {
+            "expected_count": len(expected_unique_ids),
+            "orphaned_entities": [o["entity_id"] for o in orphaned]
         }
 
     storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
@@ -1651,6 +1769,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     # Register all services (schemas come from async_get_services() dynamically)
     hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, service_schemas.get("recreate_all_sensors"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, service_schemas.get("cleanup_malformed_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_orphaned_climate_entities", handle_cleanup_orphaned_climate_entities, service_schemas.get("cleanup_orphaned_climate_entities"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_schedule", handle_set_schedule, service_schemas.get("set_schedule"))
     hass.services.async_register(DOMAIN, "get_schedule", handle_get_schedule, service_schemas.get("get_schedule"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "clear_schedule", handle_clear_schedule, service_schemas.get("clear_schedule"))

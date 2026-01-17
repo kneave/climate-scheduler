@@ -566,6 +566,18 @@ class HomeAssistantAPI {
         }
     }
     
+    async cleanupOrphanedClimateEntities(deleteEntities = false) {
+        try {
+            const result = await this.callService('climate_scheduler', 'cleanup_orphaned_climate_entities', {
+                delete: deleteEntities
+            }, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to cleanup orphaned climate entities:', error);
+            throw error;
+        }
+    }
+    
     // Profile management methods
     async createProfile(scheduleId, profileName) {
         return await this.callService('climate_scheduler', 'create_profile', {
