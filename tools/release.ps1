@@ -707,6 +707,29 @@ else {
     Write-Host "`nVersion unchanged: $Version" -ForegroundColor Yellow
 }
 
+# Update .version file in frontend directory
+$versionFilePath = "custom_components\climate_scheduler\frontend\.version"
+if (Test-Path $versionFilePath) {
+    $currentVersionFileContent = (Get-Content $versionFilePath -Raw).Trim()
+    if ($Version -ne $currentVersionFileContent) {
+        Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) .version file..." -ForegroundColor Yellow
+        if (-not $DryRun) {
+            Set-Content $versionFilePath $Version
+        }
+        Write-Host ".version: $currentVersionFileContent -> $Version" -ForegroundColor Green
+    }
+    else {
+        Write-Host "`.version file already up to date: $Version" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) .version file..." -ForegroundColor Yellow
+    if (-not $DryRun) {
+        Set-Content $versionFilePath $Version
+    }
+    Write-Host ".version file created with version: $Version" -ForegroundColor Green
+}
+
 # Commit the version change
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
 if (-not $DryRun) {
@@ -715,6 +738,9 @@ if (-not $DryRun) {
     
     if ($hasChanges) {
         git add $manifestPath
+        if (Test-Path $versionFilePath) {
+            git add $versionFilePath
+        }
         if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
             git add CHANGELOG.md
         }
@@ -735,6 +761,7 @@ if (-not $DryRun) {
 }
 else {
     Write-Host "Files to commit: manifest.json" -ForegroundColor Cyan
+    Write-Host "                 .version" -ForegroundColor Cyan
     if ($needsChangelogUpdate) {
         Write-Host "                 CHANGELOG.md (updated with new entries)" -ForegroundColor Cyan
     }
