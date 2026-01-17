@@ -196,7 +196,10 @@ class HomeAssistantAPI {
     
     async getClimateEntities() {
         const states = await this.getStates();
-        return states.filter(state => state.entity_id.startsWith('climate.'));
+        return states.filter(state => 
+            state.entity_id.startsWith('climate.') && 
+            !state.entity_id.startsWith('climate.climate_scheduler_')
+        );
     }
     
     async callService(domain, service, serviceData, returnResponse = false) {
