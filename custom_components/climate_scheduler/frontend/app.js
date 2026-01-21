@@ -36,7 +36,6 @@ let currentGroup = null; // Currently selected group
 let currentEntityId = null; // Currently selected individual entity (legacy path, mostly unused now)
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
-let graphType = 'svg'; // 'svg' or 'canvas'
 let keyframeTimelineLoaded = false; // Track if keyframe-timeline.js is loaded
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
@@ -684,48 +683,34 @@ function keyframesToScheduleNodes(keyframes) {
     });
 }
 
-// Get nodes from graph (works with both SVG and canvas)
+// Get nodes from graph (canvas timeline)
 function getGraphNodes() {
     if (!graph) return [];
-    
-    if (graphType === 'svg') {
-        return graph.getNodes ? graph.getNodes() : [];
-    } else {
-        // Canvas graph - convert keyframes to nodes
-        return graph.keyframes ? keyframesToScheduleNodes(graph.keyframes) : [];
-    }
+    // Canvas graph - convert keyframes to nodes
+    return graph.keyframes ? keyframesToScheduleNodes(graph.keyframes) : [];
 }
 
-// Set nodes on graph (type-safe wrapper)
+// Set nodes on graph (canvas timeline)
 function setGraphNodes(nodes) {
     if (!graph) return;
-    
-    if (graphType === 'svg') {
-        if (graph.setNodes) graph.setNodes(nodes);
-    } else {
-        // Canvas graph - convert nodes to keyframes
-        const keyframes = scheduleNodesToKeyframes(nodes);
-        // Force reactivity by creating new array reference
-        graph.keyframes = [...keyframes];
-    }
+    // Canvas graph - convert nodes to keyframes
+    const keyframes = scheduleNodesToKeyframes(nodes);
+    // Force reactivity by creating new array reference
+    graph.keyframes = [...keyframes];
 }
 
-// Set history data on graph (type-safe wrapper)
+// Set history data on graph (canvas timeline)
 function setGraphHistoryData(historyDataArray) {
     if (!graph) return;
     
-    if (graphType === 'svg') {
-        // SVG graph - use setHistoryData method
-        if (graph.setHistoryData) graph.setHistoryData(historyDataArray);
-    } else {
-        // Canvas graph - convert to backgroundGraphs format
-        if (!historyDataArray || historyDataArray.length === 0) {
-            graph.backgroundGraphs = [];
-            return;
-        }
-        
-        // Detect format: old format [{time, temp}] or new format [{entityId, data, color}]
-        const isNewFormat = historyDataArray[0] && historyDataArray[0].entityId !== undefined;
+    // Canvas graph - convert to backgroundGraphs format
+    if (!historyDataArray || historyDataArray.length === 0) {
+        graph.backgroundGraphs = [];
+        return;
+    }
+    
+    // Detect format: old format [{time, temp}] or new format [{entityId, data, color}]
+    const isNewFormat = historyDataArray[0] && historyDataArray[0].entityId !== undefined;
         
         if (isNewFormat) {
             // New format: array of {entityId, entityName, data, color}
@@ -758,7 +743,6 @@ function setGraphHistoryData(historyDataArray) {
                 label: 'Temperature'
             }];
         }
-    }
 }
 
 // Helper function to convert time string "HH:MM" to decimal hours
@@ -828,98 +812,94 @@ async function editGroupSchedule(groupName, day = null) {
         entityStatus.style.display = 'none';
     }
     
-    // Recreate graph with the new element based on graph type
-    if (graphType === 'canvas') {
-        // Use keyframe-timeline component
-        const canvasLoaded = await loadKeyframeTimeline();
-        if (!canvasLoaded) {
-            // Fall back to SVG if canvas fails to load
-            graphType = 'svg';
-        }
+    // Use keyframe-timeline component
+    const canvasLoaded = await loadKeyframeTimeline();
+    if (!canvasLoaded) {
+        console.error('Failed to load keyframe-timeline component');
+        return;
     }
     
-    if (graphType === 'svg') {
-        // Use existing SVG graph
-        const svgElement = editor.querySelector('#temperature-graph');
+    // Use keyframe-timeline component
+    const graphContainer = editor.querySelector('.graph-container');
+    if (graphContainer) {
+        // Remove SVG element if present
+        const svgElement = graphContainer.querySelector('#temperature-graph');
         if (svgElement) {
-            graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep);
-            graph.setTooltipMode(tooltipMode);
-            // Apply configured min/max if available
-            if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
-                graph.setMinMax(minTempSetting, maxTempSetting);
-            }
+            svgElement.remove();
+        }
+        
+        // Create keyframe-timeline element
+        const timeline = document.createElement('keyframe-timeline');
+        timeline.id = 'keyframe-timeline-graph';
+        timeline.style.width = '100%';
+        timeline.duration = 24;
+        timeline.slots = 96;
+        timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
+        timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
+        timeline.snapValue = graphSnapStep;
+        timeline.title = getScheduleTitle();
+        timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
+        timeline.xAxisLabel = `Time of Day (24hr)`;
+        timeline.showCurrentTime = true;
+        
+        graphContainer.appendChild(timeline);
+        
+        // Store reference
+        graph = timeline;
+        
+        // Attach event listeners for keyframe changes
+        timeline.addEventListener('keyframe-moved', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-added', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
+        
+        // Setup undo buttons immediately after graph is created
+        const setupUndoButtonsForGraph = () => {
+            const undoBtn = editor.querySelector('#undo-btn');
+            const graphUndoBtn = editor.querySelector('#graph-undo-btn');
             
-            // Attach graph event listeners (permanent listeners)
-            svgElement.addEventListener('nodeSettings', handleNodeSettings);
+            console.log('Setting up undo buttons:', { undoBtn, graphUndoBtn, graph, hasUndoDelete: typeof graph?.undoDelete });
             
-            // Handle node updates during dragging
-            svgElement.addEventListener('nodeSettingsUpdate', (event) => {
-                const { nodeIndex, node } = event.detail;
-                const panel = editor.querySelector('#node-settings-panel');
+            const updateAndAttach = (btn) => {
+                if (!btn) return;
                 
-                // Only update if this node's panel is currently showing
-                if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
-                    const tempInput = panel.querySelector('#node-temp-input');
-                    const tempNoChange = panel.querySelector('#temp-no-change');
-                    const tempUpBtn = panel.querySelector('#temp-up');
-                    const tempDownBtn = panel.querySelector('#temp-down');
-                    const timeInput = panel.querySelector('#node-time-input');
-                    
-                    // Update time
-                    if (timeInput) timeInput.value = node.time;
-                    
-                    // Update temperature and checkbox state
-                    const isNoChange = node.noChange === true;
-                    if (tempNoChange) tempNoChange.checked = isNoChange;
-                    if (tempInput) {
-                        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
-                        tempInput.disabled = isNoChange;
+                btn.onclick = () => {
+                    console.log('Undo button clicked', { graph, undoStack: graph?.undoStack, hasMethod: typeof graph?.undoDelete });
+                    if (graph && typeof graph.undoDelete === 'function') {
+                        console.log('Calling undoDelete');
+                        graph.undoDelete();
+                    } else {
+                        console.error('Cannot call undoDelete - graph or method not available');
                     }
-                    if (tempUpBtn) tempUpBtn.disabled = isNoChange;
-                    if (tempDownBtn) tempDownBtn.disabled = isNoChange;
-                }
-            });
-        }
-    } else {
-        // Use keyframe-timeline component
-        const graphContainer = editor.querySelector('.graph-container');
-        if (graphContainer) {
-            // Remove SVG element if present
-            const svgElement = graphContainer.querySelector('#temperature-graph');
-            if (svgElement) {
-                svgElement.remove();
-            }
+                };
+                
+                const updateState = () => {
+                    const stackLength = graph?.undoStack?.length || 0;
+                    btn.disabled = stackLength === 0;
+                    console.log('Undo button state updated:', { button: btn.id, stackLength, disabled: btn.disabled });
+                };
+                
+                // Attach listeners
+                graph.addEventListener('keyframe-moved', updateState);
+                graph.addEventListener('keyframe-added', updateState);
+                graph.addEventListener('keyframe-deleted', updateState);
+                graph.addEventListener('keyframe-restored', updateState);
+                graph.addEventListener('keyframes-cleared', updateState);
+                
+                updateState();
+            };
             
-            // Create keyframe-timeline element
-            const timeline = document.createElement('keyframe-timeline');
-            timeline.id = 'keyframe-timeline-graph';
-            timeline.style.width = '100%';
-            timeline.duration = 24;
-            timeline.slots = 96;
-            timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
-            timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
-            timeline.snapValue = graphSnapStep;
-            timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
-            timeline.showCurrentTime = true;
-            
-            graphContainer.appendChild(timeline);
-            
-            // Store reference
-            graph = timeline;
-            
-            // Attach event listeners for keyframe changes
-            timeline.addEventListener('keyframe-moved', handleKeyframeTimelineChange);
-            timeline.addEventListener('keyframe-added', handleKeyframeTimelineChange);
-            timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
-            timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
-            timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
-        }
+            updateAndAttach(undoBtn);
+            updateAndAttach(graphUndoBtn);
+        };
+        
+        // Call setup after a short delay to ensure DOM is ready
+        setTimeout(setupUndoButtonsForGraph, 0);
     }
     
-    // Get graph element (either SVG or canvas timeline)
-    const graphElement = graphType === 'svg' 
-        ? editor.querySelector('#temperature-graph')
-        : editor.querySelector('#keyframe-timeline-graph');
+    // Get graph element (canvas timeline)
+    const graphElement = editor.querySelector('#keyframe-timeline-graph');
     
     if (graphElement) {
         // Create and insert settings panel after the graph container but before instructions
@@ -977,30 +957,15 @@ async function editGroupSchedule(groupName, day = null) {
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
     
-    // Set initial nodes based on graph type
-    if (graphType === 'svg') {
-        graph.setNodes(currentSchedule);
-        
-        // Set previous day's last temperature for graph rendering
-        setPreviousDayLastTempForGraph(groupData, currentDay);
-        
-        // Always attach the permanent nodesChanged listener for auto-save
-        const svg = editor.querySelector('#temperature-graph');
-        if (svg) {
-            svg.removeEventListener('nodesChanged', handleGraphChange);
-            svg.addEventListener('nodesChanged', handleGraphChange);
-        }
-    } else {
-        // Canvas graph - set keyframes
-        const keyframes = scheduleNodesToKeyframes(currentSchedule);
-        // Force reactivity by creating new array reference
-        graph.keyframes = [...keyframes];
-        
-        // Set previous day's last temperature
-        const prevTemp = getPreviousDayLastTemp(groupData, currentDay);
-        if (prevTemp !== null) {
-            graph.previousDayEndValue = prevTemp;
-        }
+    // Canvas graph - set keyframes
+    const keyframes = scheduleNodesToKeyframes(currentSchedule);
+    // Force reactivity by creating new array reference
+    graph.keyframes = [...keyframes];
+    
+    // Set previous day's last temperature
+    const prevTemp = getPreviousDayLastTemp(groupData, currentDay);
+    if (prevTemp !== null) {
+        graph.previousDayEndValue = prevTemp;
     }
     
     // Update schedule mode UI
@@ -1160,13 +1125,8 @@ function createSettingsPanel(groupData, editor) {
     container.appendChild(toggleHeader);
     container.appendChild(settingsPanel);
     
-    // Connect undo button to graph and add delete group handler
+    // Add delete group handler
     setTimeout(() => {
-        const undoBtn = container.querySelector('#undo-btn');
-        if (undoBtn && graph && graphType === 'svg') {
-            graph.setUndoButton(undoBtn);
-        }
-        
         // Add delete group button handler if this is a group
         if (groupData) {
             const deleteGroupBtn = container.querySelector('#delete-group-btn');
@@ -2015,12 +1975,9 @@ function createScheduleEditor() {
         </div>
 
         <div class="graph-container">
-            <div class="graph-wrapper">
-                <svg id="temperature-graph" viewBox="0 0 800 400">
-                    <!-- Dynamically generated -->
-                </svg>
-                
-                <!-- Node Settings Panel (inline below graph) -->
+            <!-- Canvas timeline will be inserted here -->
+            
+            <!-- Node Settings Panel (inline below graph) -->
                 <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
                     <div class="settings-header">
                         <div style="display: flex; gap: 8px; align-items: center;">
@@ -2103,17 +2060,6 @@ function createScheduleEditor() {
             </div>
         </div>
         
-        <!-- Timeline Comparison Section (Collapsible with Canvas Timelines) -->
-        <div class="timeline-comparison-container">
-            <div class="timeline-comparison-toggle">
-                <span class="toggle-icon" style="transform: rotate(90deg);">▶</span>
-                <span class="toggle-text">Timeline Comparison</span>
-            </div>
-            <div class="timeline-comparison-content" style="display: block;">
-                <div id="timeline-comparison-canvas-container"></div>
-            </div>
-        </div>
-        
         <!-- Instructions Section (Collapsible) -->
         <div class="instructions-container">
             <div class="instructions-toggle">
@@ -2157,174 +2103,9 @@ function collapseAllEditors() {
     allGroupContainers.forEach(container => container.classList.remove('expanded'));
 }
 
-// Populate timeline comparison with canvas timelines
-async function populateTimelineComparison(editorElement) {
-    const container = editorElement.querySelector('#timeline-comparison-canvas-container');
-    if (!container) return;
-    
-    // Ensure keyframe-timeline component is loaded
-    const canvasLoaded = await loadKeyframeTimeline();
-    if (!canvasLoaded) {
-        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">Failed to load timeline component</p>';
-        return;
-    }
-    
-    // Clear existing content
-    container.innerHTML = '';
-    
-    // Get current day index
-    const currentDayIndex = editorElement.dataset.dayIndex;
-    
-    // Only show the timeline for the currently edited group
-    if (!currentGroup) {
-        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">No group selected</p>';
-        return;
-    }
-    
-    const groupData = allGroups[currentGroup];
-    if (!groupData) {
-        container.innerHTML = '<p style="color: var(--secondary-text-color); padding: 10px;">Group not found</p>';
-        return;
-    }
-    
-    // Create canvas timeline directly in container
-    const timeline = document.createElement('keyframe-timeline');
-    timeline.style.width = '100%';
-    timeline.style.setProperty('--timeline-height', '400px');
-    timeline.style.setProperty('--timeline-height-collapsed', '400px');
-    timeline.style.display = 'block';
-    timeline.duration = 24;
-    timeline.slots = 96;
-    timeline.snapValue = graphSnapStep;
-    timeline.title = currentGroup; // Set group name as title
-    timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
-    timeline.xAxisLabel = `Time of Day (24hr)`;
-    timeline.showCurrentTime = true;
-    timeline.showHeader = false; // Hide the UI header
-    timeline.readonly = true; // Make it read-only
-    
-    // Set min/max from global settings
-    timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
-    timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
-    
-    // Get schedule for this group - use the same data as the main graph
-    const nodes = getGraphNodes();
-    if (nodes && nodes.length > 0) {
-        const keyframes = scheduleNodesToKeyframes(nodes);
-        timeline.keyframes = [...keyframes];
-    }
-    
-    // Get history data from the main graph and apply it to the timeline
-    if (graph && graphType === 'svg') {
-        // For SVG graphs, we need to fetch history data directly
-        if (groupData.entities && groupData.entities.length > 0) {
-            try {
-                // Get start of today
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                
-                // Get current time
-                const now = new Date();
-                
-                const allHistoryData = [];
-                const defaultColors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4', '#ffeb3b', '#795548'];
-                
-                // Load history for each entity
-                for (let i = 0; i < groupData.entities.length; i++) {
-                    const entityId = groupData.entities[i];
-                    const entity = climateEntities.find(e => e.entity_id === entityId);
-                    
-                    try {
-                        const historyResult = await haAPI.getHistory(entityId, today, now);
-                        
-                        if (historyResult && historyResult[entityId]) {
-                            const historyData = [];
-                            const stateHistory = historyResult[entityId] || [];
-                            
-                            for (const state of stateHistory) {
-                                const attributes = state.a || state.attributes;
-                                const lastUpdated = state.lu || state.last_updated;
-                                
-                                if (!attributes) continue;
-                                
-                                const temp = parseFloat(attributes.current_temperature);
-                                if (!isNaN(temp)) {
-                                    let stateTime;
-                                    if (typeof lastUpdated === 'string') {
-                                        stateTime = new Date(lastUpdated);
-                                    } else if (typeof lastUpdated === 'number') {
-                                        stateTime = lastUpdated > 10000000000 
-                                            ? new Date(lastUpdated) 
-                                            : new Date(lastUpdated * 1000);
-                                    } else {
-                                        continue;
-                                    }
-                                    
-                                    const hours = stateTime.getHours();
-                                    const minutes = stateTime.getMinutes();
-                                    const decimalTime = hours + (minutes / 60);
-                                    
-                                    historyData.push({
-                                        time: decimalTime,
-                                        value: temp
-                                    });
-                                }
-                            }
-                            
-                            if (historyData.length > 0) {
-                                allHistoryData.push({
-                                    keyframes: historyData.sort((a, b) => a.time - b.time),
-                                    color: defaultColors[i % defaultColors.length] + '80',
-                                    label: entity?.attributes?.friendly_name || entityId
-                                });
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`Failed to load history for ${entityId}:`, error);
-                    }
-                }
-                
-                if (allHistoryData.length > 0) {
-                    timeline.backgroundGraphs = allHistoryData;
-                }
-            } catch (error) {
-                console.error('Failed to load history data for timeline:', error);
-            }
-        }
-    } else if (graph && graphType === 'canvas') {
-        // For canvas graphs, copy the background graphs from the main timeline
-        if (graph.backgroundGraphs && graph.backgroundGraphs.length > 0) {
-            timeline.backgroundGraphs = [...graph.backgroundGraphs];
-        }
-    }
-    
-    container.appendChild(timeline);
-}
-
 // Attach event listeners to editor elements (for dynamically created editors)
 function attachEditorEventListeners(editorElement) {
     
-    
-    // Timeline comparison toggle
-    const timelineComparisonToggle = editorElement.querySelector('.timeline-comparison-toggle');
-    const timelineComparisonContent = editorElement.querySelector('.timeline-comparison-content');
-    if (timelineComparisonToggle && timelineComparisonContent) {
-        // Populate timeline on load since it starts expanded
-        populateTimelineComparison(editorElement);
-        
-        timelineComparisonToggle.onclick = async () => {
-            const isCollapsed = timelineComparisonContent.style.display === 'none';
-            if (isCollapsed) {
-                timelineComparisonContent.style.display = 'block';
-                timelineComparisonToggle.querySelector('.toggle-icon').style.transform = 'rotate(90deg)';
-                // Populate timeline comparison when expanded
-                await populateTimelineComparison(editorElement);
-            } else {
-                timelineComparisonContent.style.display = 'none';
-                timelineComparisonToggle.querySelector('.toggle-icon').style.transform = 'rotate(0deg)';
-            }
-        };
-    }
     
     // Instructions toggle
     const instructionsToggle = editorElement.querySelector('.instructions-toggle');
@@ -2343,6 +2124,38 @@ function attachEditorEventListeners(editorElement) {
             }
         };
     }
+    
+    // Undo button - triggers timeline's built-in undo
+    const undoBtn = editorElement.querySelector('#undo-btn');
+    const graphUndoBtn = editorElement.querySelector('#graph-undo-btn');
+    
+    const setupUndoButton = (btn) => {
+        if (btn && graph) {
+            btn.onclick = () => {
+                if (graph && typeof graph.undoDelete === 'function') {
+                    graph.undoDelete();
+                }
+            };
+            
+            // Listen for keyframe changes to update undo button state
+            if (graph) {
+                const updateUndoButton = () => {
+                    btn.disabled = !graph.undoStack || graph.undoStack.length === 0;
+                };
+                
+                // Update on timeline changes
+                graph.addEventListener('keyframe-moved', updateUndoButton);
+                graph.addEventListener('keyframe-added', updateUndoButton);
+                graph.addEventListener('keyframe-deleted', updateUndoButton);
+                
+                // Initial state
+                updateUndoButton();
+            }
+        }
+    };
+    
+    setupUndoButton(undoBtn);
+    setupUndoButton(graphUndoBtn);
     
     // Ignore button (Unmonitor button for single-entity groups)
     const ignoreBtn = editorElement.querySelector('#ignore-entity-btn');
@@ -2949,11 +2762,6 @@ function attachEditorEventListeners(editorElement) {
             pasteSchedule();
         };
     }
-    
-    const graphUndoBtn = editorElement.querySelector('#graph-undo-btn');
-    if (graphUndoBtn && graph && graphType === 'svg') {
-        graph.setUndoButton(graphUndoBtn);
-    }
 }
 
 // Clipboard for schedule copy/paste
@@ -3097,6 +2905,27 @@ async function clearScheduleForGroup(groupName) {
     } catch (error) {
         console.error('Failed to clear group schedule:', error);
         showToast('Failed to clear group schedule. Please try again.', 'error');
+    }
+}
+
+// Get schedule title with mode
+function getScheduleTitle() {
+    if (currentScheduleMode === 'all_days') {
+        return 'Schedule (All Days)';
+    } else if (currentScheduleMode === '5/2') {
+        const dayName = currentDay === 'weekday' ? 'Weekdays' : 'Weekend';
+        return `Schedule (${dayName})`;
+    } else {
+        const dayNames = {
+            'mon': 'Monday',
+            'tue': 'Tuesday', 
+            'wed': 'Wednesday',
+            'thu': 'Thursday',
+            'fri': 'Friday',
+            'sat': 'Saturday',
+            'sun': 'Sunday'
+        };
+        return `Schedule (${dayNames[currentDay] || currentDay})`;
     }
 }
 
@@ -3373,34 +3202,9 @@ function getPreviousDayLastTemp(groupData, currentDayParam) {
 
 // Update graph title to show which day is being edited
 function updateGraphTitle() {
-    const graphWrapper = getDocumentRoot().querySelector('.graph-wrapper');
-    let titleElement = graphWrapper.querySelector('.schedule-day-title');
-    
-    if (!titleElement) {
-        titleElement = document.createElement('div');
-        titleElement.className = 'schedule-day-title';
-        titleElement.style.marginBottom = '10px';
-        titleElement.style.fontSize = '0.9rem';
-        titleElement.style.color = 'var(--text-secondary)';
-        graphWrapper.insertBefore(titleElement, graphWrapper.firstChild);
-    }
-    
-    if (currentScheduleMode === 'all_days') {
-        titleElement.textContent = 'Schedule (All Days)';
-    } else if (currentScheduleMode === '5/2') {
-        const dayName = currentDay === 'weekday' ? 'Weekdays' : 'Weekend';
-        titleElement.textContent = `Schedule (${dayName})`;
-    } else {
-        const dayNames = {
-            'mon': 'Monday',
-            'tue': 'Tuesday', 
-            'wed': 'Wednesday',
-            'thu': 'Thursday',
-            'fri': 'Friday',
-            'sat': 'Saturday',
-            'sun': 'Sunday'
-        };
-        titleElement.textContent = `Schedule (${dayNames[currentDay] || currentDay})`;
+    // Update timeline title
+    if (graph && graph.title !== undefined) {
+        graph.title = getScheduleTitle();
     }
 }
 
@@ -5006,6 +4810,116 @@ function handleNodeSettings(event) {
     if (valueAInput) valueAInput.value = (node['A'] !== null && node['A'] !== undefined) ? node['A'] : '';
     if (valueBInput) valueBInput.value = (node['B'] !== null && node['B'] !== undefined) ? node['B'] : '';
     if (valueCInput) valueCInput.value = (node['C'] !== null && node['C'] !== undefined) ? node['C'] : '';
+    
+    // Auto-save handler for node settings
+    const autoSaveNodeSettings = async () => {
+        const panel = getDocumentRoot().querySelector('#node-settings-panel');
+        if (!panel) return;
+        
+        const nodeIdx = parseInt(panel.dataset.nodeIndex);
+        if (isNaN(nodeIdx) || !graph) return;
+        
+        // Get the actual node from the graph
+        const targetNode = graph.nodes[nodeIdx];
+        if (!targetNode) return;
+        
+        // Update or delete properties based on dropdown values
+        if (hvacModeSelect && hvacModeItem.style.display !== 'none') {
+            const hvacMode = hvacModeSelect.value;
+            if (hvacMode) {
+                targetNode.hvac_mode = hvacMode;
+            } else {
+                delete targetNode.hvac_mode;
+            }
+        }
+        
+        if (fanModeSelect && fanModeItem.style.display !== 'none') {
+            const fanMode = fanModeSelect.value;
+            if (fanMode) {
+                targetNode.fan_mode = fanMode;
+            } else {
+                delete targetNode.fan_mode;
+            }
+        }
+        
+        if (swingModeSelect && swingModeItem.style.display !== 'none') {
+            const swingMode = swingModeSelect.value;
+            if (swingMode) {
+                targetNode.swing_mode = swingMode;
+            } else {
+                delete targetNode.swing_mode;
+            }
+        }
+        
+        if (presetModeSelect && presetModeItem.style.display !== 'none') {
+            const presetMode = presetModeSelect.value;
+            if (presetMode) {
+                targetNode.preset_mode = presetMode;
+            } else {
+                delete targetNode.preset_mode;
+            }
+        }
+        
+        // Update value fields
+        if (valueAInput) {
+            const val = valueAInput.value.trim();
+            targetNode['A'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (valueBInput) {
+            const val = valueBInput.value.trim();
+            targetNode['B'] = val !== '' ? parseFloat(val) : null;
+        }
+        if (valueCInput) {
+            const val = valueCInput.value.trim();
+            targetNode['C'] = val !== '' ? parseFloat(val) : null;
+        }
+        
+        // Trigger save through graph
+        graph.notifyChange(true);
+    };
+    
+    // Remove existing event listeners to avoid duplicates (clone and replace)
+    if (hvacModeSelect) {
+        const newHvacSelect = hvacModeSelect.cloneNode(true);
+        hvacModeSelect.parentNode.replaceChild(newHvacSelect, hvacModeSelect);
+        newHvacSelect.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (fanModeSelect) {
+        const newFanSelect = fanModeSelect.cloneNode(true);
+        fanModeSelect.parentNode.replaceChild(newFanSelect, fanModeSelect);
+        newFanSelect.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (swingModeSelect) {
+        const newSwingSelect = swingModeSelect.cloneNode(true);
+        swingModeSelect.parentNode.replaceChild(newSwingSelect, swingModeSelect);
+        newSwingSelect.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (presetModeSelect) {
+        const newPresetSelect = presetModeSelect.cloneNode(true);
+        presetModeSelect.parentNode.replaceChild(newPresetSelect, presetModeSelect);
+        newPresetSelect.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (valueAInput) {
+        const newValueAInput = valueAInput.cloneNode(true);
+        valueAInput.parentNode.replaceChild(newValueAInput, valueAInput);
+        newValueAInput.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (valueBInput) {
+        const newValueBInput = valueBInput.cloneNode(true);
+        valueBInput.parentNode.replaceChild(newValueBInput, valueBInput);
+        newValueBInput.addEventListener('change', autoSaveNodeSettings);
+    }
+    
+    if (valueCInput) {
+        const newValueCInput = valueCInput.cloneNode(true);
+        valueCInput.parentNode.replaceChild(newValueCInput, valueCInput);
+        newValueCInput.addEventListener('change', autoSaveNodeSettings);
+    }
     
     // Show panel
     const panel = getDocumentRoot().querySelector('#node-settings-panel');

@@ -309,14 +309,14 @@ export class KeyframeTimeline extends LitElement {
   @property({ type: Array }) backgroundGraphs: BackgroundGraph[] = []; // Background reference graphs
   
   @state() private canvasWidth = 0;
-  @state() private canvasHeight = 200;
+  @state() private canvasHeight = 400;
   @state() private showConfig = false;
   @state() private draggingIndex: number | null = null;
   @state() private selectedKeyframeIndex: number | null = null;
   @state() private collapsed = false;
   @state() private showScrollNavLeft = false;
   @state() private showScrollNavRight = false;
-  @state() private undoStack: Keyframe[] = [];
+  @state() undoStack: Keyframe[][] = []; // Changed to store full keyframe arrays
   
   private canvas?: HTMLCanvasElement;
   private ctx?: CanvasRenderingContext2D;
@@ -428,7 +428,7 @@ export class KeyframeTimeline extends LitElement {
     const computedStyle = getComputedStyle(this);
     const cssHeightVar = this.collapsed ? '--timeline-height-collapsed' : '--timeline-height';
     const cssHeight = computedStyle.getPropertyValue(cssHeightVar).trim();
-    const baseHeight = cssHeight ? parseInt(cssHeight) : (this.collapsed ? 100 : 200);
+    const baseHeight = cssHeight ? parseInt(cssHeight) : (this.collapsed ? 100 : 400);
     
     this.canvasHeight = baseHeight * window.devicePixelRatio;
     this.canvas.width = this.canvasWidth;
@@ -1005,6 +1005,8 @@ export class KeyframeTimeline extends LitElement {
     // Start dragging on first move
     if (!this.isDragging) {
       this.isDragging = true;
+      // Save undo state when starting to drag
+      this.saveUndoState();
     }
     this.hasMoved = true; // Track that movement occurred
     
@@ -1167,9 +1169,10 @@ export class KeyframeTimeline extends LitElement {
     
     // Delete keyframe if clicked on one
     if (clickedIndex >= 0) {
+      // Save state before deleting
+      this.saveUndoState();
+      
       const deletedKeyframe = this.keyframes[clickedIndex];
-      // Add to undo stack
-      this.undoStack = [...this.undoStack, deletedKeyframe];
       // Remove from keyframes
       this.keyframes = this.keyframes.filter((_, i) => i !== clickedIndex);
       // Clear selection if deleting selected keyframe
@@ -1242,6 +1245,9 @@ export class KeyframeTimeline extends LitElement {
     // Apply snapping if configured
     value = this.snapValueToGrid(value);
     
+    // Save state before adding
+    this.saveUndoState();
+
     this.keyframes = [...this.keyframes, { time, value }];
     this.sortKeyframes(); // Keep array sorted
     this.drawTimeline();
@@ -1254,8 +1260,10 @@ export class KeyframeTimeline extends LitElement {
   }
   
   private clearKeyframes() {
+    // Save state before clearing
+    this.saveUndoState();
+    
     this.keyframes = [];
-    this.undoStack = []; // Clear undo stack when clearing all keyframes
     this.selectedKeyframeIndex = null; // Clear selection
     this.drawTimeline();
     
@@ -1265,20 +1273,31 @@ export class KeyframeTimeline extends LitElement {
     }));
   }
   
-  private undoDelete() {
+  // Save current state to undo stack
+  private saveUndoState() {
+    // Deep copy current keyframes
+    const stateCopy = this.keyframes.map(kf => ({ ...kf }));
+    this.undoStack = [...this.undoStack, stateCopy];
+    
+    // Limit undo stack to 50 entries
+    if (this.undoStack.length > 50) {
+      this.undoStack = this.undoStack.slice(-50);
+    }
+  }
+
+  undoDelete() {
     if (this.undoStack.length === 0) return;
     
-    // Pop last deleted keyframe from undo stack
-    const restoredKeyframe = this.undoStack[this.undoStack.length - 1];
+    // Pop last state from undo stack
+    const previousState = this.undoStack[this.undoStack.length - 1];
     this.undoStack = this.undoStack.slice(0, -1);
     
-    // Add back to keyframes
-    this.keyframes = [...this.keyframes, restoredKeyframe];
-    this.sortKeyframes(); // Keep array sorted
+    // Restore previous state
+    this.keyframes = previousState.map(kf => ({ ...kf }));
     this.drawTimeline();
     
     this.dispatchEvent(new CustomEvent('keyframe-restored', {
-      detail: { keyframe: restoredKeyframe },
+      detail: { keyframes: this.keyframes },
       bubbles: true,
       composed: true
     }));

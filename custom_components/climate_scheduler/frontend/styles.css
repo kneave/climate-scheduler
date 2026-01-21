@@ -728,26 +728,6 @@ climate-scheduler-panel {
 .graph-container {
     margin-top: 20px;
 }
-
-.graph-wrapper {
-    background: var(--background);
-    border-radius: 8px;
-    padding: 20px;
-    padding-bottom: 10px;
-    overflow: hidden;
-}
-
-#temperature-graph {
-    width: 100%;
-    height: auto;
-    display: block;
-    touch-action: none;
-    user-select: none;
-}
-
-/* Ensure SVG text uses theme colors by default */
-svg text {
-    fill: var(--text-primary);
 }
 
 /* Graph node selection highlight */

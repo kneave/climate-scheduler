@@ -405,14 +405,6 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose what information to display when hovering over the graph</p>
                                             </div>
-                                            <div class="setting-item" style="flex:1; min-width:220px;">
-                                                <label for="graph-type">Graph Type:</label>
-                                                <select id="graph-type">
-                                                    <option value="svg">SVG Graph (Classic)</option>
-                                                    <option value="canvas">Canvas Graph (Experimental)</option>
-                                                </select>
-                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Choose which graphing system to use</p>
-                                            </div>
                                             <div style="display:flex; gap:12px; align-items:center;">
                                                 <div style="display:flex; flex-direction:column; gap:6px;">
                                                     <label for="min-temp" style="font-weight:600;">Min Temp (<span id="min-unit">°C</span>)</label>
