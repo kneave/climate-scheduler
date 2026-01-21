@@ -1,5 +1,8 @@
 # Climate Scheduler for Home Assistant
+
 ![Integration Usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total)
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/kneave)
+
 
 A custom Home Assistant integration that provides intelligent 24-hour, weekday/weekend, and 7-day scheduling for climate entities (thermostats, HVAC systems, and heaters) with an intuitive touch-friendly graph interface.
 
@@ -26,9 +29,9 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 
 ## Documentation
 
-- **[Actions Reference](ACTIONS.md)** - Complete list of all services/actions for use in automations and scripts
-- **[Automation Events](AUTOMATION_EVENTS.md)** - Fire events when nodes activate for custom automations
-- **[Development Guide](DEVELOPMENT.md)** - Information for developers and contributors
+- **[Actions Reference](documents/ACTIONS.md)** - Complete list of all services/actions for use in automations and scripts
+- **[Automation Events](documents/AUTOMATION_EVENTS.md)** - Fire events when nodes activate for custom automations
+- **[Development Guide](documents/DEVELOPMENT.md)** - Information for developers and contributors
 
 ## Known Issues
 - Editing the graph on the mobile app doesn't seem to work, as a workaround you can tap on a node and edit using the UI below the graph.
@@ -51,7 +54,7 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 5. Click to add it
 6. Optionally set the view to "Panel" mode for a full-page experience
 
-> **Note:** If you encounter issues with the card not appearing, see the [Card Troubleshooting Guide](card_troubleshooting.md).
+> **Note:** If you encounter issues with the card not appearing, see the [Card Troubleshooting Guide](documents/CARD_TROUBLESHOOTING.md).
 
 **Quick Setup**: For a dedicated dashboard, create a new dashboard and add the Climate Scheduler card with panel mode enabled for the best experience.
 
@@ -179,7 +182,7 @@ For issues, feature requests, or questions:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
+MIT License - see [LICENSE](documents/LICENSE) file for details
 
 ## Development & AI Attribution
 

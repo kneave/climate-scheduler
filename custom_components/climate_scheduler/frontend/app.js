@@ -20,21 +20,7 @@ let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
 let storedTemperatureUnit = null; // Unit that schedules were saved in
 
-// Temperature conversion functions
-function celsiusToFahrenheit(celsius) {
-    return (celsius * 9/5) + 32;
-}
-
-function fahrenheitToCelsius(fahrenheit) {
-    return (fahrenheit - 32) * 5/9;
-}
-
-function convertTemperature(temp, fromUnit, toUnit) {
-    if (fromUnit === toUnit) return temp;
-    if (fromUnit === '°C' && toUnit === '°F') return celsiusToFahrenheit(temp);
-    if (fromUnit === '°F' && toUnit === '°C') return fahrenheitToCelsius(temp);
-    return temp;
-}
+// Temperature conversion functions are now in utils.js
 
 function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
@@ -62,6 +48,7 @@ let isSaveInProgress = false; // Flag to prevent concurrent saves
 let pendingSaveNeeded = false; // Flag to indicate a save was skipped and needs to be retried
 let saveTimeout = null; // Timeout for debouncing save operations
 const SAVE_DEBOUNCE_MS = 300; // Wait 300ms after last change before saving
+let serverTimeZone = null; // Store the Home Assistant server timezone
 
 // Debug logging function
 function debugLog(message, type = 'info') {
@@ -142,10 +129,14 @@ async function initApp() {
         }
         await haAPI.connect();
         
-        // Get Home Assistant configuration for temperature unit
+        // Get Home Assistant configuration for temperature unit and timezone
         const config = await haAPI.getConfig();
         if (config && config.unit_system && config.unit_system.temperature) {
             temperatureUnit = config.unit_system.temperature === '°F' ? '°F' : '°C';
+        }
+        if (config && config.time_zone) {
+            serverTimeZone = config.time_zone;
+            debugLog(`Server timezone: ${serverTimeZone}`);
         }
         
         // Note: graph is initialized when entity/group is selected for editing
@@ -1552,7 +1543,7 @@ function createGroupMembersTable(entityIds) {
             await loadClimateEntities();
             
             // Refresh table data
-            const now = new Date();
+            const now = getServerNow(serverTimeZone);
             const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
             const groupSchedule = getGraphNodes();
             
@@ -1601,7 +1592,7 @@ function createGroupMembersTable(entityIds) {
     table.appendChild(header);
     
     // Get current time for scheduled temp calculation
-    const now = new Date();
+    const now = getServerNow(serverTimeZone);
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     
     // Get the group's schedule if it exists
@@ -3569,9 +3560,9 @@ async function switchDay(day) {
 // Load history data for current day
 async function loadHistoryData(entityId) {
     try {
-        // Get start of today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Get start of today in server timezone
+        const nowServer = getServerNow(serverTimeZone);
+        const today = new Date(Date.UTC(nowServer.getFullYear(), nowServer.getMonth(), nowServer.getDate(), 0, 0, 0, 0));
         
         // Get current time
         const now = new Date();
@@ -3636,9 +3627,9 @@ async function loadGroupHistoryData(entityIds) {
     }
     
     try {
-        // Get start of today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Get start of today in server timezone
+        const nowServer = getServerNow(serverTimeZone);
+        const today = new Date(Date.UTC(nowServer.getFullYear(), nowServer.getMonth(), nowServer.getDate(), 0, 0, 0, 0));
         
         // Get current time
         const now = new Date();
@@ -3668,18 +3659,20 @@ async function loadGroupHistoryData(entityIds) {
                         const temp = parseFloat(attributes.current_temperature);
                         if (!isNaN(temp)) {
                             // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
-                            let stateTime;
+                            let utcTime;
                             if (typeof lastUpdated === 'string') {
-                                stateTime = new Date(lastUpdated);
+                                utcTime = new Date(lastUpdated);
                             } else if (typeof lastUpdated === 'number') {
                                 // Check if it's in seconds or milliseconds
-                                stateTime = lastUpdated > 10000000000 
+                                utcTime = lastUpdated > 10000000000 
                                     ? new Date(lastUpdated) 
                                     : new Date(lastUpdated * 1000);
                             } else {
                                 continue; // Skip if we can't parse the time
                             }
                             
+                            // Convert to server timezone
+                            const stateTime = utcToServerDate(utcTime, serverTimeZone);
                             const hours = stateTime.getHours().toString().padStart(2, '0');
                             const minutes = stateTime.getMinutes().toString().padStart(2, '0');
                             const timeStr = `${hours}:${minutes}`;
@@ -4116,37 +4109,7 @@ function updateScheduledTemp() {
     }
 }
 
-// Interpolate temperature (step function - hold until next node)
-function interpolateTemperature(nodes, timeStr) {
-    if (nodes.length === 0) return 18;
-    
-    const sorted = [...nodes].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
-    const currentMinutes = timeToMinutes(timeStr);
-    
-    // Find the most recent node before or at current time
-    let activeNode = null;
-    
-    for (let i = 0; i < sorted.length; i++) {
-        const nodeMinutes = timeToMinutes(sorted[i].time);
-        if (nodeMinutes <= currentMinutes) {
-            activeNode = sorted[i];
-        } else {
-            break;
-        }
-    }
-    
-    // If no node found before current time, use last node (wrap around from previous day)
-    if (!activeNode) {
-        activeNode = sorted[sorted.length - 1];
-    }
-    
-    return activeNode.temp;
-}
-
-function timeToMinutes(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
-}
+// Time and temperature interpolation functions are now in utils.js
 
 // Update entity status display
 function updateEntityStatus(entity) {
@@ -5141,6 +5104,106 @@ async function convertAllSchedules(fromUnit, toUnit) {
     }
 }
 
+// Check if Workday integration is available
+async function checkWorkdayIntegration(settings) {
+    const checkbox = getDocumentRoot().querySelector('#use-workday-integration');
+    const helpText = getDocumentRoot().querySelector('#workday-help-text');
+    const label = getDocumentRoot().querySelector('#use-workday-label');
+    const workdaySelector = getDocumentRoot().querySelector('#workday-selector');
+    
+    if (!checkbox || !helpText) {
+        console.warn('Workday UI elements not found');
+        return;
+    }
+    
+    try {
+        // Wait for haAPI to be connected
+        let hassObj = haAPI?.hass;
+        
+        // If hass not ready yet, wait a bit and retry
+        if (!hassObj || !hassObj.states) {
+            console.debug('[Climate Scheduler] Waiting for hass connection...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            hassObj = haAPI?.hass;
+        }
+        
+        // Debug logging
+        console.debug('[Climate Scheduler] Checking for Workday integration');
+        console.debug('[Climate Scheduler] haAPI available:', !!haAPI);
+        console.debug('[Climate Scheduler] hass object available:', !!hassObj);
+        console.debug('[Climate Scheduler] hass.states available:', !!hassObj?.states);
+        console.debug('[Climate Scheduler] binary_sensor.workday_sensor:', hassObj?.states?.['binary_sensor.workday_sensor']);
+        
+        // List all binary_sensor.workday* entities for debugging
+        if (hassObj?.states) {
+            const workdayEntities = Object.keys(hassObj.states).filter(id => id.startsWith('binary_sensor.workday'));
+            console.debug('[Climate Scheduler] Found workday entities:', workdayEntities);
+        }
+        
+        const hasWorkday = hassObj?.states?.['binary_sensor.workday_sensor'] !== undefined;
+        
+        if (hasWorkday) {
+            // Workday is available - enable the checkbox
+            checkbox.disabled = false;
+            helpText.textContent = 'When enabled, uses the Workday integration for accurate 5/2 scheduling (respects holidays and custom workdays). When disabled, uses the selected workdays below.';
+            if (label) label.style.cursor = 'pointer';
+            
+            // Load saved setting
+            if (settings && typeof settings.use_workday_integration !== 'undefined') {
+                checkbox.checked = settings.use_workday_integration;
+            }
+            
+            // Show/hide workday selector based on checkbox state
+            updateWorkdaySelectorVisibility(checkbox.checked);
+        } else {
+            // Workday not available - disable and show message
+            checkbox.disabled = true;
+            checkbox.checked = false;
+            helpText.innerHTML = 'Workday integration not detected. Configure workdays manually below. <a href="https://www.home-assistant.io/integrations/workday/" target="_blank" style="color: var(--primary);">Install Workday integration</a>';
+            if (label) {
+                label.style.cursor = 'not-allowed';
+                label.style.opacity = '0.6';
+            }
+            
+            // Always show workday selector when Workday integration is not available
+            if (workdaySelector) workdaySelector.style.display = 'block';
+        }
+        
+        // Load workdays setting
+        loadWorkdaysSetting(settings);
+        
+    } catch (error) {
+        console.error('Failed to check Workday integration:', error);
+        helpText.textContent = 'Could not determine if Workday integration is installed.';
+    }
+}
+
+// Update visibility of workday selector based on use_workday_integration setting
+function updateWorkdaySelectorVisibility(useWorkdayIntegration) {
+    const workdaySelector = getDocumentRoot().querySelector('#workday-selector');
+    if (workdaySelector) {
+        // Show selector when NOT using Workday integration
+        workdaySelector.style.display = useWorkdayIntegration ? 'none' : 'block';
+    }
+}
+
+// Load workdays setting from settings
+function loadWorkdaysSetting(settings) {
+    const defaultWorkdays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    const workdays = settings?.workdays || defaultWorkdays;
+    
+    const checkboxes = getDocumentRoot().querySelectorAll('.workday-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = workdays.includes(checkbox.value);
+    });
+}
+
+// Get selected workdays from checkboxes
+function getSelectedWorkdays() {
+    const checkboxes = getDocumentRoot().querySelectorAll('.workday-checkbox:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
 // Load settings from server
 async function loadSettings() {
     try {
@@ -5210,6 +5273,10 @@ async function loadSettings() {
                 checkbox.checked = settings.create_derivative_sensors;
             }
         }
+        
+        // Check for Workday integration and load setting
+        await checkWorkdayIntegration(settings);
+        
         // Load min/max temps if present (convert if unit changed)
         if (settings && typeof settings.min_temp !== 'undefined') {
             let minTemp = parseFloat(settings.min_temp);
@@ -5277,11 +5344,25 @@ async function saveSettings() {
         const maxInput = getDocumentRoot().querySelector('#max-temp');
         if (minInput && minInput.value !== '') settings.min_temp = parseFloat(minInput.value);
         if (maxInput && maxInput.value !== '') settings.max_temp = parseFloat(maxInput.value);
+        
         // Read derivative sensor checkbox
         const derivativeCheckbox = getDocumentRoot().querySelector('#create-derivative-sensors');
         if (derivativeCheckbox) {
             settings.create_derivative_sensors = derivativeCheckbox.checked;
         }
+        
+        // Read workday integration checkbox
+        const workdayCheckbox = getDocumentRoot().querySelector('#use-workday-integration');
+        if (workdayCheckbox) {
+            settings.use_workday_integration = workdayCheckbox.checked;
+        }
+        
+        // Read selected workdays
+        const selectedWorkdays = getSelectedWorkdays();
+        if (selectedWorkdays.length > 0) {
+            settings.workdays = selectedWorkdays;
+        }
+        
         await haAPI.saveSettings(settings);
         // Update runtime globals and graphs
         if (typeof settings.min_temp !== 'undefined') {
@@ -5322,7 +5403,7 @@ async function setupSettingsPanel() {
     // Initialize the default schedule graph
     const svgElement = getDocumentRoot().querySelector('#default-schedule-graph');
     if (svgElement) {
-        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit);
+        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
         defaultScheduleGraph.setTooltipMode(tooltipMode);
 
         // Apply configured min/max if available
@@ -5546,6 +5627,24 @@ async function setupSettingsPanel() {
         });
     }
     
+    // Workday integration checkbox
+    const workdayCheckbox = getDocumentRoot().querySelector('#use-workday-integration');
+    if (workdayCheckbox) {
+        workdayCheckbox.addEventListener('change', async () => {
+            // Update visibility of workday selector
+            updateWorkdaySelectorVisibility(workdayCheckbox.checked);
+            await saveSettings();
+        });
+    }
+    
+    // Workday day checkboxes
+    const workdayDayCheckboxes = getDocumentRoot().querySelectorAll('.workday-checkbox');
+    workdayDayCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', async () => {
+            await saveSettings();
+        });
+    });
+    
     // Clear default schedule button
     const clearDefaultScheduleBtn = getDocumentRoot().querySelector('#clear-default-schedule-btn');
     if (clearDefaultScheduleBtn) {
@@ -5630,6 +5729,62 @@ async function setupSettingsPanel() {
                 showToast('Failed to cleanup derivative sensors', 'error');
                 cleanupBtn.textContent = '🧹 Cleanup Derivative Sensors';
                 cleanupBtn.disabled = false;
+            }
+        });
+    }
+
+    const cleanupClimateBtn = getDocumentRoot().querySelector('#cleanup-orphaned-climate-btn');
+    if (cleanupClimateBtn) {
+        cleanupClimateBtn.addEventListener('click', async () => {
+            try {
+                // First do a dry run to see what would be deleted
+                cleanupClimateBtn.textContent = '🔍 Scanning...';
+                cleanupClimateBtn.disabled = true;
+                
+                const dryRunResult = await haAPI.cleanupOrphanedClimateEntities(false);
+                
+                if (!dryRunResult.orphaned_entities || dryRunResult.orphaned_entities.length === 0) {
+                    showToast('No orphaned entities found', 'success');
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                    return;
+                }
+                
+                // Ask for confirmation with list of entities
+                const entityList = dryRunResult.orphaned_entities.join('\n• ');
+                const confirmed = confirm(
+                    `Found ${dryRunResult.orphaned_entities.length} orphaned entities:\n\n` +
+                    `• ${entityList}\n\n` +
+                    'These entities no longer have matching groups or climate entities in storage.\n\n' +
+                    'Delete these entities?'
+                );
+                
+                if (!confirmed) {
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                    return;
+                }
+                
+                cleanupClimateBtn.textContent = '🗑️ Deleting...';
+                
+                const deleteResult = await haAPI.cleanupOrphanedClimateEntities(true);
+                
+                if (deleteResult.removed && deleteResult.removed.length > 0) {
+                    showToast(`Removed ${deleteResult.removed.length} orphaned entities`, 'success', 4000);
+                } else {
+                    showToast('No entities were removed', 'warning');
+                }
+                
+                cleanupClimateBtn.textContent = '✓ Cleanup Complete!';
+                setTimeout(() => {
+                    cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                    cleanupClimateBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to cleanup orphaned entities:', error);
+                showToast('Failed to cleanup orphaned entities', 'error');
+                cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
+                cleanupClimateBtn.disabled = false;
             }
         });
     }

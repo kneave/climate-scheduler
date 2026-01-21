@@ -79,8 +79,8 @@
     }
     ,
     "reregister_card": {
-      "name": "Reregister custom card",
-      "description": "Remove any existing frontend resource matching the given URL and create a fresh resource entry"
+      "name": "Reregister card",
+      "description": "Automatically registers the Climate Scheduler card in Lovelace resources. Removes any existing registrations and creates a fresh entry."
     }
     ,
     "recreate_all_sensors": {

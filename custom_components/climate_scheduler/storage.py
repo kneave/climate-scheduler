@@ -954,11 +954,18 @@ class ScheduleStorage:
         
         if entity_id not in group_data["entities"]:
             group_data["entities"].append(entity_id)
+            entity_count = len(group_data["entities"])
             
-            # If the group was a single-entity group and now has 2+ entities, convert to multi-entity group
-            if group_data.get("_is_single_entity_group") and len(group_data["entities"]) >= 2:
-                group_data["_is_single_entity_group"] = False
-                _LOGGER.info(f"Group '{group_name}' now has {len(group_data['entities'])} entities - converted to multi-entity group")
+            # Normalize _is_single_entity_group flag based on actual entity count
+            if entity_count == 1:
+                # Group now has exactly 1 entity - mark as single-entity group
+                group_data["_is_single_entity_group"] = True
+                _LOGGER.info(f"Group '{group_name}' now has 1 entity - marked as single-entity group")
+            elif entity_count >= 2:
+                # Group now has 2+ entities - ensure it's marked as multi-entity group
+                if group_data.get("_is_single_entity_group"):
+                    group_data["_is_single_entity_group"] = False
+                    _LOGGER.info(f"Group '{group_name}' now has {entity_count} entities - converted to multi-entity group")
             
             # Delete the old single-entity group if it existed
             if old_single_entity_group:

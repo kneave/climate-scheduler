@@ -1,5 +1,108 @@
 # Changelog
 
+## [1.14.12] - 2026-01-21
+
+### Fixed
+- **Timezone Handling**: Graph and UI now correctly use Home Assistant server timezone instead of browser local timezone
+  - Current time indicator now shows correct server time for users traveling in different timezones
+  - Historical data timestamps are displayed in server timezone
+  - Advance activation/cancellation times use server timezone
+  - Added timezone conversion utilities using Intl.DateTimeFormat API
+
+### Changed
+- **Code Refactoring**: Consolidated duplicate utility functions into shared utils.js file
+  - Moved timezone conversion utilities to shared file
+  - Moved temperature conversion functions to shared file
+  - Moved time manipulation utilities to shared file
+  - Eliminated ~170 lines of duplicate code across app.js and graph.js
+  - Added new helper functions: formatTimeString() and adjustTime()
+- **Graph Visualization**: Removed redundant dashed wraparound line from schedule graph (issue 123)
+
+
+## [1.14.11] - 2026-01-17
+
+### Added
+- **Workday Integration Support**: Optional integration with Home Assistant's Workday integration for 5/2 scheduling
+  - Backend detection of Workday integration (checks for `binary_sensor.workday_sensor`)
+  - User-configurable option to enable/disable Workday integration usage
+  - Manual workday selection with 7 day checkboxes when Workday integration is disabled or unavailable
+  - Settings stored persistently: `use_workday_integration` (boolean) and `workdays` (array)
+  - UI automatically shows/hides day selector based on Workday availability and user preference
+  - Frontend detection with connection wait logic to handle timing issues
+  - New constants: `SETTING_USE_WORKDAY`, `SETTING_WORKDAYS`, `DEFAULT_WORKDAYS`
+  
+- **Orphaned Entity Cleanup**: New service and UI button to cleanup orphaned entities
+  - Service `cleanup_orphaned_climate_entities` scans and removes orphaned entities
+  - Checks climate entities, sensor entities, and switch entities
+  - Dry-run mode by default (delete=false) to preview orphaned entities
+  - UI button in settings with scan-first workflow and confirmation dialog
+  - Lists all orphaned entities before deletion
+  - Identifies entities without matching groups or climate entities in storage
+
+### Changed
+- **UI Layout Improvements**: Settings text labels and descriptions can now use full width
+  - Increased min-width from 220px to 280px on Graph Options and Temperature Precision sections
+  - Added flex-wrap to allow responsive layout on smaller screens
+  - Added max-width: 100% to Derivative Sensors and Workday Integration sections
+  - Settings descriptions no longer constrained by fixed-width parent containers
+
+- **Entity Filtering**: Climate Scheduler's own entities are now filtered from unmonitored entity list
+  - Entities starting with `climate.climate_scheduler_` are excluded from the list
+  - Prevents confusion from seeing integration's own proxy entities
+
+- **Release Script Enhancement**: `.version` file is now updated during release process
+  - Added to git commits automatically
+  - Included in dry-run output for verification
+
+### Fixed
+- Workday integration detection timing issue resolved with connection wait logic
+- Removed redundant status icon from Workday integration setting
+- Filtering Climate Scheduler entities from the Unmonitored list
+
+## [1.14.10] - 2026-01-14
+
+### Fixed
+- **YAML Mode Compatibility**: Fixed AttributeError when Lovelace resources are configured via YAML
+  - Service `reregister_card` no longer crashes with `AttributeError: 'ResourceYAMLCollection' object has no attribute 'async_create_item'`
+  - Added detection for YAML vs UI mode before attempting resource modifications
+  - Service now returns helpful error message with manual configuration instructions for YAML mode users
+  - All resource operations (create, update, delete) now check if methods exist before calling
+
+### Added
+- **YAML Mode Notification**: Persistent notification for YAML mode users who need manual card registration
+  - Automatically detects when Lovelace is in YAML mode during initialization
+  - Only shows notification if card is not already registered in YAML configuration
+  - Provides clear instructions with exact YAML configuration needed
+  - Notification automatically dismisses when card is detected in configuration
+  - Includes integration version in notification for proper cache busting
+
+### Changed
+- Card registration now checks for YAML mode before attempting auto-registration
+- Improved logging for YAML mode detection and card registration status
+- Updated CARD_TROUBLESHOOTING.md with comprehensive YAML mode instructions including three configuration methods
+### Fixed
+- **YAML Mode Compatibility**: Fixed AttributeError when Lovelace resources are configured via YAML
+  - Service `reregister_card` no longer crashes with `AttributeError: 'ResourceYAMLCollection' object has no attribute 'async_create_item'`
+  - Added detection for YAML vs UI mode before attempting resource modifications
+  - Service now returns helpful error message with manual configuration instructions for YAML mode users
+  - All resource operations (create, update, delete) now check if methods exist before calling
+
+### Added
+- **YAML Mode Notification**: Persistent notification for YAML mode users who need manual card registration
+  - Automatically detects when Lovelace is in YAML mode during initialization
+  - Only shows notification if card is not already registered in YAML configuration
+  - Provides clear instructions with exact YAML configuration needed
+  - Notification automatically dismisses when card is detected in configuration
+  - Includes integration version in notification for proper cache busting
+
+### Changed
+- Card registration now checks for YAML mode before attempting auto-registration
+- Improved logging for YAML mode detection and card registration status
+- Updated CARD_TROUBLESHOOTING.md with comprehensive YAML mode instructions including three configuration methods
+
+## [1.14.9] - 2026-01-13
+### Added
+- Diagnostics action to help with missing cards
 
 ## [1.14.8] - 2026-01-13
 ### Fixed

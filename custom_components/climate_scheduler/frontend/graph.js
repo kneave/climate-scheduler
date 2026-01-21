@@ -4,7 +4,7 @@
  */
 
 class TemperatureGraph {
-    constructor(svgElement, temperatureUnit = '°C', graphSnapStep = 0.1) {
+    constructor(svgElement, temperatureUnit = '°C', graphSnapStep = 0.1, serverTimeZone = null) {
         this.svg = svgElement;
         this.nodes = [];
         this.historyData = []; // Array of {entityId, entityName, data: [{time, temp}], color}
@@ -22,6 +22,7 @@ class TemperatureGraph {
         this.hoverTimeLabel = null;
         this.temperatureUnit = temperatureUnit;
         this.graphSnapStep = graphSnapStep; // Temperature snap step for rounding
+        this.serverTimeZone = serverTimeZone; // Server timezone for time calculations
         this.undoStack = [];
         this.undoButton = null;
         this.tooltipMode = 'history'; // 'history' or 'cursor'
@@ -224,37 +225,18 @@ class TemperatureGraph {
         this.render();
     }
     
-    // Helper method to convert time string to minutes
+    // Time and temperature utility methods now use global functions from utils.js
+    // Kept as instance methods for backward compatibility
     timeToMinutes(timeStr) {
-        const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
+        return timeToMinutes(timeStr);
     }
     
-    // Interpolate temperature at a given time (step function - hold until next node)
+    minutesToTime(minutes) {
+        return minutesToTime(minutes);
+    }
+    
     interpolateTemperature(nodes, timeStr) {
-        if (nodes.length === 0) return 18;
-        
-        const sorted = [...nodes].sort((a, b) => this.timeToMinutes(a.time) - this.timeToMinutes(b.time));
-        const currentMinutes = this.timeToMinutes(timeStr);
-        
-        // Find the most recent node before or at current time
-        let activeNode = null;
-        
-        for (let i = 0; i < sorted.length; i++) {
-            const nodeMinutes = this.timeToMinutes(sorted[i].time);
-            if (nodeMinutes <= currentMinutes) {
-                activeNode = sorted[i];
-            } else {
-                break;
-            }
-        }
-        
-        // If no node found before current time, use last node (wrap around from previous day)
-        if (!activeNode) {
-            activeNode = sorted[sorted.length - 1];
-        }
-        
-        return activeNode.temp;
+        return interpolateTemperature(nodes, timeStr);
     }
     
     saveState() {
@@ -634,8 +616,9 @@ class TemperatureGraph {
     
     drawAdvanceMarkers(g) {
         const graphHeight = this.height - this.padding.top - this.padding.bottom;
-        const now = new Date();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const nowUTC = new Date();
+        const now = getServerNow(this.serverTimeZone);
+        const todayMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
         
         // Debug logging
         console.log('Drawing advance markers, history:', this.advanceHistory);
@@ -645,8 +628,9 @@ class TemperatureGraph {
             console.log('  cancelled_at:', event.cancelled_at);
             console.log('  target_time:', event.target_time);
             
-            const activatedTime = new Date(event.activated_at);
-            const activatedMinutes = (activatedTime - todayMidnight) / (1000 * 60);
+            const activatedTimeUTC = new Date(event.activated_at);
+            const activatedTime = getServerDate(activatedTimeUTC, this.serverTimeZone);
+            const activatedMinutes = (activatedTimeUTC - todayMidnight) / (1000 * 60);
             
             // Only draw if activated today
             if (activatedMinutes >= 0 && activatedMinutes < 24 * 60) {
@@ -680,8 +664,9 @@ class TemperatureGraph {
                 
                 if (isCancelled) {
                     // Cancelled - draw to cancellation time at the same advance temperature
-                    const cancelledTime = new Date(event.cancelled_at);
-                    const cancelledMinutes = (cancelledTime - todayMidnight) / (1000 * 60);
+                    const cancelledTimeUTC = new Date(event.cancelled_at);
+                    const cancelledTime = getServerDate(cancelledTimeUTC, this.serverTimeZone);
+                    const cancelledMinutes = (cancelledTimeUTC - todayMidnight) / (1000 * 60);
                     
                     console.log('  Drawing cancelled line to:', event.cancelled_at);
                     
@@ -741,9 +726,10 @@ class TemperatureGraph {
     }
 
     drawAdvanceAppliedOverlay(g) {
-        const now = new Date();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const currentMinutes = (now - todayMidnight) / (1000 * 60);
+        const nowUTC = new Date();
+        const now = getServerNow(this.serverTimeZone);
+        const todayMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        const currentMinutes = (nowUTC - todayMidnight) / (1000 * 60);
 
         // Use the most recent active (not-cancelled, not-expired) advance event.
         const activeEvents = (this.advanceHistory || [])
@@ -774,8 +760,9 @@ class TemperatureGraph {
         const isNoChange = !!(targetNode && targetNode.noChange);
         if (targetTemp === null || isNoChange) return;
 
-        const activatedTime = new Date(event.activated_at);
-        const activatedMinutes = (activatedTime - todayMidnight) / (1000 * 60);
+        const activatedTimeUTC = new Date(event.activated_at);
+        const activatedTime = getServerDate(activatedTimeUTC, this.serverTimeZone);
+        const activatedMinutes = (activatedTimeUTC - todayMidnight) / (1000 * 60);
         if (activatedMinutes < 0 || activatedMinutes >= 24 * 60) return;
 
         const activatedTimeStr = `${String(activatedTime.getHours()).padStart(2, '0')}:${String(activatedTime.getMinutes()).padStart(2, '0')}`;
@@ -919,8 +906,8 @@ class TemperatureGraph {
         });
         g.appendChild(yAxis);
         
-        // Current time indicator
-        const now = new Date();
+        // Current time indicator (use server timezone)
+        const now = getServerNow(this.serverTimeZone);
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         const currentTime = this.minutesToTime(currentMinutes);
         const currentX = this.timeToX(currentTime);
@@ -1032,28 +1019,6 @@ class TemperatureGraph {
         });
         
         g.appendChild(path);
-        
-        // Draw wraparound indicator from last node to first node (only if both have temp)
-        if (nodesWithTemp.length > 1) {
-            const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
-            const firstNode = nodesWithTemp[0];
-            
-            // Visual indicator showing the connection wraps around
-            const wrapPath = this.createSVGElement('path', {
-                d: `M ${this.timeToX(lastNode.time)} ${this.tempToY(lastNode.temp)} 
-                    L ${endX} ${this.tempToY(lastNode.temp)} 
-                    M ${startX} ${this.tempToY(lastNode.temp)} 
-                    L ${this.timeToX(firstNode.time)} ${this.tempToY(lastNode.temp)}
-                    L ${this.timeToX(firstNode.time)} ${this.tempToY(firstNode.temp)}`,
-                stroke: '#ff9800',
-                'stroke-width': 3,
-                fill: 'none',
-                'stroke-dasharray': '5,5',
-                'stroke-linecap': 'square',
-                opacity: 0.5
-            });
-            g.appendChild(wrapPath);
-        }
     }
     
     drawNodes(g) {
@@ -1584,16 +1549,7 @@ class TemperatureGraph {
         return this.minTemp + ratio * (this.maxTemp - this.minTemp);
     }
     
-    timeToMinutes(timeStr) {
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return hours * 60 + minutes;
-    }
-    
-    minutesToTime(minutes) {
-        const hours = Math.floor(minutes / 60);
-        const mins = Math.floor(minutes % 60);
-        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-    }
+    // These duplicate definitions are removed - now delegating to global functions
     
     snapToInterval(timeStr) {
         const minutes = this.timeToMinutes(timeStr);

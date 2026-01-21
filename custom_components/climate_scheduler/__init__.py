@@ -105,6 +105,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "cleanup_derivative_sensors",
             "factory_reset",
             "reregister_card",
+            "diagnostics",
         )
         missing = [s for s in expected_services if not hass.services.has_service(DOMAIN, s)]
         if not missing:
@@ -194,6 +195,53 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         # Check for YAML mode
         if not hasattr(resources, "store") or resources.store is None:
             _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
+            
+            # Check if the card is already registered in YAML
+            base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
+            card_already_registered = False
+            
+            try:
+                for entry in resources.async_items():
+                    entry_url = entry.get("url", "")
+                    entry_base_url = entry_url.split("?")[0]
+                    if entry_base_url == base_url:
+                        card_already_registered = True
+                        _LOGGER.info("Card is already registered in YAML configuration")
+                        # Dismiss any existing notification since card is now present
+                        await hass.services.async_call(
+                            "persistent_notification",
+                            "dismiss",
+                            {"notification_id": f"{DOMAIN}_yaml_mode"},
+                        )
+                        break
+            except Exception as e:
+                _LOGGER.debug("Could not check YAML resources: %s", e)
+            
+            # Only create notification if card is NOT registered
+            if not card_already_registered:
+                _LOGGER.warning("Card is not registered in YAML configuration - notification will be created")
+                await hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "notification_id": f"{DOMAIN}_yaml_mode",
+                        "title": "Climate Scheduler: Manual Card Registration Required",
+                        "message": (
+                            "Your Lovelace dashboard is configured via YAML mode. "
+                            "The Climate Scheduler card cannot be auto-registered.\n\n"
+                            "**To add the card manually:**\n\n"
+                            "Add this to your Lovelace resources configuration:\n\n"
+                            f"```yaml\n"
+                            f"lovelace:\n"
+                            f"  mode: yaml\n"
+                            f"  resources:\n"
+                            f"    - url: /{DOMAIN}/static/climate-scheduler-card.js?v={frontend_version}\n"
+                            f"      type: module\n"
+                            f"```\n\n"
+                            "Then restart Home Assistant and refresh your browser."
+                        ),
+                    },
+                )
             return
 
         # Ensure resources are loaded
@@ -241,12 +289,15 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                 _LOGGER.debug("Failed to remove existing bundled frontend resource, will attempt to (re)create it")
 
         # Create a new resource entry for the bundled card
-        await resources.async_create_item({"res_type": "module", "url": url})
-        
-        if removed_old:
-            _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
+        if hasattr(resources, "async_create_item"):
+            await resources.async_create_item({"res_type": "module", "url": url})
+            
+            if removed_old:
+                _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
+            else:
+                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
         else:
-            _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+            _LOGGER.warning("Cannot auto-register card: Lovelace resources are in YAML mode")
         
         # Note: Version mismatch detection and refresh notification is handled by the frontend
         # JavaScript, which can accurately detect when the browser cache is stale

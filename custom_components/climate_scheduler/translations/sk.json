@@ -79,8 +79,8 @@
     }
     ,
     "reregister_card": {
-      "name": "Znovu zaregistrujte vlastnú kartu",
-      "description": "Odstráňte všetky existujúce frontendové zdroje zodpovedajúce danej URL adrese a vytvorte nový záznam zdroja"
+      "name": "Znovu zaregistrovať kartu",
+      "description": "Automaticky zaregistruje kartu Climate Scheduler v zdrojoch Lovelace. Odstráni existujúce registrácie a vytvorí novú."
     }
     ,
     "recreate_all_sensors": {

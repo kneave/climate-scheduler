@@ -196,7 +196,10 @@ class HomeAssistantAPI {
     
     async getClimateEntities() {
         const states = await this.getStates();
-        return states.filter(state => state.entity_id.startsWith('climate.'));
+        return states.filter(state => 
+            state.entity_id.startsWith('climate.') && 
+            !state.entity_id.startsWith('climate.climate_scheduler_')
+        );
     }
     
     async callService(domain, service, serviceData, returnResponse = false) {
@@ -559,6 +562,18 @@ class HomeAssistantAPI {
             return result?.response || result || {};
         } catch (error) {
             console.error('Failed to cleanup derivative sensors:', error);
+            throw error;
+        }
+    }
+    
+    async cleanupOrphanedClimateEntities(deleteEntities = false) {
+        try {
+            const result = await this.callService('climate_scheduler', 'cleanup_orphaned_climate_entities', {
+                delete: deleteEntities
+            }, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to cleanup orphaned climate entities:', error);
             throw error;
         }
     }

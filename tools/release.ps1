@@ -426,7 +426,7 @@ function Get-ChangelogForVersion {
         [string]$VersionString
     )
 
-    $path = "CHANGELOG.md"
+    $path = "tools\CHANGELOG.md"
     if (-not (Test-Path $path)) { return $null }
 
     $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
@@ -450,7 +450,7 @@ function Get-ChangelogForVersion {
 
 # Helper: extract Unreleased section
 function Get-UnreleasedChangelog {
-    $path = "CHANGELOG.md"
+    $path = "tools\CHANGELOG.md"
     if (-not (Test-Path $path)) { return $null }
 
     $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
@@ -472,7 +472,7 @@ function Get-UnreleasedChangelog {
  
 
 # If CHANGELOG.md already contains a section for this version, offer to use it
-$changelogPath = "CHANGELOG.md"
+$changelogPath = "tools\CHANGELOG.md"
 $usePreparedNotes = $false
 $useUnreleasedSection = $false
 $preparedNotes = $null
@@ -635,19 +635,27 @@ else {
 
 # Update or create CHANGELOG.md only if we generated new content or converting Unreleased
 if ($needsChangelogUpdate) {
-    $changelogPath = "CHANGELOG.md"
+    $changelogPath = "tools\CHANGELOG.md"
     if (Test-Path $changelogPath) {
         $existingChangelog = Get-Content $changelogPath -Raw
         
         if ($useUnreleasedSection) {
-            # Replace [Unreleased] section with versioned section and add new empty [Unreleased]
-            $unreleasedMarker = "## [Unreleased]"
-            $newUnreleasedSection = @"
-## [Unreleased]
+            # Replace [Unreleased] section and its content with new empty [Unreleased] and versioned section
+            # Find the [Unreleased] section and extract everything until the next ## [ marker
+            $unreleasedPattern = '(?s)(## \[Unreleased\])(.*?)((?=\n## \[)|$)'
+            if ($existingChangelog -match $unreleasedPattern) {
+                $beforeUnreleased = $existingChangelog.Substring(0, $matches[0].Index + $matches[1].Length)
+                $afterUnreleased = $existingChangelog.Substring($matches[0].Index + $matches[0].Length)
+                
+                # Create new structure: empty [Unreleased] followed by versioned content
+                $newContent = @"
+$beforeUnreleased
 
 $changelogContent
+$afterUnreleased
 "@
-            $existingChangelog = $existingChangelog -replace [regex]::Escape("## [Unreleased]"), $newUnreleasedSection
+                $existingChangelog = $newContent
+            }
             
             if (-not $DryRun) {
                 Set-Content $changelogPath $existingChangelog
@@ -729,6 +737,29 @@ else {
     Write-Host "Would run: npm run build" -ForegroundColor Cyan
 }
 
+# Update .version file in frontend directory
+$versionFilePath = "custom_components\climate_scheduler\frontend\.version"
+if (Test-Path $versionFilePath) {
+    $currentVersionFileContent = (Get-Content $versionFilePath -Raw).Trim()
+    if ($Version -ne $currentVersionFileContent) {
+        Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) .version file..." -ForegroundColor Yellow
+        if (-not $DryRun) {
+            Set-Content $versionFilePath $Version
+        }
+        Write-Host ".version: $currentVersionFileContent -> $Version" -ForegroundColor Green
+    }
+    else {
+        Write-Host "`.version file already up to date: $Version" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would create' } else { 'Creating' }) .version file..." -ForegroundColor Yellow
+    if (-not $DryRun) {
+        Set-Content $versionFilePath $Version
+    }
+    Write-Host ".version file created with version: $Version" -ForegroundColor Green
+}
+
 # Commit the version change
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would commit' } else { 'Committing' }) changes..." -ForegroundColor Yellow
 if (-not $DryRun) {
@@ -737,6 +768,9 @@ if (-not $DryRun) {
     
     if ($hasChanges) {
         git add $manifestPath
+        if (Test-Path $versionFilePath) {
+            git add $versionFilePath
+        }
         if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
             git add CHANGELOG.md
         }

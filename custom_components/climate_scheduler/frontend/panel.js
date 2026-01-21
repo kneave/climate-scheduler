@@ -14,8 +14,8 @@
     if (response.ok) {
       const serverVersion = (await response.text()).trim().split(',')[0];
       
-      // Compare versions - if they don't match, user has stale cache
-      if (loadedVersion && serverVersion && loadedVersion !== serverVersion) {
+      // Compare versions - check the aren't None and if they don't match, user has stale cache
+      if ((loadedVersion && serverVersion) && loadedVersion !== serverVersion) {
         console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
         
         // Store in sessionStorage to avoid showing repeatedly
@@ -88,6 +88,7 @@ const loadScripts = () => {
     console.log('Loading Climate Scheduler scripts from:', basePath);
     
     return Promise.all([
+        loadScript(`${basePath}/utils.js?v=${version}`),
         loadScript(`${basePath}/graph.js?v=${version}`),
         loadScript(`${basePath}/ha-api.js?v=${version}`)
     ]).then(() => {
@@ -395,8 +396,8 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     
                                     <div class="settings-section">
                                         <h4>Graph Options</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1; min-width:220px;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="tooltip-mode">Tooltip Display:</label>
                                                 <select id="tooltip-mode">
                                                     <option value="history">Show Historical Temperature</option>
@@ -432,8 +433,8 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     
                                     <div class="settings-section">
                                         <h4>Temperature Precision</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="graph-snap-step">Graph Snap Step:</label>
                                                 <select id="graph-snap-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -442,7 +443,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Temperature rounding when dragging nodes on the graph</p>
                                             </div>
-                                            <div class="setting-item" style="flex:1;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="input-temp-step">Input Field Step:</label>
                                                 <select id="input-temp-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -457,11 +458,58 @@ class ClimateSchedulerPanel extends HTMLElement {
                                     <div class="settings-section">
                                         <h4>Derivative Sensors</h4>
                                         <p class="settings-description">Automatically create sensors to track heating/cooling rates for performance analysis</p>
-                                        <div class="setting-item">
+                                        <div class="setting-item" style="max-width: 100%;">
                                             <label>
                                                 <input type="checkbox" id="create-derivative-sensors" style="margin-right: 8px;"> Auto-create derivative sensors
                                             </label>
                                             <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">When enabled, creates sensor.climate_scheduler_[name]_rate for each thermostat to track temperature change rate (°C/h)</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="settings-section">
+                                        <h4>Workday Integration</h4>
+                                        <p class="settings-description">Configure which days are workdays for 5/2 mode scheduling</p>
+                                        <div class="setting-item" style="max-width: 100%;">
+                                            <label id="use-workday-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                <input type="checkbox" id="use-workday-integration" style="margin-right: 8px;" disabled> 
+                                                <span>Use Workday integration for 5/2 scheduling</span>
+                                            </label>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;" id="workday-help-text">Checking if Workday integration is installed...</p>
+                                        </div>
+                                        
+                                        <div id="workday-selector" style="margin-top: 16px; display: none;">
+                                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Select Workdays:</label>
+                                            <p class="settings-description" style="margin-bottom: 8px; font-size: 0.85rem;">Choose which days are considered workdays when Workday integration is disabled</p>
+                                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="mon" style="cursor: pointer;">
+                                                    <span>Monday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="tue" style="cursor: pointer;">
+                                                    <span>Tuesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="wed" style="cursor: pointer;">
+                                                    <span>Wednesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="thu" style="cursor: pointer;">
+                                                    <span>Thursday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="fri" style="cursor: pointer;">
+                                                    <span>Friday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sat" style="cursor: pointer;">
+                                                    <span>Saturday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sun" style="cursor: pointer;">
+                                                    <span>Sunday</span>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -470,11 +518,12 @@ class ClimateSchedulerPanel extends HTMLElement {
                             </div>
 
                             <div class="settings-actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap;">
-                                <button id="refresh-entities-menu" class="btn-secondary">↻ Refresh Entities</button>
-                                <button id="sync-all-menu" class="btn-secondary">⟲ Sync All Thermostats</button>
-                                <button id="reload-integration-menu" class="btn-secondary">🔄 Reload Integration</button>
+                                <button id="refresh-entities-menu" class="btn-secondary">Refresh Entities</button>
+                                <button id="sync-all-menu" class="btn-secondary">Sync All Thermostats</button>
+                                <button id="reload-integration-menu" class="btn-secondary">Reload Integration</button>
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
-                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">🧹 Cleanup Derivative Sensors</button>
+                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">Cleanup Derivative Sensors</button>
+                                <button id="cleanup-orphaned-climate-btn" class="btn-secondary">Cleanup Orphaned Entities</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                             </div>
                         </div>
@@ -492,10 +541,10 @@ class ClimateSchedulerPanel extends HTMLElement {
                     </div>
 
                     <footer>
-                        <p id="version-info">Climate Scheduler</p>
-                            <div class="panel-footer" style="margin-top: 16px; text-align: center;">
-                                <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
-                            </div>
+                        <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
+                            <p><span id="version-info">Climate Scheduler</span>, created by <a href="https://neave.engineering" target="_blank" rel="noopener noreferrer" style="color: var(--primary)">Keegan Neave</a></p>
+                            <p><a href="https://www.buymeacoffee.com/kneave" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">🤖 Buy me robot parts!</a></p>
+                        </div>
                     </footer>
                 </div>
             `;
