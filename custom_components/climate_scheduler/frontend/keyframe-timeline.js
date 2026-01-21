@@ -272,16 +272,21 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.canvasWidth / this.slots;
         // Reserve space at bottom for labels, left for Y axis, right margin, and top for margin
         const labelHeight = 30 * dpr;
+        const leftMargin = 35 * dpr;
         const yAxisWidth = 35 * dpr;
         const rightMargin = 35 * dpr;
-        const topMargin = 15 * dpr;
-        const graphHeight = this.canvasHeight - labelHeight - topMargin;
-        const graphWidth = this.canvasWidth - yAxisWidth - rightMargin;
+        const topMargin = 25 * dpr;
+        const bottomMargin = 25 * dpr;
+        const graphHeight = this.canvasHeight - labelHeight - topMargin - bottomMargin;
+        const graphWidth = this.canvasWidth - leftMargin - yAxisWidth - rightMargin;
         // Draw Y axis labels and horizontal grid lines
         const numYLabels = this.collapsed ? 2 : 5;
         const baseFontSize = this.getBaseFontSize();
+        const yLabelOffset = 5 * dpr; // Distance from Y-axis to label text
+        const yAxisLabelOffset = -10 * dpr; // Distance from left edge to vertical Y-axis label
+        const xAxisLabelOffset = 25 * dpr; // Distance from bottom to horizontal X-axis label
         this.ctx.fillStyle = this.getThemeColor('--canvas-text-secondary');
-        this.ctx.font = `${(baseFontSize * 0.75) * dpr}px sans-serif`; // 0.75 = 12/16
+        this.ctx.font = `${baseFontSize * dpr}px sans-serif`;
         this.ctx.textAlign = 'right';
         this.ctx.textBaseline = 'middle';
         this.ctx.strokeStyle = this.getThemeColor('--canvas-grid-line');
@@ -291,20 +296,20 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             const value = this.minValue + ratio * (this.maxValue - this.minValue);
             const y = topMargin + (graphHeight * (1 - ratio));
             // Draw label
-            this.ctx.fillText(value.toFixed(1), yAxisWidth - (5 * dpr), y);
+            this.ctx.fillText(value.toFixed(1), leftMargin + yAxisWidth - yLabelOffset, y);
             // Draw horizontal grid line
             this.ctx.beginPath();
-            this.ctx.moveTo(yAxisWidth, y);
-            this.ctx.lineTo(yAxisWidth + graphWidth, y);
+            this.ctx.moveTo(leftMargin + yAxisWidth, y);
+            this.ctx.lineTo(leftMargin + yAxisWidth + graphWidth, y);
             this.ctx.stroke();
         }
         // Draw Y axis label (vertical text on left side)
         if (this.yAxisLabel && !this.collapsed) {
             this.ctx.save();
-            this.ctx.translate(10 * dpr, this.canvasHeight / 2);
+            this.ctx.translate(leftMargin + yAxisLabelOffset, this.canvasHeight / 2);
             this.ctx.rotate(-Math.PI / 2);
             this.ctx.fillStyle = this.getThemeColor('--canvas-text-primary');
-            this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+            this.ctx.font = `${baseFontSize * dpr}px sans-serif`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(this.yAxisLabel, 0, 0);
@@ -314,13 +319,13 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         graphWidth / this.slots;
         // Draw hour markers (full height) and labels
         this.ctx.fillStyle = this.getThemeColor('--canvas-text-secondary');
-        this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+        this.ctx.font = `${baseFontSize * dpr}px sans-serif`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         const hoursToShow = Math.ceil(this.duration);
         const labelInterval = this.collapsed ? 3 : 1; // Show labels every 3 hours when collapsed
         for (let i = 0; i <= hoursToShow; i++) {
-            const x = yAxisWidth + ((i / this.duration) * graphWidth);
+            const x = leftMargin + yAxisWidth + ((i / this.duration) * graphWidth);
             // Draw hour marker line with thicker lines every 6 hours
             const isMajorLine = i % 6 === 0;
             this.ctx.strokeStyle = isMajorLine
@@ -343,18 +348,18 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.ctx.lineWidth = 2 * dpr;
         // X-axis (bottom)
         this.ctx.beginPath();
-        this.ctx.moveTo(yAxisWidth, topMargin + graphHeight);
-        this.ctx.lineTo(yAxisWidth + graphWidth, topMargin + graphHeight);
+        this.ctx.moveTo(leftMargin + yAxisWidth, topMargin + graphHeight);
+        this.ctx.lineTo(leftMargin + yAxisWidth + graphWidth, topMargin + graphHeight);
         this.ctx.stroke();
         // Y-axis (left)
         this.ctx.beginPath();
-        this.ctx.moveTo(yAxisWidth, topMargin);
-        this.ctx.lineTo(yAxisWidth, topMargin + graphHeight);
+        this.ctx.moveTo(leftMargin + yAxisWidth, topMargin);
+        this.ctx.lineTo(leftMargin + yAxisWidth, topMargin + graphHeight);
         this.ctx.stroke();
         // Current time indicator (green dashed line like SVG)
         const now = new Date();
         const currentHours = now.getHours() + now.getMinutes() / 60;
-        const currentX = yAxisWidth + ((currentHours / this.duration) * graphWidth);
+        const currentX = leftMargin + yAxisWidth + ((currentHours / this.duration) * graphWidth);
         this.ctx.strokeStyle = '#00ff00';
         this.ctx.lineWidth = 2 * dpr;
         this.ctx.setLineDash([5 * dpr, 5 * dpr]);
@@ -369,18 +374,18 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const hours = Math.floor(currentHours);
         const minutes = Math.floor((currentHours - hours) * 60);
         const timeLabel = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-        this.ctx.fillStyle = '#00ff00';
-        this.ctx.font = `bold ${(baseFontSize * 0.75) * dpr}px sans-serif`;
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = `bold ${baseFontSize * dpr}px sans-serif`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'bottom';
         this.ctx.fillText(timeLabel, currentX, topMargin - (5 * dpr));
         // Draw X axis label (below time labels)
         if (this.xAxisLabel && !this.collapsed) {
             this.ctx.fillStyle = this.getThemeColor('--canvas-text-primary');
-            this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px sans-serif`; // 0.8125 = 13/16
+            this.ctx.font = `${baseFontSize * dpr}px sans-serif`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'top';
-            this.ctx.fillText(this.xAxisLabel, yAxisWidth + (graphWidth / 2), this.canvasHeight - (8 * dpr));
+            this.ctx.fillText(this.xAxisLabel, leftMargin + yAxisWidth + (graphWidth / 2), this.canvasHeight - xAxisLabelOffset);
         }
         // Draw background graphs (reference data)
         this.backgroundGraphs.forEach((bgGraph, graphIndex) => {
@@ -413,9 +418,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             for (let i = 0; i < sortedKeyframes.length - 1; i++) {
                 const kf1 = sortedKeyframes[i];
                 const kf2 = sortedKeyframes[i + 1];
-                const x1 = yAxisWidth + ((kf1.time / this.duration) * graphWidth);
+                const x1 = leftMargin + yAxisWidth + ((kf1.time / this.duration) * graphWidth);
                 const y1 = topMargin + ((1 - this.normalizeValue(kf1.value)) * graphHeight);
-                const x2 = yAxisWidth + ((kf2.time / this.duration) * graphWidth);
+                const x2 = leftMargin + yAxisWidth + ((kf2.time / this.duration) * graphWidth);
                 const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
                 // Draw line between points
                 this.ctx.beginPath();
@@ -426,7 +431,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.ctx.setLineDash([]); // Reset dash
             // Draw small circle markers at each keyframe (smaller than main graph)
             sortedKeyframes.forEach(kf => {
-                const x = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+                const x = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
                 const y = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
                 this.ctx.fillStyle = color;
                 this.ctx.beginPath();
@@ -442,9 +447,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             for (let i = 0; i < this.keyframes.length - 1; i++) {
                 const kf1 = this.keyframes[i];
                 const kf2 = this.keyframes[i + 1];
-                const x1 = yAxisWidth + ((kf1.time / this.duration) * graphWidth);
+                const x1 = leftMargin + yAxisWidth + ((kf1.time / this.duration) * graphWidth);
                 const y1 = topMargin + ((1 - this.normalizeValue(kf1.value)) * graphHeight);
-                const x2 = yAxisWidth + ((kf2.time / this.duration) * graphWidth);
+                const x2 = leftMargin + yAxisWidth + ((kf2.time / this.duration) * graphWidth);
                 const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
                 // Draw flat line (hold value until next keyframe)
                 this.ctx.beginPath();
@@ -457,14 +462,14 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             if (this.keyframes.length > 0) {
                 const lastKf = this.keyframes[this.keyframes.length - 1];
                 const firstKf = this.keyframes[0];
-                const lastX = yAxisWidth + ((lastKf.time / this.duration) * graphWidth);
+                const lastX = leftMargin + yAxisWidth + ((lastKf.time / this.duration) * graphWidth);
                 const lastY = topMargin + ((1 - this.normalizeValue(lastKf.value)) * graphHeight);
                 const firstY = topMargin + ((1 - this.normalizeValue(firstKf.value)) * graphHeight);
                 // Determine the starting value (from previous day or from last keyframe)
                 const startValue = this.previousDayEndValue !== undefined ? this.previousDayEndValue : lastKf.value;
                 const startY = topMargin + ((1 - this.normalizeValue(startValue)) * graphHeight);
                 // Calculate the position of the last hour marker (24:00/00:00)
-                const endX = yAxisWidth + ((this.duration / this.duration) * graphWidth);
+                const endX = leftMargin + yAxisWidth + ((this.duration / this.duration) * graphWidth);
                 // Extend last keyframe to right edge
                 this.ctx.beginPath();
                 this.ctx.moveTo(lastX, lastY);
@@ -494,16 +499,16 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.ctx.beginPath();
                 this.ctx.moveTo(endX, lastY);
                 this.ctx.lineTo(endX, startY); // Vertical step at right edge
-                this.ctx.moveTo(yAxisWidth, startY); // Continue at left edge of graph
-                this.ctx.lineTo(yAxisWidth, startY);
+                this.ctx.moveTo(leftMargin + yAxisWidth, startY); // Continue at left edge of graph
+                this.ctx.lineTo(leftMargin + yAxisWidth, startY);
                 this.ctx.stroke();
                 this.ctx.setLineDash([]); // Reset dash
                 this.ctx.strokeStyle = this.getThemeColor('--keyframe-color'); // Reset color
                 // Extend from left edge to first keyframe
                 if (firstKf.time > 0) {
-                    const firstX = yAxisWidth + ((firstKf.time / this.duration) * graphWidth);
+                    const firstX = leftMargin + yAxisWidth + ((firstKf.time / this.duration) * graphWidth);
                     this.ctx.beginPath();
-                    this.ctx.moveTo(yAxisWidth, startY);
+                    this.ctx.moveTo(leftMargin + yAxisWidth, startY);
                     this.ctx.lineTo(firstX, startY); // Hold previous day's value
                     this.ctx.lineTo(firstX, firstY); // Step to first keyframe value
                     this.ctx.stroke();
@@ -512,8 +517,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         }
         // Draw current time indicator (vertical bar) if set
         if (this.indicatorTime !== undefined && this.indicatorTime >= 0 && this.indicatorTime <= this.duration) {
-            const indicatorX = yAxisWidth + ((this.indicatorTime / this.duration) * graphWidth);
-            this.ctx.strokeStyle = this.getThemeColor('--indicator-color');
+            const indicatorX = leftMargin + yAxisWidth + ((this.indicatorTime / this.duration) * graphWidth);
+            this.ctx.strokeStyle = '#00ff00';
             this.ctx.lineWidth = 2 * dpr;
             this.ctx.setLineDash([5 * dpr, 5 * dpr]); // Dashed line
             // Draw vertical line through graph area
@@ -525,7 +530,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         }
         // Draw keyframe markers
         this.keyframes.forEach((kf, index) => {
-            const x = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+            const x = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
             const y = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             // Highlight if being dragged or selected
             const isDragging = this.draggingIndex === index;
@@ -574,7 +579,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             // Draw value label above each keyframe (hide when collapsed)
             if (!this.collapsed) {
                 const valueText = kf.value.toFixed(this.snapValue < 1 ? 1 : 0);
-                this.ctx.font = `${(baseFontSize * 0.8125) * dpr}px system-ui, -apple-system, sans-serif`; // 0.8125 = 13/16
+                this.ctx.font = `${baseFontSize * dpr}px system-ui, -apple-system, sans-serif`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'bottom';
                 // Position label above the keyframe with some padding
@@ -609,10 +614,12 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const x = clientX - rect.left;
         const y = clientY - rect.top;
         const labelHeight = 30;
+        const leftMargin = 15;
         const yAxisWidth = 35;
         const topMargin = 15;
-        const graphHeight = rect.height - labelHeight - topMargin;
-        const graphWidth = rect.width - yAxisWidth;
+        const bottomMargin = 15;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth;
         // Check if scrollable (only in expanded mode)
         const isScrollable = !this.collapsed && this.wrapperEl && this.wrapperEl.scrollWidth > this.wrapperEl.clientWidth;
         // For touch devices, set up long-press detection FIRST (before any returns)
@@ -644,7 +651,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         }
         // Check if clicking on existing keyframe (within 10px radius)
         const clickedIndex = this.keyframes.findIndex(kf => {
-            const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+            const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
             const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
             return distance < 10;
@@ -710,15 +717,17 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         let x = clientX - rect.left;
         let y = clientY - rect.top;
         const labelHeight = 30;
+        const leftMargin = 15;
         const yAxisWidth = 35;
         const topMargin = 15;
-        const graphHeight = rect.height - labelHeight - topMargin;
-        const graphWidth = rect.width - yAxisWidth;
+        const bottomMargin = 15;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth;
         // Clamp to canvas bounds (graph area only)
-        x = Math.max(yAxisWidth, Math.min(x, rect.width));
+        x = Math.max(leftMargin + yAxisWidth, Math.min(x, rect.width));
         y = Math.max(topMargin, Math.min(y, topMargin + graphHeight));
         // Snap time to nearest slot (adjust for Y axis offset)
-        const adjustedX = x - yAxisWidth;
+        const adjustedX = x - leftMargin - yAxisWidth;
         const slotWidth = graphWidth / this.slots;
         const slotIndex = Math.round(adjustedX / slotWidth);
         let time = (slotIndex / this.slots) * this.duration;
@@ -776,13 +785,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const labelHeight = 30;
+        const leftMargin = 15;
         const yAxisWidth = 35;
         const topMargin = 15;
-        const graphHeight = rect.height - labelHeight - topMargin;
-        const graphWidth = rect.width - yAxisWidth;
+        const bottomMargin = 15;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth;
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
-            const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+            const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
             const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
             return distance < 10;
@@ -818,13 +829,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     handleContextMenu(x, y, rect) {
         const labelHeight = 30;
+        const leftMargin = 15;
         const yAxisWidth = 35;
         const topMargin = 15;
-        const graphHeight = rect.height - labelHeight - topMargin;
-        const graphWidth = rect.width - yAxisWidth;
+        const bottomMargin = 15;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth;
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
-            const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+            const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
             const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
             return distance < 10;
@@ -868,13 +881,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     handleDoubleClick(x, y, rect) {
         const labelHeight = 30;
+        const leftMargin = 15;
         const yAxisWidth = 35;
         const topMargin = 15;
-        const graphHeight = rect.height - labelHeight - topMargin;
-        const graphWidth = rect.width - yAxisWidth;
+        const bottomMargin = 15;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth;
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
-            const kfX = yAxisWidth + ((kf.time / this.duration) * graphWidth);
+            const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
             const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
             return distance < 10;
@@ -882,10 +897,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (clickedIndex >= 0)
             return; // Don't add if clicking on existing
         // Check if click is within graph area
-        if (x < yAxisWidth || y < topMargin || y > topMargin + graphHeight)
+        if (x < leftMargin + yAxisWidth || y < topMargin || y > topMargin + graphHeight)
             return;
         // Snap time to nearest slot (adjust for Y axis offset)
-        const adjustedX = x - yAxisWidth;
+        const adjustedX = x - leftMargin - yAxisWidth;
         const slotWidth = graphWidth / this.slots;
         const slotIndex = Math.round(adjustedX / slotWidth);
         const time = (slotIndex / this.slots) * this.duration;

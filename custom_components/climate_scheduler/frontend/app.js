@@ -2198,6 +2198,7 @@ async function populateTimelineComparison(editorElement) {
     timeline.snapValue = graphSnapStep;
     timeline.title = currentGroup; // Set group name as title
     timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
+    timeline.xAxisLabel = `Time of Day (24hr)`;
     timeline.showCurrentTime = true;
     timeline.showHeader = false; // Hide the UI header
     timeline.readonly = true; // Make it read-only
