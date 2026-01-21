@@ -225,37 +225,18 @@ class TemperatureGraph {
         this.render();
     }
     
-    // Helper method to convert time string to minutes
+    // Time and temperature utility methods now use global functions from utils.js
+    // Kept as instance methods for backward compatibility
     timeToMinutes(timeStr) {
-        const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
+        return timeToMinutes(timeStr);
     }
     
-    // Interpolate temperature at a given time (step function - hold until next node)
+    minutesToTime(minutes) {
+        return minutesToTime(minutes);
+    }
+    
     interpolateTemperature(nodes, timeStr) {
-        if (nodes.length === 0) return 18;
-        
-        const sorted = [...nodes].sort((a, b) => this.timeToMinutes(a.time) - this.timeToMinutes(b.time));
-        const currentMinutes = this.timeToMinutes(timeStr);
-        
-        // Find the most recent node before or at current time
-        let activeNode = null;
-        
-        for (let i = 0; i < sorted.length; i++) {
-            const nodeMinutes = this.timeToMinutes(sorted[i].time);
-            if (nodeMinutes <= currentMinutes) {
-                activeNode = sorted[i];
-            } else {
-                break;
-            }
-        }
-        
-        // If no node found before current time, use last node (wrap around from previous day)
-        if (!activeNode) {
-            activeNode = sorted[sorted.length - 1];
-        }
-        
-        return activeNode.temp;
+        return interpolateTemperature(nodes, timeStr);
     }
     
     saveState() {
@@ -1590,16 +1571,7 @@ class TemperatureGraph {
         return this.minTemp + ratio * (this.maxTemp - this.minTemp);
     }
     
-    timeToMinutes(timeStr) {
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return hours * 60 + minutes;
-    }
-    
-    minutesToTime(minutes) {
-        const hours = Math.floor(minutes / 60);
-        const mins = Math.floor(minutes % 60);
-        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-    }
+    // These duplicate definitions are removed - now delegating to global functions
     
     snapToInterval(timeStr) {
         const minutes = this.timeToMinutes(timeStr);

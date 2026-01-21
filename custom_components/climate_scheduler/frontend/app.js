@@ -15,21 +15,7 @@ let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
 let storedTemperatureUnit = null; // Unit that schedules were saved in
 
-// Temperature conversion functions
-function celsiusToFahrenheit(celsius) {
-    return (celsius * 9/5) + 32;
-}
-
-function fahrenheitToCelsius(fahrenheit) {
-    return (fahrenheit - 32) * 5/9;
-}
-
-function convertTemperature(temp, fromUnit, toUnit) {
-    if (fromUnit === toUnit) return temp;
-    if (fromUnit === '°C' && toUnit === '°F') return celsiusToFahrenheit(temp);
-    if (fromUnit === '°F' && toUnit === '°C') return fahrenheitToCelsius(temp);
-    return temp;
-}
+// Temperature conversion functions are now in utils.js
 
 function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
@@ -3652,37 +3638,7 @@ function updateScheduledTemp() {
     }
 }
 
-// Interpolate temperature (step function - hold until next node)
-function interpolateTemperature(nodes, timeStr) {
-    if (nodes.length === 0) return 18;
-    
-    const sorted = [...nodes].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
-    const currentMinutes = timeToMinutes(timeStr);
-    
-    // Find the most recent node before or at current time
-    let activeNode = null;
-    
-    for (let i = 0; i < sorted.length; i++) {
-        const nodeMinutes = timeToMinutes(sorted[i].time);
-        if (nodeMinutes <= currentMinutes) {
-            activeNode = sorted[i];
-        } else {
-            break;
-        }
-    }
-    
-    // If no node found before current time, use last node (wrap around from previous day)
-    if (!activeNode) {
-        activeNode = sorted[sorted.length - 1];
-    }
-    
-    return activeNode.temp;
-}
-
-function timeToMinutes(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
-}
+// Time and temperature interpolation functions are now in utils.js
 
 // Update entity status display
 function updateEntityStatus(entity) {
