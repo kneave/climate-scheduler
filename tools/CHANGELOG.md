@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.14.12] - 2026-01-21
 
 ### Fixed
 - **Timezone Handling**: Graph and UI now correctly use Home Assistant server timezone instead of browser local timezone
@@ -16,7 +16,8 @@
   - Moved time manipulation utilities to shared file
   - Eliminated ~170 lines of duplicate code across app.js and graph.js
   - Added new helper functions: formatTimeString() and adjustTime()
-- **Graph Visualization**: Removed redundant dashed wraparound line from schedule graph
+- **Graph Visualization**: Removed redundant dashed wraparound line from schedule graph (issue 123)
+
 
 ## [1.14.11] - 2026-01-17
 
@@ -445,13 +446,3 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
-
-
-
-
-
-
-
-
-
-
