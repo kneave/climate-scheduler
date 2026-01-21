@@ -1,8 +1,22 @@
 # Changelog
 
-
-
 ## [Unreleased]
+
+### Fixed
+- **Timezone Handling**: Graph and UI now correctly use Home Assistant server timezone instead of browser local timezone
+  - Current time indicator now shows correct server time for users traveling in different timezones
+  - Historical data timestamps are displayed in server timezone
+  - Advance activation/cancellation times use server timezone
+  - Added timezone conversion utilities using Intl.DateTimeFormat API
+
+### Changed
+- **Code Refactoring**: Consolidated duplicate utility functions into shared utils.js file
+  - Moved timezone conversion utilities to shared file
+  - Moved temperature conversion functions to shared file
+  - Moved time manipulation utilities to shared file
+  - Eliminated ~170 lines of duplicate code across app.js and graph.js
+  - Added new helper functions: formatTimeString() and adjustTime()
+- **Graph Visualization**: Removed redundant dashed wraparound line from schedule graph
 
 ## [1.14.11] - 2026-01-17
 
