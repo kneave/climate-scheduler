@@ -1019,28 +1019,6 @@ class TemperatureGraph {
         });
         
         g.appendChild(path);
-        
-        // Draw wraparound indicator from last node to first node (only if both have temp)
-        if (nodesWithTemp.length > 1) {
-            const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
-            const firstNode = nodesWithTemp[0];
-            
-            // Visual indicator showing the connection wraps around
-            const wrapPath = this.createSVGElement('path', {
-                d: `M ${this.timeToX(lastNode.time)} ${this.tempToY(lastNode.temp)} 
-                    L ${endX} ${this.tempToY(lastNode.temp)} 
-                    M ${startX} ${this.tempToY(lastNode.temp)} 
-                    L ${this.timeToX(firstNode.time)} ${this.tempToY(lastNode.temp)}
-                    L ${this.timeToX(firstNode.time)} ${this.tempToY(firstNode.temp)}`,
-                stroke: '#ff9800',
-                'stroke-width': 3,
-                fill: 'none',
-                'stroke-dasharray': '5,5',
-                'stroke-linecap': 'square',
-                opacity: 0.5
-            });
-            g.appendChild(wrapPath);
-        }
     }
     
     drawNodes(g) {
