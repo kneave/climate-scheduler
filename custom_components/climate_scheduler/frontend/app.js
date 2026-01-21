@@ -751,6 +751,51 @@ function timeStringToDecimalHours(timeStr) {
     return hours + minutes / 60;
 }
 
+// Show node settings panel for a clicked keyframe
+function showNodeSettingsPanel(editor, keyframeIndex, keyframe) {
+    // Convert keyframe time (decimal hours) to HH:MM format
+    const hours = Math.floor(keyframe.time);
+    const minutes = Math.round((keyframe.time - hours) * 60);
+    const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    
+    // Convert keyframe to node format
+    const node = {
+        time: timeStr,  // Use formatted time string
+        temp: keyframe.value,
+        noChange: false // Keyframes always have a value
+    };
+    
+    // Find corresponding node in currentSchedule to get additional properties
+    const scheduleNode = currentSchedule.find(n => 
+        n.time === timeStr || (
+            Math.abs(timeStringToDecimalHours(n.time) - keyframe.time) < 0.01 && 
+            Math.abs((n.temp || 0) - keyframe.value) < 0.1
+        )
+    );
+    
+    if (scheduleNode) {
+        // Copy all properties from schedule node
+        Object.assign(node, scheduleNode);
+    }
+    
+    // Get the panel from the editor (not globally)
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel) {
+        console.error('Node settings panel not found in editor');
+        return;
+    }
+    
+    // Create event detail and call handleNodeSettings
+    const event = {
+        detail: {
+            nodeIndex: keyframeIndex,
+            node: node
+        }
+    };
+    
+    handleNodeSettings(event);
+}
+
 // Edit group schedule - load group schedule into editor
 async function editGroupSchedule(groupName, day = null) {
     // Fetch fresh group data from server before editing
@@ -853,6 +898,12 @@ async function editGroupSchedule(groupName, day = null) {
         timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
         timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
         timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
+        
+        // Show node settings panel when keyframe is clicked
+        timeline.addEventListener('keyframe-clicked', (e) => {
+            const { index, keyframe } = e.detail;
+            showNodeSettingsPanel(editor, index, keyframe);
+        });
         
         // Setup undo buttons immediately after graph is created
         const setupUndoButtonsForGraph = () => {
@@ -1976,18 +2027,19 @@ function createScheduleEditor() {
 
         <div class="graph-container">
             <!-- Canvas timeline will be inserted here -->
-            
-            <!-- Node Settings Panel (inline below graph) -->
-                <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
-                    <div class="settings-header">
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
-                            <h3>Node Settings</h3>
-                            <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
-                        </div>
-                        <button id="close-settings" class="btn-close-settings">✕</button>
-                    </div>
-                    <div class="settings-grid">
+        </div>
+        
+        <!-- Node Settings Panel (below timeline) -->
+        <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
+            <div class="settings-header">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
+                    <h3>Node Settings</h3>
+                    <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
+                </div>
+                <button id="close-settings" class="btn-close-settings">✕</button>
+            </div>
+            <div class="settings-grid">
                         <div class="setting-item">
                             <label>Time:</label>
                             <div class="input-spinner">
@@ -2057,8 +2109,6 @@ function createScheduleEditor() {
                         <button id="delete-node" class="btn-danger">Delete Node</button>
                     </div>
                 </div>
-            </div>
-        </div>
         
         <!-- Instructions Section (Collapsible) -->
         <div class="instructions-container">
@@ -2516,8 +2566,8 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const keyframe = graph.keyframes[nodeIndex];
+            if (!keyframe) return;
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
@@ -2525,10 +2575,10 @@ function attachEditorEventListeners(editorElement) {
             
             // Increment based on inputTempStep setting
             const multiplier = 1 / inputTempStep;
-            node.temp = Math.round((node.temp + inputTempStep) * multiplier) / multiplier;
+            keyframe.value = Math.round((keyframe.value + inputTempStep) * multiplier) / multiplier;
             
-            tempInput.value = node.temp;
-            graph.render();
+            tempInput.value = keyframe.value;
+            graph.keyframes = [...graph.keyframes]; // Trigger reactivity
             saveSchedule();
         };
     }
@@ -2539,8 +2589,8 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const keyframe = graph.keyframes[nodeIndex];
+            if (!keyframe) return;
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
@@ -2548,10 +2598,10 @@ function attachEditorEventListeners(editorElement) {
             
             // Decrement based on inputTempStep setting
             const multiplier = 1 / inputTempStep;
-            node.temp = Math.round((node.temp - inputTempStep) * multiplier) / multiplier;
+            keyframe.value = Math.round((keyframe.value - inputTempStep) * multiplier) / multiplier;
             
-            tempInput.value = node.temp;
-            graph.render();
+            tempInput.value = keyframe.value;
+            graph.keyframes = [...graph.keyframes]; // Trigger reactivity
             saveSchedule();
         };
     };
@@ -2591,8 +2641,14 @@ function attachEditorEventListeners(editorElement) {
             const panel = editorElement.querySelector('#node-settings-panel');
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (!isNaN(nodeIndex) && graph) {
-                graph.removeNodeByIndex(nodeIndex);
+                // Remove keyframe at index
+                graph.keyframes = graph.keyframes.filter((_, i) => i !== nodeIndex);
                 panel.style.display = 'none';
+                
+                // Trigger immediate redraw and event dispatch
+                graph.draw();
+                graph.dispatchEvent(new CustomEvent('keyframe-deleted'));
+                
                 saveSchedule();
             }
         };
