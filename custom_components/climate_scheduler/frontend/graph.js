@@ -4,7 +4,7 @@
  */
 
 class TemperatureGraph {
-    constructor(svgElement, temperatureUnit = '°C', graphSnapStep = 0.1) {
+    constructor(svgElement, temperatureUnit = '°C', graphSnapStep = 0.1, serverTimeZone = null) {
         this.svg = svgElement;
         this.nodes = [];
         this.historyData = []; // Array of {entityId, entityName, data: [{time, temp}], color}
@@ -22,6 +22,7 @@ class TemperatureGraph {
         this.hoverTimeLabel = null;
         this.temperatureUnit = temperatureUnit;
         this.graphSnapStep = graphSnapStep; // Temperature snap step for rounding
+        this.serverTimeZone = serverTimeZone; // Server timezone for time calculations
         this.undoStack = [];
         this.undoButton = null;
         this.tooltipMode = 'history'; // 'history' or 'cursor'
@@ -634,8 +635,9 @@ class TemperatureGraph {
     
     drawAdvanceMarkers(g) {
         const graphHeight = this.height - this.padding.top - this.padding.bottom;
-        const now = new Date();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const nowUTC = new Date();
+        const now = getServerNow(this.serverTimeZone);
+        const todayMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
         
         // Debug logging
         console.log('Drawing advance markers, history:', this.advanceHistory);
@@ -645,8 +647,9 @@ class TemperatureGraph {
             console.log('  cancelled_at:', event.cancelled_at);
             console.log('  target_time:', event.target_time);
             
-            const activatedTime = new Date(event.activated_at);
-            const activatedMinutes = (activatedTime - todayMidnight) / (1000 * 60);
+            const activatedTimeUTC = new Date(event.activated_at);
+            const activatedTime = getServerDate(activatedTimeUTC, this.serverTimeZone);
+            const activatedMinutes = (activatedTimeUTC - todayMidnight) / (1000 * 60);
             
             // Only draw if activated today
             if (activatedMinutes >= 0 && activatedMinutes < 24 * 60) {
@@ -680,8 +683,9 @@ class TemperatureGraph {
                 
                 if (isCancelled) {
                     // Cancelled - draw to cancellation time at the same advance temperature
-                    const cancelledTime = new Date(event.cancelled_at);
-                    const cancelledMinutes = (cancelledTime - todayMidnight) / (1000 * 60);
+                    const cancelledTimeUTC = new Date(event.cancelled_at);
+                    const cancelledTime = getServerDate(cancelledTimeUTC, this.serverTimeZone);
+                    const cancelledMinutes = (cancelledTimeUTC - todayMidnight) / (1000 * 60);
                     
                     console.log('  Drawing cancelled line to:', event.cancelled_at);
                     
@@ -741,9 +745,10 @@ class TemperatureGraph {
     }
 
     drawAdvanceAppliedOverlay(g) {
-        const now = new Date();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const currentMinutes = (now - todayMidnight) / (1000 * 60);
+        const nowUTC = new Date();
+        const now = getServerNow(this.serverTimeZone);
+        const todayMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        const currentMinutes = (nowUTC - todayMidnight) / (1000 * 60);
 
         // Use the most recent active (not-cancelled, not-expired) advance event.
         const activeEvents = (this.advanceHistory || [])
@@ -774,8 +779,9 @@ class TemperatureGraph {
         const isNoChange = !!(targetNode && targetNode.noChange);
         if (targetTemp === null || isNoChange) return;
 
-        const activatedTime = new Date(event.activated_at);
-        const activatedMinutes = (activatedTime - todayMidnight) / (1000 * 60);
+        const activatedTimeUTC = new Date(event.activated_at);
+        const activatedTime = getServerDate(activatedTimeUTC, this.serverTimeZone);
+        const activatedMinutes = (activatedTimeUTC - todayMidnight) / (1000 * 60);
         if (activatedMinutes < 0 || activatedMinutes >= 24 * 60) return;
 
         const activatedTimeStr = `${String(activatedTime.getHours()).padStart(2, '0')}:${String(activatedTime.getMinutes()).padStart(2, '0')}`;
@@ -919,8 +925,8 @@ class TemperatureGraph {
         });
         g.appendChild(yAxis);
         
-        // Current time indicator
-        const now = new Date();
+        // Current time indicator (use server timezone)
+        const now = getServerNow(this.serverTimeZone);
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         const currentTime = this.minutesToTime(currentMinutes);
         const currentX = this.timeToX(currentTime);

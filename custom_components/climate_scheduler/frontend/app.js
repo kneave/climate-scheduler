@@ -55,6 +55,7 @@ let isSaveInProgress = false; // Flag to prevent concurrent saves
 let pendingSaveNeeded = false; // Flag to indicate a save was skipped and needs to be retried
 let saveTimeout = null; // Timeout for debouncing save operations
 const SAVE_DEBOUNCE_MS = 300; // Wait 300ms after last change before saving
+let serverTimeZone = null; // Store the Home Assistant server timezone
 
 // Debug logging function
 function debugLog(message, type = 'info') {
@@ -135,10 +136,14 @@ async function initApp() {
         }
         await haAPI.connect();
         
-        // Get Home Assistant configuration for temperature unit
+        // Get Home Assistant configuration for temperature unit and timezone
         const config = await haAPI.getConfig();
         if (config && config.unit_system && config.unit_system.temperature) {
             temperatureUnit = config.unit_system.temperature === '°F' ? '°F' : '°C';
+        }
+        if (config && config.time_zone) {
+            serverTimeZone = config.time_zone;
+            debugLog(`Server timezone: ${serverTimeZone}`);
         }
         
         // Note: graph is initialized when entity/group is selected for editing
@@ -682,7 +687,7 @@ async function editGroupSchedule(groupName, day = null) {
     // Recreate graph with the new SVG element
     const svgElement = editor.querySelector('#temperature-graph');
     if (svgElement) {
-        graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep);
+        graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
         graph.setTooltipMode(tooltipMode);
         // Apply configured min/max if available
         if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
@@ -1330,7 +1335,7 @@ function createGroupMembersTable(entityIds) {
             await loadClimateEntities();
             
             // Refresh table data
-            const now = new Date();
+            const now = getServerNow(serverTimeZone);
             const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
             const groupSchedule = graph ? graph.getNodes() : [];
             
@@ -1379,7 +1384,7 @@ function createGroupMembersTable(entityIds) {
     table.appendChild(header);
     
     // Get current time for scheduled temp calculation
-    const now = new Date();
+    const now = getServerNow(serverTimeZone);
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     
     // Get the group's schedule if it exists
@@ -3119,9 +3124,9 @@ async function switchDay(day) {
 // Load history data for current day
 async function loadHistoryData(entityId) {
     try {
-        // Get start of today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Get start of today in server timezone
+        const nowServer = getServerNow(serverTimeZone);
+        const today = new Date(Date.UTC(nowServer.getFullYear(), nowServer.getMonth(), nowServer.getDate(), 0, 0, 0, 0));
         
         // Get current time
         const now = new Date();
@@ -3186,9 +3191,9 @@ async function loadGroupHistoryData(entityIds) {
     }
     
     try {
-        // Get start of today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Get start of today in server timezone
+        const nowServer = getServerNow(serverTimeZone);
+        const today = new Date(Date.UTC(nowServer.getFullYear(), nowServer.getMonth(), nowServer.getDate(), 0, 0, 0, 0));
         
         // Get current time
         const now = new Date();
@@ -3218,18 +3223,20 @@ async function loadGroupHistoryData(entityIds) {
                         const temp = parseFloat(attributes.current_temperature);
                         if (!isNaN(temp)) {
                             // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
-                            let stateTime;
+                            let utcTime;
                             if (typeof lastUpdated === 'string') {
-                                stateTime = new Date(lastUpdated);
+                                utcTime = new Date(lastUpdated);
                             } else if (typeof lastUpdated === 'number') {
                                 // Check if it's in seconds or milliseconds
-                                stateTime = lastUpdated > 10000000000 
+                                utcTime = lastUpdated > 10000000000 
                                     ? new Date(lastUpdated) 
                                     : new Date(lastUpdated * 1000);
                             } else {
                                 continue; // Skip if we can't parse the time
                             }
                             
+                            // Convert to server timezone
+                            const stateTime = utcToServerDate(utcTime, serverTimeZone);
                             const hours = stateTime.getHours().toString().padStart(2, '0');
                             const minutes = stateTime.getMinutes().toString().padStart(2, '0');
                             const timeStr = `${hours}:${minutes}`;
@@ -4960,7 +4967,7 @@ async function setupSettingsPanel() {
     // Initialize the default schedule graph
     const svgElement = getDocumentRoot().querySelector('#default-schedule-graph');
     if (svgElement) {
-        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit);
+        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
         defaultScheduleGraph.setTooltipMode(tooltipMode);
 
         // Apply configured min/max if available
