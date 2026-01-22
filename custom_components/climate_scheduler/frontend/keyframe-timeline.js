@@ -759,19 +759,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (e instanceof TouchEvent && this.holdTimer) {
             const rect = this.canvas?.getBoundingClientRect();
             if (rect) {
-                const x = e.touches[0].clientX - rect.left;
+                const scrollOffset = this.wrapperEl?.scrollLeft || 0;
+                const x = e.touches[0].clientX - rect.left + scrollOffset;
                 const y = e.touches[0].clientY - rect.top;
                 const dx = x - this.holdStartX;
                 const dy = y - this.holdStartY;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                // Cancel hold if moved more than 10px - user is dragging
-                if (distance > 10) {
+                // Cancel hold if moved more than 5px - user is dragging (match threshold below)
+                if (distance > 5) {
                     this.clearHoldTimer();
-                    // Now we can confirm they're dragging
-                    if (this.draggingIndex !== null && !this.isDragging) {
-                        this.isDragging = true;
-                        this.hasMoved = true;
-                    }
                 }
             }
         }
@@ -831,6 +827,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             // Update keyframes
             this.keyframes[startIndex].time = newStartTime;
             this.keyframes[endIndex].time = newEndTime;
+            // Fire update event for settings panel
+            this.dispatchEvent(new CustomEvent('nodeSettingsUpdate', {
+                detail: {
+                    index: startIndex,
+                    keyframe: this.keyframes[startIndex]
+                },
+                bubbles: true,
+                composed: true
+            }));
             this.drawTimeline();
             return;
         }
@@ -901,6 +906,15 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (Math.abs(time - oldTime) > 0.01) {
             this.sortKeyframes();
         }
+        // Fire update event for settings panel
+        this.dispatchEvent(new CustomEvent('nodeSettingsUpdate', {
+            detail: {
+                index: this.draggingIndex,
+                keyframe: this.keyframes[this.draggingIndex]
+            },
+            bubbles: true,
+            composed: true
+        }));
         this.drawTimeline();
         e.preventDefault();
     }
@@ -1459,6 +1473,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
           <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed ? this.toggleCollapse : null}>
             <div class="timeline-canvas ${this.collapsed ? 'collapsed' : ''} ${this.isDragging ? 'dragging' : ''}">
               <canvas 
+                style="touch-action: none;"
                 @click=${this.handleCanvasClick}
                 @dblclick=${this.handleCanvasDoubleClick}
                 @contextmenu=${this.handleCanvasContextMenu}
@@ -1736,11 +1751,11 @@ KeyframeTimeline.styles = i$3 `
     }
     
     .scroll-nav.left {
-      left: 50px;
+      left: 10px;
     }
     
     .scroll-nav.right {
-      right: 50px;
+      right: 10px;
     }
     
     .info {
