@@ -4,6 +4,17 @@ import { customElement, property, state } from 'lit/decorators.js';
 export interface Keyframe {
   time: number;
   value: number;
+  // Climate control properties (from SVG graph migration)
+  hvac_mode?: string;
+  fan_mode?: string;
+  swing_mode?: string;
+  preset_mode?: string;
+  // Multi-zone values (A/B/C)
+  A?: number | null;
+  B?: number | null;
+  C?: number | null;
+  // Special flags
+  noChange?: boolean;
 }
 
 export interface BackgroundGraph {
@@ -308,6 +319,7 @@ export class KeyframeTimeline extends LitElement {
   @property({ type: Number }) indicatorTime?: number; // Time position for vertical indicator bar (0 to duration)
   @property({ type: Boolean }) showCurrentTime = false; // Automatically show indicator at current time
   @property({ type: Array }) backgroundGraphs: BackgroundGraph[] = []; // Background reference graphs
+  @property({ type: Array }) advanceHistory: any[] = []; // Array of {activated_at, target_time, cancelled_at, target_node}
   
   @state() private canvasWidth = 0;
   @state() private canvasHeight = 600;
@@ -382,8 +394,8 @@ export class KeyframeTimeline extends LitElement {
   updated(changedProperties: Map<string, any>) {
     super.updated(changedProperties);
     
-    // Redraw when backgroundGraphs changes
-    if (changedProperties.has('backgroundGraphs')) {
+    // Redraw when backgroundGraphs or advanceHistory changes
+    if (changedProperties.has('backgroundGraphs') || changedProperties.has('advanceHistory')) {
       this.drawTimeline();
     }
     
@@ -775,6 +787,35 @@ export class KeyframeTimeline extends LitElement {
           this.ctx.stroke();
         }
       }
+    }
+    
+    // Draw advance history markers
+    if (this.advanceHistory && this.advanceHistory.length > 0) {
+      this.advanceHistory.forEach(event => {
+        if (event.target_node && event.target_node.temp !== null && event.target_node.temp !== undefined) {
+          // Parse activated_at time to get hour position
+          const activatedDate = new Date(event.activated_at);
+          const activatedHours = activatedDate.getHours() + (activatedDate.getMinutes() / 60);
+          
+          // Only draw if within today's 24-hour range
+          if (activatedHours >= 0 && activatedHours < 24) {
+            const x = leftMargin + yAxisWidth + ((activatedHours / this.duration) * graphWidth);
+            const y = topMargin + ((1 - this.normalizeValue(event.target_node.temp)) * graphHeight);
+            
+            // Draw diamond marker for advance activation
+            this.ctx!.save();
+            this.ctx!.fillStyle = '#00ff00';
+            this.ctx!.strokeStyle = '#00aa00';
+            this.ctx!.lineWidth = 2 * dpr;
+            this.ctx!.translate(x, y);
+            this.ctx!.rotate(Math.PI / 4);
+            const markerSize = 8 * dpr;
+            this.ctx!.fillRect(-markerSize, -markerSize, markerSize * 2, markerSize * 2);
+            this.ctx!.strokeRect(-markerSize, -markerSize, markerSize * 2, markerSize * 2);
+            this.ctx!.restore();
+          }
+        }
+      });
     }
     
     // Draw current time indicator (vertical bar) if set

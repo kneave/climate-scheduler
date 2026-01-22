@@ -2437,28 +2437,16 @@ function attachEditorEventListeners(editorElement) {
     
     if (prevNodeBtn) {
         prevNodeBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes && graph.nodes.length > 0 && graphType === 'svg') {
-                const sortedIndices = graph.getSortedNodeIndices();
-                const currentPos = sortedIndices.indexOf(currentIndex);
-                const newPos = currentPos > 0 ? currentPos - 1 : sortedIndices.length - 1;
-                const newIndex = sortedIndices[newPos];
-                graph.showNodeSettings(newIndex);
+            if (graph && graph.selectPrevious) {
+                graph.selectPrevious();
             }
         };
     }
     
     if (nextNodeBtn) {
         nextNodeBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes && graph.nodes.length > 0 && graphType === 'svg') {
-                const sortedIndices = graph.getSortedNodeIndices();
-                const currentPos = sortedIndices.indexOf(currentIndex);
-                const newPos = currentPos < graph.nodes.length - 1 ? currentPos + 1 : 0;
-                const newIndex = sortedIndices[newPos];
-                graph.showNodeSettings(newIndex);
+            if (graph && graph.selectNext) {
+                graph.selectNext();
             }
         };
     }
@@ -2476,7 +2464,7 @@ function attachEditorEventListeners(editorElement) {
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIndex) || !graph) return;
         
-        const node = graph.nodes[nodeIndex];
+        const node = graph.keyframes[nodeIndex];
         if (!node) return;
         
         // Update time
@@ -2518,7 +2506,7 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.nodes[nodeIndex];
+            const node = graph.keyframes[nodeIndex];
             if (!node) return;
             
             // Parse time and add 15 minutes
@@ -2542,7 +2530,7 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.nodes[nodeIndex];
+            const node = graph.keyframes[nodeIndex];
             if (!node) return;
             
             // Parse time and subtract 15 minutes
@@ -2628,7 +2616,7 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph || !currentGroup) return;
             
-            const node = graph.nodes[nodeIndex];
+            const node = graph.keyframes[nodeIndex];
             if (!node) return;
             
             testFireBtn.disabled = true;
@@ -2676,7 +2664,7 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.nodes[nodeIndex];
+            const node = graph.keyframes[nodeIndex];
             if (!node) return;
             
             if (tempNoChange.checked) {
@@ -2716,7 +2704,7 @@ function attachEditorEventListeners(editorElement) {
         if (isNaN(nodeIndex) || !graph) return;
         
         // Get the actual node from the graph
-        const node = graph.nodes[nodeIndex];
+        const node = graph.keyframes[nodeIndex];
         if (!node) return;
         
         // Update or delete properties based on dropdown values
@@ -2789,7 +2777,7 @@ function attachEditorEventListeners(editorElement) {
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIndex) || !graph) return;
         
-        const node = graph.nodes[nodeIndex];
+        const node = graph.keyframes[nodeIndex];
         if (!node) return;
         
         // Update value fields for immediate visual feedback
@@ -3229,8 +3217,8 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
     
     // In all_days mode, previous day is same as current day
     if (scheduleMode === 'all_days') {
-        if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
-            graph.setPreviousDayLastTemp(null);
+        if (graph && graph.previousDayEndValue !== undefined) {
+            graph.previousDayEndValue = null;
         }
         return;
     }
@@ -3264,8 +3252,9 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
             const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
             if (nodesWithTemp.length > 0) {
                 const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
-                if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
-                    graph.setPreviousDayLastTemp(lastNode.temp);
+                // Set previous day end value for canvas timeline
+                if (graph && graph.previousDayEndValue !== undefined) {
+                    graph.previousDayEndValue = lastNode.temp || lastNode.value;
                 }
                 return;
             }
@@ -3273,8 +3262,8 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
     }
     
     // If no previous day data found, don't set it (will fall back to current day's last node)
-    if (graphType === 'svg' && graph.setPreviousDayLastTemp) {
-        graph.setPreviousDayLastTemp(null);
+    if (graph && graph.previousDayEndValue !== undefined) {
+        graph.previousDayEndValue = null;
     }
 }
 
@@ -4944,7 +4933,7 @@ function handleNodeSettings(event) {
         if (isNaN(nodeIdx) || !graph) return;
         
         // Get the actual node from the graph
-        const targetNode = graph.nodes[nodeIdx];
+        const targetNode = graph.keyframes[nodeIdx];
         if (!targetNode) return;
         
         // Update or delete properties based on dropdown values
@@ -5297,14 +5286,8 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
-        // Load graph type setting
-        if (settings && settings.graph_type) {
-            graphType = settings.graph_type;
-            const graphTypeSelect = getDocumentRoot().querySelector('#graph-type');
-            if (graphTypeSelect) {
-                graphTypeSelect.value = graphType;
-            }
-        }
+        // Graph type setting is no longer used - canvas timeline is the only option
+        // Legacy code removed
         // Load derivative sensor setting
         if (settings && typeof settings.create_derivative_sensors !== 'undefined') {
             const checkbox = getDocumentRoot().querySelector('#create-derivative-sensors');
@@ -5356,11 +5339,13 @@ async function loadSettings() {
         }
         // If graphs already exist, update their ranges
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            if (defaultScheduleGraph && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.minValue = minTempSetting;
+                defaultScheduleGraph.maxValue = maxTempSetting;
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && minTempSetting !== null && maxTempSetting !== null) {
+                graph.minValue = minTempSetting;
+                graph.maxValue = maxTempSetting;
             }
         } catch (err) {
             console.debug('Failed to apply min/max to graphs:', err);
@@ -5411,11 +5396,13 @@ async function saveSettings() {
             maxTempSetting = parseFloat(settings.max_temp);
         }
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            if (defaultScheduleGraph && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.minValue = minTempSetting;
+                defaultScheduleGraph.maxValue = maxTempSetting;
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && minTempSetting !== null && maxTempSetting !== null) {
+                graph.minValue = minTempSetting;
+                graph.maxValue = maxTempSetting;
             }
         } catch (err) {
             console.debug('Failed to apply min/max to graphs after save:', err);
@@ -5439,35 +5426,31 @@ function handleDefaultScheduleChange(event) {
 async function setupSettingsPanel() {
     await loadSettings();
     
-    // Initialize the default schedule graph
-    const svgElement = getDocumentRoot().querySelector('#default-schedule-graph');
-    if (svgElement) {
-        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
-        defaultScheduleGraph.setTooltipMode(tooltipMode);
+    // Initialize the default schedule graph (canvas timeline)
+    const canvasElement = getDocumentRoot().querySelector('#default-schedule-graph');
+    if (canvasElement) {
+        defaultScheduleGraph = canvasElement;
 
         // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof defaultScheduleGraph.setMinMax === 'function') {
-            defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+        if (minTempSetting !== null && maxTempSetting !== null) {
+            defaultScheduleGraph.minValue = minTempSetting;
+            defaultScheduleGraph.maxValue = maxTempSetting;
         }
-        defaultScheduleGraph.setNodes(defaultScheduleSettings);
         
-        // Attach event listener for changes
-        svgElement.addEventListener('nodesChanged', handleDefaultScheduleChange);
+        // Convert defaultScheduleSettings nodes to keyframes and set them
+        if (defaultScheduleSettings && defaultScheduleSettings.length > 0) {
+            const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
+            defaultScheduleGraph.keyframes = keyframes;
+        }
         
-        // Attach node settings listener
-        svgElement.addEventListener('nodeSettings', handleDefaultNodeSettings);
+        // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
+        canvasElement.addEventListener('keyframe-moved', handleDefaultScheduleChange);
+        canvasElement.addEventListener('keyframe-deleted', handleDefaultScheduleChange);
         
-        // Attach node settings update listener (for drag updates)
-        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
-            const { nodeIndex, node } = event.detail;
-            const panel = getDocumentRoot().querySelector('#default-node-settings-panel');
-            
-            // Only update if this node's panel is currently showing
-            if (panel && panel.style.display !== 'none' && panel.dataset.nodeIndex == nodeIndex) {
-                getDocumentRoot().querySelector('#default-node-time').textContent = node.time;
-                getDocumentRoot().querySelector('#default-node-temp').textContent = `${node.temp}${temperatureUnit}`;
-            }
-        });
+        // Attach node settings listener (canvas uses 'keyframe-selected')
+        canvasElement.addEventListener('keyframe-selected', handleDefaultNodeSettings);
+        
+        // Canvas timeline updates node settings automatically during drag, no separate event needed
     }
     
     // Toggle collapse
@@ -5485,36 +5468,22 @@ async function setupSettingsPanel() {
         tooltipModeSelect.addEventListener('change', (e) => {
             tooltipMode = e.target.value;
             
-            // Update all graph instances
-            if (graph && graphType === 'svg') {
-                graph.setTooltipMode(tooltipMode);
-            }
-            if (defaultScheduleGraph) {
-                defaultScheduleGraph.setTooltipMode(tooltipMode);
-            }
+            // Canvas timeline doesn't use tooltip mode - it shows tooltips automatically
+            // No action needed for graph instances
             
             // Auto-save the setting
             saveSettings();
         });
     }
     
-    // Graph type selector
+    // Graph type selector removed - canvas timeline is now the only option
     const graphTypeSelect = getDocumentRoot().querySelector('#graph-type');
     if (graphTypeSelect) {
-        graphTypeSelect.addEventListener('change', async (e) => {
-            graphType = e.target.value;
-            await saveSettings();
-            
-            // Reload current schedule editor if one is open
-            if (currentGroup) {
-                collapseAllEditors();
-                setTimeout(async () => {
-                    await editGroupSchedule(currentGroup, currentDay);
-                }, 100);
-            }
-            
-            showToast(`Graph type changed to ${graphType === 'svg' ? 'SVG (Classic)' : 'Canvas (Experimental)'}`, 'success');
-        });
+        // Hide the selector since we only support canvas now
+        const graphTypeContainer = graphTypeSelect.closest('.setting-row, .setting-item, .config-row');
+        if (graphTypeContainer) {
+            graphTypeContainer.style.display = 'none';
+        }
     }
     
     // Debug panel toggle
@@ -5652,7 +5621,7 @@ async function setupSettingsPanel() {
                 defaultScheduleSettings = [];
                 
                 if (defaultScheduleGraph) {
-                    defaultScheduleGraph.setNodes(defaultScheduleSettings);
+                    defaultScheduleGraph.keyframes = [];
                 }
                 
                 const success = await saveSettings();
@@ -5692,7 +5661,7 @@ async function setupSettingsPanel() {
                 defaultScheduleSettings = [];
                 
                 if (defaultScheduleGraph) {
-                    defaultScheduleGraph.setNodes(defaultScheduleSettings);
+                    defaultScheduleGraph.keyframes = [];
                 }
                 
                 const success = await saveSettings();
@@ -5967,7 +5936,7 @@ function handleDefaultNodeSettings(event) {
         if (isNaN(nodeIdx) || !defaultScheduleGraph) return;
         
         // Get the actual node from the graph
-        const targetNode = defaultScheduleGraph.nodes[nodeIdx];
+        const targetNode = defaultScheduleGraph.keyframes[nodeIdx];
         if (!targetNode) return;
         
         // Get fresh references
@@ -6017,8 +5986,8 @@ function handleDefaultNodeSettings(event) {
             }
         }
         
-        // Update the settings array
-        defaultScheduleSettings = defaultScheduleGraph.getNodes();
+        // Update the settings array (convert keyframes back to nodes)
+        defaultScheduleSettings = keyframesToScheduleNodes(defaultScheduleGraph.keyframes);
         
         // Auto-save to server
         await saveSettings();
@@ -6052,14 +6021,15 @@ function handleDefaultNodeSettings(event) {
         deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
         
         newDeleteBtn.addEventListener('click', () => {
-            if (defaultScheduleGraph.nodes.length <= 1) {
+            if (defaultScheduleGraph.keyframes.length <= 1) {
                 alert('Cannot delete the last node. A schedule must have at least one node.');
                 return;
             }
             
             if (confirm('Delete this node?')) {
-                defaultScheduleGraph.removeNodeByIndex(nodeIndex);
-                defaultScheduleSettings = defaultScheduleGraph.getNodes();
+                // Remove keyframe at index
+                defaultScheduleGraph.keyframes = defaultScheduleGraph.keyframes.filter((_, i) => i !== nodeIndex);
+                defaultScheduleSettings = keyframesToScheduleNodes(defaultScheduleGraph.keyframes);
                 panel.style.display = 'none';
             }
         });
@@ -6077,8 +6047,8 @@ function handleDefaultNodeSettings(event) {
 async function loadAdvanceHistory(entityId) {
     try {
         const status = await haAPI.getAdvanceStatus(entityId);
-        if (status && status.history && graph && graphType === 'svg' && graph.setAdvanceHistory) {
-            graph.setAdvanceHistory(status.history);
+        if (status && status.history && graph) {
+            graph.advanceHistory = status.history;
         }
     } catch (error) {
         console.error('Failed to load advance history:', error);
