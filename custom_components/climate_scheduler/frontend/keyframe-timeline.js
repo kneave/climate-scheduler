@@ -106,7 +106,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.showCurrentTime = false; // Automatically show indicator at current time
         this.backgroundGraphs = []; // Background reference graphs
         this.canvasWidth = 0;
-        this.canvasHeight = 400;
+        this.canvasHeight = 600;
         this.showConfig = false;
         this.draggingIndex = null;
         this.selectedKeyframeIndex = null;
@@ -164,6 +164,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     updated(changedProperties) {
         super.updated(changedProperties);
+        // Redraw when backgroundGraphs changes
+        if (changedProperties.has('backgroundGraphs')) {
+            this.drawTimeline();
+        }
         // Start/stop timer when showCurrentTime changes
         if (changedProperties.has('showCurrentTime')) {
             if (this.showCurrentTime) {
@@ -205,11 +209,11 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return;
         const rect = this.canvas.getBoundingClientRect();
         this.canvasWidth = rect.width * window.devicePixelRatio;
-        // Read height from CSS variables or use defaults
+        // Read height from CSS variables
         const computedStyle = getComputedStyle(this);
         const cssHeightVar = this.collapsed ? '--timeline-height-collapsed' : '--timeline-height';
         const cssHeight = computedStyle.getPropertyValue(cssHeightVar).trim();
-        const baseHeight = cssHeight ? parseInt(cssHeight) : (this.collapsed ? 100 : 400);
+        const baseHeight = parseInt(cssHeight);
         this.canvasHeight = baseHeight * window.devicePixelRatio;
         this.canvas.width = this.canvasWidth;
         this.canvas.height = this.canvasHeight;
@@ -223,27 +227,12 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         return normalized * (this.maxValue - this.minValue) + this.minValue;
     }
     getThemeColor(cssVar) {
-        const computed = getComputedStyle(this).getPropertyValue(cssVar).trim();
-        if (computed)
-            return computed;
-        // Fallback colors for standalone use (outside Home Assistant)
-        const fallbacks = {
-            '--keyframe-color': getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#03a9f4',
-            '--keyframe-selected-color': '#4caf50',
-            '--keyframe-dragging-color': '#ff9800',
-            '--canvas-text-primary': 'rgba(255, 255, 255, 0.9)',
-            '--canvas-text-secondary': 'rgba(255, 255, 255, 0.7)',
-            '--canvas-grid-line': 'rgba(255, 255, 255, 0.1)',
-            '--canvas-label-bg': 'rgba(0, 0, 0, 0.7)',
-            '--indicator-color': '#ff9800',
-        };
-        return fallbacks[cssVar] || 'rgba(255, 255, 255, 0.7)';
+        return getComputedStyle(this).getPropertyValue(cssVar).trim();
     }
     getBaseFontSize() {
         // Get computed font size from host element to respect browser/accessibility settings
         const computedStyle = getComputedStyle(this);
-        const fontSize = parseFloat(computedStyle.fontSize);
-        return fontSize || 16; // Fallback to 16px if unable to read
+        return parseFloat(computedStyle.fontSize);
     }
     snapValueToGrid(value) {
         // Snap value to grid if snapValue is set
@@ -277,7 +266,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const leftMargin = 35 * dpr;
         const yAxisWidth = 35 * dpr;
         const rightMargin = 35 * dpr;
-        const topMargin = 25 * dpr;
+        const topMargin = 45 * dpr;
         const bottomMargin = 25 * dpr;
         const graphHeight = this.canvasHeight - labelHeight - topMargin - bottomMargin;
         const graphWidth = this.canvasWidth - leftMargin - yAxisWidth - rightMargin;
@@ -1288,7 +1277,7 @@ KeyframeTimeline.styles = i$3 `
     :host {
       display: block;
       width: 100%;
-      --timeline-height: 200px;
+      --timeline-height: 400px;
       --timeline-height-collapsed: 100px;
       --timeline-bg: var(--card-background-color, #1c1c1c);
       --timeline-track: var(--secondary-background-color, #2c2c2c);

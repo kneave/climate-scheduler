@@ -2578,8 +2578,15 @@ function attachEditorEventListeners(editorElement) {
             keyframe.value = Math.round((keyframe.value + inputTempStep) * multiplier) / multiplier;
             
             tempInput.value = keyframe.value;
-            graph.keyframes = [...graph.keyframes]; // Trigger reactivity
-            saveSchedule();
+            
+            // Update UI immediately
+            graph.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                graph.keyframes = [...graph.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
@@ -2601,8 +2608,15 @@ function attachEditorEventListeners(editorElement) {
             keyframe.value = Math.round((keyframe.value - inputTempStep) * multiplier) / multiplier;
             
             tempInput.value = keyframe.value;
-            graph.keyframes = [...graph.keyframes]; // Trigger reactivity
-            saveSchedule();
+            
+            // Update UI immediately
+            graph.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                graph.keyframes = [...graph.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     };
     
@@ -2760,8 +2774,53 @@ function attachEditorEventListeners(editorElement) {
             node['C'] = val !== '' ? parseFloat(val) : null;
         }
         
-        // This will trigger save and force immediate update
+        // Update UI immediately before triggering save
+        graph.render();
+        
+        // This will trigger save in background
         graph.notifyChange(true);
+    };
+    
+    // Immediate UI update on input (no save)
+    const updateUIOnly = () => {
+        const panel = editorElement.querySelector('#node-settings-panel');
+        if (!panel) return;
+        
+        const nodeIndex = parseInt(panel.dataset.nodeIndex);
+        if (isNaN(nodeIndex) || !graph) return;
+        
+        const node = graph.nodes[nodeIndex];
+        if (!node) return;
+        
+        // Update value fields for immediate visual feedback
+        const valueAInput = editorElement.querySelector('#node-value-A');
+        const valueBInput = editorElement.querySelector('#node-value-B');
+        const valueCInput = editorElement.querySelector('#node-value-C');
+        
+        if (valueAInput) {
+            const val = valueAInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['A'] = parsed;
+            }
+        }
+        if (valueBInput) {
+            const val = valueBInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['B'] = parsed;
+            }
+        }
+        if (valueCInput) {
+            const val = valueCInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['C'] = parsed;
+            }
+        }
+        
+        // Only update UI, don't trigger save
+        graph.render();
     };
     
     // Attach change listeners to all dropdowns and value inputs
@@ -2773,9 +2832,18 @@ function attachEditorEventListeners(editorElement) {
     const valueAInput = editorElement.querySelector('#node-value-A');
     const valueBInput = editorElement.querySelector('#node-value-B');
     const valueCInput = editorElement.querySelector('#node-value-C');
-    if (valueAInput) valueAInput.addEventListener('change', autoSaveNodeSettings);
-    if (valueBInput) valueBInput.addEventListener('change', autoSaveNodeSettings);
-    if (valueCInput) valueCInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueAInput) {
+        valueAInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueAInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
+    if (valueBInput) {
+        valueBInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueBInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
+    if (valueCInput) {
+        valueCInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueCInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
     
     // Schedule mode radio buttons
     const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
