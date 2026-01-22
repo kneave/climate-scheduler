@@ -886,6 +886,7 @@ async function editGroupSchedule(groupName, day = null) {
         timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
         timeline.xAxisLabel = `Time of Day (24hr)`;
         timeline.showCurrentTime = true;
+        timeline.tooltipMode = tooltipMode; // Set tooltip mode from global setting
         
         graphContainer.appendChild(timeline);
         
@@ -2762,10 +2763,22 @@ function attachEditorEventListeners(editorElement) {
         }
         
         // Update UI immediately before triggering save
-        graph.render();
+        if (graph.render) {
+            // Old SVG graph has render method
+            graph.render();
+        } else {
+            // Canvas timeline - request update
+            graph.requestUpdate();
+        }
         
-        // This will trigger save in background
-        graph.notifyChange(true);
+        // Trigger save - check if using canvas timeline or old graph
+        if (graph.notifyChange) {
+            // Old SVG graph has notifyChange method
+            graph.notifyChange(true);
+        } else {
+            // Canvas timeline - save directly
+            handleGraphChange({ detail: { force: true } }, true);
+        }
     };
     
     // Immediate UI update on input (no save)
@@ -4986,8 +4999,15 @@ function handleNodeSettings(event) {
             targetNode['C'] = val !== '' ? parseFloat(val) : null;
         }
         
-        // Trigger save through graph
-        graph.notifyChange(true);
+        // Trigger save - check if using canvas timeline or old graph
+        if (graph.notifyChange) {
+            // Old SVG graph has notifyChange method
+            graph.notifyChange(true);
+        } else {
+            // Canvas timeline - redraw and save
+            graph.requestUpdate();
+            handleGraphChange({ detail: { force: true } }, true);
+        }
     };
     
     // Remove existing event listeners to avoid duplicates (clone and replace)
@@ -5359,8 +5379,7 @@ async function saveSettings() {
     try {
         const settings = {
             defaultSchedule: defaultScheduleSettings,
-            tooltipMode: tooltipMode,
-            graph_type: graphType
+            tooltipMode: tooltipMode
         };
         // Read min/max inputs
         const minInput = getDocumentRoot().querySelector('#min-temp');
@@ -5429,7 +5448,7 @@ async function setupSettingsPanel() {
     const canvasElement = getDocumentRoot().querySelector('#default-schedule-graph');
     if (canvasElement) {
         defaultScheduleGraph = canvasElement;
-
+        
         // Apply configured min/max if available
         if (minTempSetting !== null && maxTempSetting !== null) {
             defaultScheduleGraph.minValue = minTempSetting;
@@ -5441,6 +5460,10 @@ async function setupSettingsPanel() {
             const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
             defaultScheduleGraph.keyframes = keyframes;
         }
+        
+        // Set tooltip mode from global setting AFTER setting keyframes to ensure it persists
+        defaultScheduleGraph.tooltipMode = tooltipMode;
+        console.log('Setting tooltipMode after keyframes to:', tooltipMode);
         
         // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
         canvasElement.addEventListener('keyframe-moved', handleDefaultScheduleChange);
@@ -5466,9 +5489,17 @@ async function setupSettingsPanel() {
     if (tooltipModeSelect) {
         tooltipModeSelect.addEventListener('change', (e) => {
             tooltipMode = e.target.value;
+            console.log('Changing tooltipMode to:', tooltipMode);
             
-            // Canvas timeline doesn't use tooltip mode - it shows tooltips automatically
-            // No action needed for graph instances
+            // Update all canvas timeline instances
+            if (defaultScheduleGraph) {
+                defaultScheduleGraph.tooltipMode = tooltipMode;
+                console.log('Updated defaultScheduleGraph.tooltipMode to:', defaultScheduleGraph.tooltipMode);
+            }
+            if (graph) {
+                graph.tooltipMode = tooltipMode;
+                console.log('Updated graph.tooltipMode to:', graph.tooltipMode);
+            }
             
             // Auto-save the setting
             saveSettings();

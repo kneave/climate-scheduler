@@ -106,6 +106,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.showCurrentTime = false; // Automatically show indicator at current time
         this.backgroundGraphs = []; // Background reference graphs
         this.advanceHistory = []; // Array of {activated_at, target_time, cancelled_at, target_node}
+        this.tooltipMode = 'cursor'; // Tooltip display mode (set from global settings)
         this.canvasWidth = 0;
         this.canvasHeight = 600;
         this.showConfig = false;
@@ -126,12 +127,21 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.lastClickTime = 0;
         this.lastClickIndex = -1; // Track which keyframe was last clicked
         this.lastClickX = 0;
+        this.instanceId = Math.random().toString(36).substring(7); // Unique instance ID for debugging
         this.lastClickY = 0;
         this.justDeletedKeyframe = false; // Prevent dblclick from adding after delete
         this.holdStartX = 0;
         this.holdStartY = 0;
+        this.hoverX = null;
+        this.hoverY = null;
+    }
+    willUpdate(changedProperties) {
+        if (changedProperties.has('tooltipMode')) {
+            console.log(`[${this.instanceId}] KeyframeTimeline: tooltipMode changed from:`, changedProperties.get('tooltipMode'), 'to:', this.tooltipMode);
+        }
     }
     firstUpdated() {
+        console.log(`[${this.instanceId}] KeyframeTimeline: firstUpdated, tooltipMode is:`, this.tooltipMode);
         const canvasEl = this.shadowRoot?.querySelector('canvas');
         if (canvasEl) {
             this.canvas = canvasEl;
@@ -274,6 +284,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     drawTimeline() {
         if (!this.ctx || !this.canvas)
             return;
+        const rect = this.canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio;
         this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
         this.canvasWidth / this.slots;
@@ -637,6 +648,155 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.ctx.fillText(valueText, x, labelY);
             }
         });
+        // Draw tooltip if hovering and not dragging
+        if (this.hoverX !== null && this.hoverY !== null && !this.isDragging && !this.collapsed) {
+            this.drawTooltip(this.hoverX, this.hoverY, rect);
+        }
+    }
+    drawTooltip(x, y, rect) {
+        if (!this.ctx)
+            return;
+        const dpr = window.devicePixelRatio || 1;
+        const labelHeight = 30;
+        const leftMargin = 35;
+        const yAxisWidth = 35;
+        const rightMargin = 35;
+        const topMargin = 25;
+        const bottomMargin = 25;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        // Check if in graph area
+        if (x < leftMargin + yAxisWidth || x > rect.width - rightMargin ||
+            y < topMargin || y > topMargin + graphHeight) {
+            return;
+        }
+        const adjustedX = x - leftMargin - yAxisWidth;
+        const time = (adjustedX / graphWidth) * this.duration;
+        let tooltipLines = [];
+        console.log(`[${this.instanceId}] Drawing tooltip, tooltipMode:`, this.tooltipMode);
+        if (this.tooltipMode === 'cursor') {
+            // Show interpolated value at cursor position on schedule line
+            const tooltipValue = this.getInterpolatedValue(time);
+            if (tooltipValue !== null) {
+                const hours = Math.floor(time);
+                const minutes = Math.round((time - hours) * 60);
+                tooltipLines.push({ text: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} - ${tooltipValue.toFixed(1)}°` });
+            }
+        }
+        else {
+            // Get current time in decimal hours
+            const now = new Date();
+            const currentTime = now.getHours() + now.getMinutes() / 60;
+            // Only show history if hovering over past time or close to current time (within 30 minutes)
+            const timeDiff = time - currentTime;
+            const showHistory = timeDiff <= 0.5; // Show if in past or within 30 minutes of now
+            if (showHistory && this.backgroundGraphs && this.backgroundGraphs.length > 0) {
+                this.backgroundGraphs.forEach((historyGraph, graphIndex) => {
+                    if (!historyGraph || !historyGraph.keyframes || historyGraph.keyframes.length === 0)
+                        return;
+                    let displayPoint = null;
+                    if (time >= currentTime) {
+                        // At or past current time (but close to now): show latest temperature
+                        displayPoint = historyGraph.keyframes[historyGraph.keyframes.length - 1];
+                    }
+                    else {
+                        // Before current time: find closest data point to hover time
+                        let closestPoint = null;
+                        let closestDist = Infinity;
+                        for (const point of historyGraph.keyframes) {
+                            const dist = Math.abs(point.time - time);
+                            if (dist < closestDist) {
+                                closestDist = dist;
+                                closestPoint = point;
+                            }
+                        }
+                        if (closestPoint && closestDist < 0.5) { // Within 30 minutes
+                            displayPoint = closestPoint;
+                        }
+                    }
+                    if (displayPoint) {
+                        const label = historyGraph.label || 'Temperature';
+                        const color = historyGraph.color || BACKGROUND_GRAPH_COLORS[graphIndex % BACKGROUND_GRAPH_COLORS.length];
+                        tooltipLines.push({ text: `${label}: ${displayPoint.value.toFixed(1)}°`, color });
+                    }
+                });
+            }
+        }
+        if (tooltipLines.length === 0)
+            return;
+        // Draw tooltip with multiple lines
+        const fontSize = 13;
+        const lineHeight = 18 * dpr;
+        this.ctx.font = `${fontSize * dpr}px system-ui, -apple-system, sans-serif`;
+        // Calculate max width
+        let maxWidth = 0;
+        for (const line of tooltipLines) {
+            const textMetrics = this.ctx.measureText(line.text);
+            maxWidth = Math.max(maxWidth, textMetrics.width);
+        }
+        const padding = 8 * dpr;
+        const tooltipWidth = maxWidth + padding * 2;
+        const tooltipHeight = (tooltipLines.length * lineHeight) + padding * 2;
+        // Position tooltip near cursor but avoid edges
+        let tooltipX = x * dpr;
+        let tooltipY = (y - 40) * dpr;
+        if (tooltipX + tooltipWidth > rect.width * dpr - 10 * dpr) {
+            tooltipX = rect.width * dpr - tooltipWidth - 10 * dpr;
+        }
+        if (tooltipX < 10 * dpr) {
+            tooltipX = 10 * dpr;
+        }
+        if (tooltipY < 10 * dpr) {
+            tooltipY = (y + 30) * dpr;
+        }
+        // Draw background
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        this.ctx.fillRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+        // Draw border
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+        // Draw text lines
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
+        for (let i = 0; i < tooltipLines.length; i++) {
+            const lineY = tooltipY + padding + (i * lineHeight);
+            const line = tooltipLines[i];
+            // Convert color to RGB format (remove any transparency)
+            let textColor = '#ffffff';
+            if (line.color) {
+                const hexMatch = line.color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+                if (hexMatch) {
+                    textColor = `rgb(${parseInt(hexMatch[1], 16)}, ${parseInt(hexMatch[2], 16)}, ${parseInt(hexMatch[3], 16)})`;
+                }
+                else {
+                    textColor = line.color;
+                }
+            }
+            this.ctx.fillStyle = textColor;
+            this.ctx.fillText(line.text, tooltipX + padding, lineY);
+        }
+    }
+    getInterpolatedValue(time) {
+        if (this.keyframes.length === 0)
+            return null;
+        if (this.keyframes.length === 1)
+            return this.keyframes[0].value;
+        // Find surrounding keyframes
+        let beforeKf = this.keyframes[0];
+        let afterKf = this.keyframes[this.keyframes.length - 1];
+        for (let i = 0; i < this.keyframes.length - 1; i++) {
+            if (this.keyframes[i].time <= time && this.keyframes[i + 1].time >= time) {
+                beforeKf = this.keyframes[i];
+                afterKf = this.keyframes[i + 1];
+                break;
+            }
+        }
+        // Linear interpolation
+        if (beforeKf.time === afterKf.time)
+            return beforeKf.value;
+        const ratio = (time - beforeKf.time) / (afterKf.time - beforeKf.time);
+        return beforeKf.value + (afterKf.value - beforeKf.value) * ratio;
     }
     handleCanvasMouseDown(e) {
         if (!this.canvas || this.collapsed || this.readonly)
@@ -747,6 +907,14 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         }
     }
     handleCanvasMouseMove(e) {
+        // Update hover position for tooltip (only for mouse, not touch)
+        if (e instanceof MouseEvent && !this.isDragging && !this.isPanning && this.canvas) {
+            const rect = this.canvas.getBoundingClientRect();
+            const scrollOffset = this.wrapperEl?.scrollLeft || 0;
+            this.hoverX = e.clientX - rect.left + scrollOffset;
+            this.hoverY = e.clientY - rect.top;
+            this.drawTimeline();
+        }
         // Handle panning first (takes priority when active)
         if (this.isPanning && this.wrapperEl) {
             const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
@@ -950,6 +1118,14 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.isDragging = false;
         this.hasMoved = false;
         this.isPanning = false; // Reset panning state
+    }
+    handleCanvasMouseLeave(e) {
+        // Clear hover state and redraw
+        this.hoverX = null;
+        this.hoverY = null;
+        this.drawTimeline();
+        // Also handle mouseup logic if needed
+        this.handleCanvasMouseUp(e);
     }
     handleCanvasClick(e) {
         if (!this.canvas || this.collapsed || this.readonly)
@@ -1480,7 +1656,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 @mousedown=${this.handleCanvasMouseDown}
                 @mousemove=${this.handleCanvasMouseMove}
                 @mouseup=${this.handleCanvasMouseUp}
-                @mouseleave=${this.handleCanvasMouseUp}
+                @mouseleave=${this.handleCanvasMouseLeave}
                 @touchstart=${this.handleCanvasMouseDown}
                 @touchmove=${this.handleCanvasMouseMove}
                 @touchend=${this.handleCanvasMouseUp}
@@ -1812,6 +1988,9 @@ __decorate([
 __decorate([
     n({ type: Array })
 ], KeyframeTimeline.prototype, "advanceHistory", void 0);
+__decorate([
+    n({ type: String, attribute: false })
+], KeyframeTimeline.prototype, "tooltipMode", void 0);
 __decorate([
     r()
 ], KeyframeTimeline.prototype, "canvasWidth", void 0);
