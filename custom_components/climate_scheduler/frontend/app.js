@@ -2647,8 +2647,7 @@ function attachEditorEventListeners(editorElement) {
                 graph.keyframes = graph.keyframes.filter((_, i) => i !== nodeIndex);
                 panel.style.display = 'none';
                 
-                // Trigger immediate redraw and event dispatch
-                graph.draw();
+                // Trigger keyframe-deleted event (canvas redraws automatically)
                 graph.dispatchEvent(new CustomEvent('keyframe-deleted'));
                 
                 saveSchedule();

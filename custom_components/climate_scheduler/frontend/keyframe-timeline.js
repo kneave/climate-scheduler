@@ -110,6 +110,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.canvasHeight = 600;
         this.showConfig = false;
         this.draggingIndex = null;
+        this.draggingSegment = null;
         this.selectedKeyframeIndex = null;
         this.collapsed = false;
         this.showScrollNavLeft = false;
@@ -123,8 +124,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.panStartX = 0;
         this.panStartScrollLeft = 0;
         this.lastClickTime = 0;
+        this.lastClickIndex = -1; // Track which keyframe was last clicked
         this.lastClickX = 0;
         this.lastClickY = 0;
+        this.justDeletedKeyframe = false; // Prevent dblclick from adding after delete
         this.holdStartX = 0;
         this.holdStartY = 0;
     }
@@ -158,10 +161,22 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.updateCurrentTime();
             this.startCurrentTimeTimer();
         }
+        // Setup keyboard shortcuts
+        this.keyboardHandler = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                this.undo();
+            }
+        };
+        document.addEventListener('keydown', this.keyboardHandler);
     }
     disconnectedCallback() {
         super.disconnectedCallback();
         this.stopCurrentTimeTimer();
+        // Remove keyboard listener
+        if (this.keyboardHandler) {
+            document.removeEventListener('keydown', this.keyboardHandler);
+        }
     }
     updated(changedProperties) {
         super.updated(changedProperties);
@@ -677,6 +692,26 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return distance < 20;
         });
         if (clickedIndex >= 0) {
+            // Check for double-click to delete (desktop)
+            if (e instanceof MouseEvent) {
+                const currentTime = Date.now();
+                const timeSinceLastClick = currentTime - this.lastClickTime;
+                // Double-click detected on same keyframe (within 300ms)
+                if (timeSinceLastClick < 300 && this.lastClickIndex === clickedIndex) {
+                    this.deleteKeyframe(clickedIndex);
+                    this.lastClickTime = 0; // Reset
+                    this.lastClickIndex = -1;
+                    this.draggingIndex = null; // Clear dragging state
+                    this.isDragging = false;
+                    this.justDeletedKeyframe = true; // Prevent dblclick handler from adding
+                    setTimeout(() => this.justDeletedKeyframe = false, 100); // Reset after event propagation
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                this.lastClickTime = currentTime;
+                this.lastClickIndex = clickedIndex;
+            }
             // Prepare to drag existing keyframe (but wait to see if it's a long press or just a click)
             this.draggingIndex = clickedIndex;
             this.hasMoved = false; // Reset movement tracking
@@ -684,6 +719,22 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.dragStartY = y;
             // Don't set isDragging yet - we'll set it on first move
             // This allows clicks to work properly
+            e.preventDefault();
+            return;
+        }
+        // Check if clicking on a segment (line between two keyframes)
+        const segmentIndex = this.findSegmentAtPoint(x, y, rect);
+        if (segmentIndex >= 0) {
+            // Prepare to drag segment
+            this.draggingSegment = {
+                startIndex: segmentIndex,
+                endIndex: segmentIndex + 1,
+                initialStartTime: this.keyframes[segmentIndex].time,
+                initialEndTime: this.keyframes[segmentIndex + 1].time,
+                initialPointerX: x
+            };
+            this.hasMoved = false;
+            this.dragStartX = x;
             e.preventDefault();
             return;
         }
@@ -724,7 +775,67 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 }
             }
         }
-        if (!this.canvas || this.draggingIndex === null)
+        if (!this.canvas)
+            return;
+        // Handle segment dragging
+        if (this.draggingSegment !== null) {
+            const rect = this.canvas.getBoundingClientRect();
+            const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
+            const scrollOffset = this.wrapperEl?.scrollLeft || 0;
+            const currentX = clientX - rect.left + scrollOffset;
+            const dx = currentX - this.dragStartX;
+            const distance = Math.abs(dx);
+            if (distance < 5)
+                return; // Minimum movement threshold
+            if (!this.hasMoved) {
+                this.saveUndoState();
+                this.hasMoved = true;
+            }
+            const leftMargin = 35;
+            const yAxisWidth = 35;
+            const rightMargin = 35;
+            const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+            // Calculate time delta
+            const pixelDelta = currentX - this.draggingSegment.initialPointerX;
+            const timeDelta = (pixelDelta / graphWidth) * this.duration;
+            // Apply delta to both keyframes
+            let newStartTime = this.draggingSegment.initialStartTime + timeDelta;
+            let newEndTime = this.draggingSegment.initialEndTime + timeDelta;
+            // Constrain to not pass adjacent keyframes
+            const { startIndex, endIndex } = this.draggingSegment;
+            if (startIndex > 0) {
+                const prevTime = this.keyframes[startIndex - 1].time;
+                const minGap = this.duration / this.slots;
+                if (newStartTime < prevTime + minGap) {
+                    const shift = (prevTime + minGap) - newStartTime;
+                    newStartTime += shift;
+                    newEndTime += shift;
+                }
+            }
+            if (endIndex < this.keyframes.length - 1) {
+                const nextTime = this.keyframes[endIndex + 1].time;
+                const minGap = this.duration / this.slots;
+                if (newEndTime > nextTime - minGap) {
+                    const shift = newEndTime - (nextTime - minGap);
+                    newStartTime -= shift;
+                    newEndTime -= shift;
+                }
+            }
+            // Clamp to boundaries
+            newStartTime = Math.max(0, newStartTime);
+            newEndTime = Math.min(this.duration, newEndTime);
+            // Snap times to nearest slot (15-minute intervals)
+            const slotDuration = this.duration / this.slots;
+            newStartTime = Math.round(newStartTime / slotDuration) * slotDuration;
+            newEndTime = Math.round(newEndTime / slotDuration) * slotDuration;
+            // Update keyframes
+            this.keyframes[startIndex].time = newStartTime;
+            this.keyframes[endIndex].time = newEndTime;
+            this.drawTimeline();
+            return;
+        }
+        // Handle single keyframe dragging
+        if (this.draggingIndex === null)
             return;
         const rect = this.canvas.getBoundingClientRect();
         const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
@@ -795,6 +906,21 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     handleCanvasMouseUp(e) {
         this.clearHoldTimer();
+        // Handle segment dragging completion
+        if (this.draggingSegment !== null && this.hasMoved) {
+            this.dispatchEvent(new CustomEvent('segment-moved', {
+                detail: {
+                    startIndex: this.draggingSegment.startIndex,
+                    endIndex: this.draggingSegment.endIndex
+                },
+                bubbles: true,
+                composed: true
+            }));
+            this.draggingSegment = null;
+            this.hasMoved = false;
+            return;
+        }
+        // Handle single keyframe dragging completion
         if (this.draggingIndex !== null && this.hasMoved) {
             this.dispatchEvent(new CustomEvent('keyframe-moved', {
                 detail: {
@@ -806,6 +932,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             }));
         }
         this.draggingIndex = null;
+        this.draggingSegment = null;
         this.isDragging = false;
         this.hasMoved = false;
         this.isPanning = false; // Reset panning state
@@ -884,25 +1011,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         });
         // Delete keyframe if clicked on one
         if (clickedIndex >= 0) {
-            // Save state before deleting
-            this.saveUndoState();
-            const deletedKeyframe = this.keyframes[clickedIndex];
-            // Remove from keyframes
-            this.keyframes = this.keyframes.filter((_, i) => i !== clickedIndex);
-            // Clear selection if deleting selected keyframe
-            if (this.selectedKeyframeIndex === clickedIndex) {
-                this.selectedKeyframeIndex = null;
-            }
-            else if (this.selectedKeyframeIndex !== null && this.selectedKeyframeIndex > clickedIndex) {
-                // Adjust selection index if it was after the deleted keyframe
-                this.selectedKeyframeIndex--;
-            }
-            this.drawTimeline();
-            this.dispatchEvent(new CustomEvent('keyframe-deleted', {
-                detail: { keyframe: deletedKeyframe, index: clickedIndex },
-                bubbles: true,
-                composed: true
-            }));
+            this.deleteKeyframe(clickedIndex);
         }
     }
     clearHoldTimer() {
@@ -912,7 +1021,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         }
     }
     handleCanvasDoubleClick(e) {
-        if (!this.canvas || this.collapsed || this.readonly)
+        if (!this.canvas || this.collapsed || this.readonly || this.justDeletedKeyframe)
             return;
         const rect = this.canvas.getBoundingClientRect();
         const scrollOffset = this.wrapperEl?.scrollLeft || 0;
@@ -963,6 +1072,61 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             composed: true
         }));
     }
+    // Helper method to delete a keyframe
+    deleteKeyframe(index) {
+        if (index < 0 || index >= this.keyframes.length)
+            return;
+        // Save state before deleting
+        this.saveUndoState();
+        const deletedKeyframe = this.keyframes[index];
+        // Remove from keyframes
+        this.keyframes = this.keyframes.filter((_, i) => i !== index);
+        // Clear selection if deleting selected keyframe
+        if (this.selectedKeyframeIndex === index) {
+            this.selectedKeyframeIndex = null;
+        }
+        else if (this.selectedKeyframeIndex !== null && this.selectedKeyframeIndex > index) {
+            // Adjust selection index if deleting a keyframe before selected one
+            this.selectedKeyframeIndex--;
+        }
+        this.drawTimeline();
+        this.dispatchEvent(new CustomEvent('keyframe-deleted', {
+            detail: { index, keyframe: deletedKeyframe },
+            bubbles: true,
+            composed: true
+        }));
+    }
+    // Find segment (line between keyframes) at given point
+    findSegmentAtPoint(x, y, rect) {
+        const labelHeight = 30;
+        const leftMargin = 35;
+        const yAxisWidth = 35;
+        const rightMargin = 35;
+        const topMargin = 25;
+        const bottomMargin = 25;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        // Check each segment
+        for (let i = 0; i < this.keyframes.length - 1; i++) {
+            const kf1 = this.keyframes[i];
+            const kf2 = this.keyframes[i + 1];
+            const x1 = leftMargin + yAxisWidth + ((kf1.time / this.duration) * graphWidth);
+            const y1 = topMargin + ((1 - this.normalizeValue(kf1.value)) * graphHeight);
+            const x2 = leftMargin + yAxisWidth + ((kf2.time / this.duration) * graphWidth);
+            const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
+            // Check distance to horizontal line segment (flat hold)
+            if (x >= x1 && x <= x2) {
+                const distanceToHorizontal = Math.abs(y - y1);
+                if (distanceToHorizontal < 10)
+                    return i;
+            }
+            // Check distance to vertical line segment (step)
+            if (Math.abs(x - x2) < 10 && ((y >= y1 && y <= y2) || (y >= y2 && y <= y1))) {
+                return i;
+            }
+        }
+        return -1;
+    }
     clearKeyframes() {
         // Save state before clearing
         this.saveUndoState();
@@ -983,8 +1147,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (this.undoStack.length > 50) {
             this.undoStack = this.undoStack.slice(-50);
         }
+        this.updateUndoButtonState();
     }
-    undoDelete() {
+    // Public undo method (can be called externally or via Ctrl+Z)
+    undo() {
         if (this.undoStack.length === 0)
             return;
         // Pop last state from undo stack
@@ -993,11 +1159,34 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         // Restore previous state
         this.keyframes = previousState.map(kf => ({ ...kf }));
         this.drawTimeline();
+        this.updateUndoButtonState();
         this.dispatchEvent(new CustomEvent('keyframe-restored', {
             detail: { keyframes: this.keyframes },
             bubbles: true,
             composed: true
         }));
+    }
+    // Set external undo button reference
+    setUndoButton(buttonElement) {
+        this.undoButton = buttonElement;
+        // Add click handler
+        if (this.undoButton) {
+            this.undoButton.addEventListener('click', () => this.undo());
+            this.updateUndoButtonState();
+        }
+    }
+    // Update undo button disabled state
+    updateUndoButtonState() {
+        if (this.undoButton) {
+            if (this.undoStack.length > 0) {
+                this.undoButton.disabled = false;
+                this.undoButton.style.opacity = '1';
+            }
+            else {
+                this.undoButton.disabled = true;
+                this.undoButton.style.opacity = '0.5';
+            }
+        }
     }
     selectPrevious() {
         if (this.keyframes.length === 0)
@@ -1174,7 +1363,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
               <button class="secondary" @click=${this.toggleConfig}>
                 ${this.showConfig ? 'Hide' : 'Show'} Config
               </button>
-              <button class="secondary" @click=${this.undoDelete} ?disabled=${this.undoStack.length === 0}>
+              <button class="secondary" @click=${this.undo} ?disabled=${this.undoStack.length === 0}>
                 ↶ Undo
               </button>
               <button @click=${this.clearKeyframes}>Clear</button>
@@ -1620,6 +1809,9 @@ __decorate([
 __decorate([
     r()
 ], KeyframeTimeline.prototype, "draggingIndex", void 0);
+__decorate([
+    r()
+], KeyframeTimeline.prototype, "draggingSegment", void 0);
 __decorate([
     r()
 ], KeyframeTimeline.prototype, "selectedKeyframeIndex", void 0);
