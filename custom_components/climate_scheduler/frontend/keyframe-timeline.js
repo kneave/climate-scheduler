@@ -187,6 +187,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     updated(changedProperties) {
         super.updated(changedProperties);
+        // Redraw when keyframes, backgroundGraphs or advanceHistory changes
+        if (changedProperties.has('keyframes')) {
+            this.drawTimeline();
+        }
         // Redraw when backgroundGraphs or advanceHistory changes
         if (changedProperties.has('backgroundGraphs') || changedProperties.has('advanceHistory')) {
             this.drawTimeline();
@@ -490,35 +494,6 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.ctx.moveTo(lastX, lastY);
                 this.ctx.lineTo(endX, lastY);
                 this.ctx.stroke();
-                // Wraparound from right edge to left edge
-                const baseColor = this.getThemeColor('--keyframe-color');
-                // Apply semi-transparency for wraparound
-                const colorMatch = baseColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-                if (colorMatch) {
-                    this.ctx.strokeStyle = `rgba(${colorMatch[1]}, ${colorMatch[2]}, ${colorMatch[3]}, 0.5)`;
-                }
-                else {
-                    // Fallback for hex colors - convert to rgba
-                    const hexMatch = baseColor.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
-                    if (hexMatch) {
-                        const r = parseInt(hexMatch[1], 16);
-                        const g = parseInt(hexMatch[2], 16);
-                        const b = parseInt(hexMatch[3], 16);
-                        this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
-                    }
-                    else {
-                        this.ctx.strokeStyle = baseColor;
-                    }
-                }
-                this.ctx.setLineDash([5 * dpr, 5 * dpr]); // Dashed line for wraparound
-                this.ctx.beginPath();
-                this.ctx.moveTo(endX, lastY);
-                this.ctx.lineTo(endX, startY); // Vertical step at right edge
-                this.ctx.moveTo(leftMargin + yAxisWidth, startY); // Continue at left edge of graph
-                this.ctx.lineTo(leftMargin + yAxisWidth, startY);
-                this.ctx.stroke();
-                this.ctx.setLineDash([]); // Reset dash
-                this.ctx.strokeStyle = this.getThemeColor('--keyframe-color'); // Reset color
                 // Extend from left edge to first keyframe
                 if (firstKf.time > 0) {
                     const firstX = leftMargin + yAxisWidth + ((firstKf.time / this.duration) * graphWidth);

@@ -1011,9 +1011,7 @@ async function editGroupSchedule(groupName, day = null) {
     
     // Set previous day's last temperature
     const prevTemp = getPreviousDayLastTemp(groupData, currentDay);
-    if (prevTemp !== null) {
-        graph.previousDayEndValue = prevTemp;
-    }
+    graph.previousDayEndValue = prevTemp;
     
     // Update schedule mode UI
     updateScheduleModeUI();
@@ -2995,6 +2993,9 @@ async function pasteSchedule() {
     // Deep copy from clipboard
     const nodes = scheduleClipboard.map(n => ({...n}));
     
+    // Update currentSchedule with pasted data
+    currentSchedule = nodes;
+    
     // Update graph
     setGraphNodes(nodes);
     
@@ -3290,9 +3291,7 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
     
     // In all_days mode, previous day is same as current day
     if (scheduleMode === 'all_days') {
-        if (graph && graph.previousDayEndValue !== undefined) {
-            graph.previousDayEndValue = null;
-        }
+        graph.previousDayEndValue = null;
         return;
     }
     
@@ -3326,18 +3325,14 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
             if (nodesWithTemp.length > 0) {
                 const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
                 // Set previous day end value for canvas timeline
-                if (graph && graph.previousDayEndValue !== undefined) {
-                    graph.previousDayEndValue = lastNode.temp || lastNode.value;
-                }
+                graph.previousDayEndValue = lastNode.temp || lastNode.value;
                 return;
             }
         }
     }
     
-    // If no previous day data found, don't set it (will fall back to current day's last node)
-    if (graph && graph.previousDayEndValue !== undefined) {
-        graph.previousDayEndValue = null;
-    }
+    // If no previous day data found, clear it
+    graph.previousDayEndValue = null;
 }
 
 // Get previous day's last temperature value (for canvas graph)
@@ -3487,22 +3482,12 @@ async function switchDay(day) {
     // Switching day - no need to save since auto-save already persisted changes
     currentDay = day;
     
-    // Day updated
-    
     // Update UI first
     updateScheduleModeUI();
     
     // Reload schedule for selected day - update in place without recreating editor
     if (currentGroup) {
-        // Reload group data from backend to get latest saved state
-        // Reloading group data
-        const result = await haAPI.getGroups();
-        let groups = result?.response || result || {};
-        if (groups.groups && typeof groups.groups === 'object') {
-            groups = groups.groups;
-        }
-        allGroups = groups;
-        
+        // Use cached group data - no need to fetch from backend since auto-save keeps it in sync
         const groupData = allGroups[currentGroup];
         if (!groupData) return;
         
@@ -3525,7 +3510,6 @@ async function switchDay(day) {
         
         // Set loading flag to prevent auto-save during graph update
         isLoadingSchedule = true;
-        //
         
         // Update graph with new nodes
         setGraphNodes(currentSchedule);
@@ -3536,7 +3520,6 @@ async function switchDay(day) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
-        //
         }, 100);
         
         // Clear editing profile and hide indicator when returning to active profile
