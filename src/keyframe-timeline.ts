@@ -783,12 +783,25 @@ export class KeyframeTimeline extends LitElement {
         this.ctx.stroke();
         
         // Extend from left edge to first keyframe
+        // In multi-day mode, use previousDayEndValue; in 24hr mode, wrap to own last value
+        const wrapValue = this.previousDayEndValue !== undefined && this.previousDayEndValue !== null 
+          ? this.previousDayEndValue 
+          : lastKf.value;
+        const wrapY = topMargin + ((1 - this.normalizeValue(wrapValue)) * graphHeight);
+        
         if (firstKf.time > 0) {
+          // Hold wrap value horizontally, then step to first keyframe
           const firstX = leftMargin + yAxisWidth + ((firstKf.time / this.duration) * graphWidth);
           this.ctx.beginPath();
-          this.ctx.moveTo(leftMargin + yAxisWidth, startY);
-          this.ctx.lineTo(firstX, startY); // Hold previous day's value
-          this.ctx.lineTo(firstX, firstY); // Step to first keyframe value
+          this.ctx.moveTo(leftMargin + yAxisWidth, wrapY);
+          this.ctx.lineTo(firstX, wrapY);
+          this.ctx.lineTo(firstX, firstY);
+          this.ctx.stroke();
+        } else {
+          // First keyframe at 0, just draw vertical step
+          this.ctx.beginPath();
+          this.ctx.moveTo(leftMargin + yAxisWidth, wrapY);
+          this.ctx.lineTo(leftMargin + yAxisWidth, firstY);
           this.ctx.stroke();
         }
       }

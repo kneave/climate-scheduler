@@ -486,7 +486,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 const firstY = topMargin + ((1 - this.normalizeValue(firstKf.value)) * graphHeight);
                 // Determine the starting value (from previous day or from last keyframe)
                 const startValue = this.previousDayEndValue !== undefined ? this.previousDayEndValue : lastKf.value;
-                const startY = topMargin + ((1 - this.normalizeValue(startValue)) * graphHeight);
+                topMargin + ((1 - this.normalizeValue(startValue)) * graphHeight);
                 // Calculate the position of the last hour marker (24:00/00:00)
                 const endX = leftMargin + yAxisWidth + ((this.duration / this.duration) * graphWidth);
                 // Extend last keyframe to right edge
@@ -495,12 +495,25 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.ctx.lineTo(endX, lastY);
                 this.ctx.stroke();
                 // Extend from left edge to first keyframe
+                // In multi-day mode, use previousDayEndValue; in 24hr mode, wrap to own last value
+                const wrapValue = this.previousDayEndValue !== undefined && this.previousDayEndValue !== null
+                    ? this.previousDayEndValue
+                    : lastKf.value;
+                const wrapY = topMargin + ((1 - this.normalizeValue(wrapValue)) * graphHeight);
                 if (firstKf.time > 0) {
+                    // Hold wrap value horizontally, then step to first keyframe
                     const firstX = leftMargin + yAxisWidth + ((firstKf.time / this.duration) * graphWidth);
                     this.ctx.beginPath();
-                    this.ctx.moveTo(leftMargin + yAxisWidth, startY);
-                    this.ctx.lineTo(firstX, startY); // Hold previous day's value
-                    this.ctx.lineTo(firstX, firstY); // Step to first keyframe value
+                    this.ctx.moveTo(leftMargin + yAxisWidth, wrapY);
+                    this.ctx.lineTo(firstX, wrapY);
+                    this.ctx.lineTo(firstX, firstY);
+                    this.ctx.stroke();
+                }
+                else {
+                    // First keyframe at 0, just draw vertical step
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(leftMargin + yAxisWidth, wrapY);
+                    this.ctx.lineTo(leftMargin + yAxisWidth, firstY);
                     this.ctx.stroke();
                 }
             }
