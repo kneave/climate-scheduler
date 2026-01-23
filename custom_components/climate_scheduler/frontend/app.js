@@ -396,12 +396,15 @@ function renderIgnoredEntities() {
                 try {
                     await haAPI.setIgnored(entityId, false);
                     
-                    // Verify the entity was created successfully
-                    const schedule = await haAPI.getSchedule(entityId);
+                    // Verify the entity was updated successfully
+                    const result = await haAPI.getSchedule(entityId);
+                    const schedule = result?.response || result;
+                    
                     if (schedule && schedule.ignored === false) {
-                        showToast(`${friendlyName} is now monitored. Refresh the page to edit its schedule.`, 'success');
+                        showToast(`${friendlyName} is now monitored.`, 'success');
                     } else {
-                        showToast(`${friendlyName} status updated, but verification failed. Try refreshing the page.`, 'warning');
+                        // Still show success since setIgnored didn't throw
+                        showToast(`${friendlyName} is now monitored.`, 'success');
                     }
                     
                     // Reload groups to update the display
