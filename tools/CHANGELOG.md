@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased]
+
+### Notes:
+This update includes a complete overhaul of the UI and there will be bugs in it, I've tried to reach parity with the old graph system but I can guarantee I've missed something. Please check issues on GitHub if you hit any to see if they've already been reported, otherwise please raise a new one.  
+
+### Fixed
+- **New UI System!**: This should now work on mobile devices.
+- **Node Settings Persistence**: Fixed HVAC modes, fan modes, swing modes, preset modes, and custom values (A/B/C) not being saved when editing nodes
+  - Updated `autoSaveNodeSettings` in both `setupEditor` and `handleNodeSettings` to update `currentSchedule` array instead of transient keyframe objects
+  - Fixed `getGraphNodes()` to return `currentSchedule` directly instead of converting from keyframes (which lost properties)
+  - Updated `updateNodeFromInputs()` to update both keyframe (for rendering) and scheduleNode (for persistence)
+  - Fixed time/temperature adjustment buttons to maintain all node properties when incrementing/decrementing values
+  - Made `currentSchedule` a global variable to track complete node data across all editing operations
+
+- **Day Switching Performance**: Eliminated 5-second delay when switching between weekday/weekend in 5/2 mode
+  - Removed unnecessary `haAPI.getGroups()` call that fetched all groups from backend on every day switch
+  - Now uses cached `allGroups` data which is kept synchronized by auto-save
+
+- **Timeline Redraw**: Fixed timeline not updating immediately when keyframes change
+  - Added `drawTimeline()` call in `updated()` lifecycle method when `keyframes` property changes
+  - Timeline now redraws instantly when switching days or loading schedules
+
+- **Paste Schedule**: Fixed pasted schedules not being saved
+  - `pasteSchedule()` now updates `currentSchedule` before calling `saveSchedule()`
+  - Ensures all node properties including HVAC settings are preserved when pasting
+
+- **Previous Day Value**: Fixed previous day's end value not being displayed in multi-day schedules
+  - `setPreviousDayLastTempForGraph()` now always sets `previousDayEndValue` property (even to null) instead of checking if it exists
+  - `getPreviousDayLastTemp()` result is always assigned, ensuring proper value or null is set
+  - Timeline now correctly shows wraparound connection in 5/2 and individual day modes
+
+- **Tooltip Mode**: Fixed tooltip mode not persisting when changed from dropdown
+  - Added `attribute: false` to `tooltipMode` property decorator to prevent Lit from managing DOM attribute
+  - Dropdown now sets `tooltipMode` on both `graph` and `defaultScheduleGraph` instances
+
+### Changed
+- **Graph Wraparound Visualization**: Simplified wraparound line rendering for cleaner multi-day schedule display
+  - Removed dashed vertical transition line at end of day
+  - Kept solid lines: last keyframe extends to right edge, previous day value connects to first keyframe
+  - In 24-hour mode: wraps to own last value; in multi-day mode: uses previous day's end value
+  - Wraparound line drawn from left edge (00:00) to first keyframe, handling both time=0 and time>0 cases
+
+### Removed
+- Removed excessive debug logging for graph changes, undo operations, and keyframe clicks
+
+
 ## [1.14.12] - 2026-01-21
 
 ### Fixed
