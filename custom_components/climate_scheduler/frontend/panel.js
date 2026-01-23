@@ -535,7 +535,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                     <footer>
                         <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
                             <p><span id="version-info">Climate Scheduler</span>, created by <a href="https://neave.engineering" target="_blank" rel="noopener noreferrer" style="color: var(--primary)">Keegan Neave</a></p>
-                            <p><a href="https://www.buymeacoffee.com/kneave" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">🤖 Buy me robot parts!</a></p>
+                            <p><a href="https://www.buymeacoffee.com/kneave" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">☕ Buy me a coffee</a></p>
                         </div>
                     </footer>
                 </div>
