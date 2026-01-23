@@ -155,6 +155,9 @@ async function initApp() {
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
         
+        // Subscribe to profile change events
+        await haAPI.subscribeToEvents('climate_scheduler_profile_changed', handleProfileChanged);
+        
         // Set up UI event listeners
         setupEventListeners();
     } catch (error) {
@@ -493,7 +496,66 @@ function createGroupContainer(groupName, groupData) {
     // Add rename button for all groups
     const actions = document.createElement('div');
     actions.className = 'group-actions';
-    actions.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+    actions.style.cssText = 'display: flex; gap: 12px; align-items: center;';
+    
+    // Add Active Profile selector
+    const profileSelector = document.createElement('div');
+    profileSelector.className = 'group-profile-selector';
+    profileSelector.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    
+    const profileLabel = document.createElement('label');
+    profileLabel.textContent = 'Profile:';
+    profileLabel.style.cssText = 'font-size: 0.9rem; color: var(--text-secondary);';
+    
+    const profileDropdown = document.createElement('select');
+    profileDropdown.className = 'group-profile-dropdown';
+    profileDropdown.dataset.groupName = groupName;
+    profileDropdown.style.cssText = 'padding: 4px 8px; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--text-primary);';
+    
+    // Get profiles for this group
+    const activeProfile = groupData.active_profile || 'Default';
+    const profiles = groupData.profiles ? Object.keys(groupData.profiles) : ['Default'];
+    
+    profiles.forEach(profileName => {
+        const option = document.createElement('option');
+        option.value = profileName;
+        option.textContent = profileName;
+        if (profileName === activeProfile) {
+            option.selected = true;
+        }
+        profileDropdown.appendChild(option);
+    });
+    
+    // Add event listener for profile change
+    profileDropdown.addEventListener('click', (e) => e.stopPropagation());
+    profileDropdown.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const newProfile = e.target.value;
+        
+        try {
+            await haAPI.setActiveProfile(groupName, newProfile);
+            
+            // Reload group data from server
+            const groupsResult = await haAPI.getGroups();
+            allGroups = groupsResult.groups || groupsResult;
+            
+            // If this group is currently being edited, reload it
+            if (currentGroup === groupName) {
+                await editGroupSchedule(groupName);
+            }
+            
+            showToast(`Switched ${groupName} to profile: ${newProfile}`, 'success');
+        } catch (error) {
+            console.error('Failed to switch profile:', error);
+            showToast('Failed to switch profile', 'error');
+            // Revert dropdown
+            profileDropdown.value = activeProfile;
+        }
+    });
+    
+    profileSelector.appendChild(profileLabel);
+    profileSelector.appendChild(profileDropdown);
+    actions.appendChild(profileSelector);
     
     // Enable/disable toggle - reuse the styled toggle switch from settings
     const toggleLabel = document.createElement('label');
@@ -1328,6 +1390,11 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.createProfile(currentGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
                 await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
@@ -1351,6 +1418,11 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
                 await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
@@ -1373,6 +1445,11 @@ async function setupProfileHandlers(container, groupData) {
             try {
                 await haAPI.deleteProfile(currentGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
                 await loadProfiles(container, currentGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
@@ -1981,12 +2058,6 @@ function createScheduleEditor() {
                     <button id="graph-undo-btn" class="btn-quick-action" title="Undo last change">Undo</button>
                     <button id="advance-schedule-btn" class="btn-quick-action" title="Advance to next scheduled node">Advance</button>
                     <button id="save-schedule-btn" class="btn-quick-action btn-primary" title="Save schedule">Save</button>
-                </div>
-                <div class="graph-profile-selector" id="graph-profile-selector">
-                    <label>Active Profile:</label>
-                    <select id="graph-profile-dropdown" class="graph-profile-dropdown">
-                        <option value="Default">Default</option>
-                    </select>
                 </div>
             </div>
         </div>
@@ -3248,19 +3319,23 @@ function updateGraphDaySelector() {
 
 // Update the profile dropdown above the graph
 function updateGraphProfileDropdown() {
-    const graphProfileDropdown = getDocumentRoot().querySelector('#graph-profile-dropdown');
-    if (!graphProfileDropdown) {
-        return;
-    }
+    if (!currentGroup) return;
+    
+    // Find the group header's profile dropdown
+    const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${currentGroup}"]`);
+    if (!groupContainer) return;
+    
+    const profileDropdown = groupContainer.querySelector('.group-profile-dropdown');
+    if (!profileDropdown) return;
     
     // Get current active profile
-    const activeProfile = (currentGroup && allGroups[currentGroup]?.active_profile) || 'Default';
+    const activeProfile = (allGroups[currentGroup]?.active_profile) || 'Default';
     
     // Get all profiles
-    const profiles = (currentGroup && allGroups[currentGroup]?.profiles ? Object.keys(allGroups[currentGroup].profiles) : ['Default']);
+    const profiles = (allGroups[currentGroup]?.profiles ? Object.keys(allGroups[currentGroup].profiles) : ['Default']);
     
     // Update dropdown options
-    graphProfileDropdown.innerHTML = '';
+    profileDropdown.innerHTML = '';
     profiles.forEach(profileName => {
         const option = document.createElement('option');
         option.value = profileName;
@@ -3268,38 +3343,11 @@ function updateGraphProfileDropdown() {
         if (profileName === activeProfile) {
             option.selected = true;
         }
-        graphProfileDropdown.appendChild(option);
+        profileDropdown.appendChild(option);
     });
     
-    // Remove existing event listener by cloning
-    const newDropdown = graphProfileDropdown.cloneNode(true);
-    graphProfileDropdown.parentNode.replaceChild(newDropdown, graphProfileDropdown);
-    
-    // Set the value after cloning to ensure it's selected
-    newDropdown.value = activeProfile;
-    
-    // Add event listener for profile change
-    newDropdown.addEventListener('change', async (e) => {
-        const newProfile = e.target.value;
-        
-        try {
-            if (currentGroup) {
-                await haAPI.setActiveProfile(currentGroup, newProfile);
-                
-                // Reload group data from server
-                const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || groupsResult;
-                
-                // editGroupSchedule will call updateGraphProfileDropdown via updateGraphDaySelector
-                await editGroupSchedule(currentGroup);
-            }
-            
-            showToast(`Switched to profile: ${newProfile}`, 'success');
-        } catch (error) {
-            console.error('Failed to switch profile:', error);
-            showToast('Failed to switch profile', 'error');
-        }
-    });
+    // Ensure the active profile is selected
+    profileDropdown.value = activeProfile;
 }
 
 // Set previous day's last temperature for graph rendering
@@ -5164,6 +5212,31 @@ setInterval(() => {
     updateScheduledTemp();
     updateAllGroupMemberScheduledTemps();
 }, 60000);
+
+// Handle profile change events from backend
+async function handleProfileChanged(event) {
+    const { schedule_id: groupName, profile_name: newProfile } = event.data;
+    
+    if (!groupName || !newProfile) return;
+    
+    // Reload group data from server to get the new profile's schedules
+    const groupsResult = await haAPI.getGroups();
+    allGroups = groupsResult.groups || groupsResult;
+    
+    // Update the dropdown in the group header
+    const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${groupName}"]`);
+    if (groupContainer) {
+        const profileDropdown = groupContainer.querySelector('.group-profile-dropdown');
+        if (profileDropdown) {
+            profileDropdown.value = newProfile;
+        }
+    }
+    
+    // If this group is currently being edited, reload it to show the new profile's schedule
+    if (currentGroup === groupName) {
+        await editGroupSchedule(groupName);
+    }
+}
 
 // ===== Settings Panel =====
 

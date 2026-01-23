@@ -633,4 +633,15 @@ class HomeAssistantAPI {
             }
         });
     }
-}
+    
+    async subscribeToEvents(eventType, callback) {
+        if (this.usingHassObject && this.hass) {
+            // Use hass connection for event subscription
+            const conn = this.hass.connection;
+            if (conn && conn.subscribeEvents) {
+                return await conn.subscribeEvents(callback, eventType);
+            }
+        }
+        console.warn('Event subscription not available');
+        return null;
+    }}

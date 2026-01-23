@@ -1453,6 +1453,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             await storage.async_set_active_profile(target_id, profile_name)
             _LOGGER.info(f"Set active profile to '{profile_name}' for schedule '{target_id}'")
             
+            # Fire event for profile change
+            hass.bus.async_fire(
+                f"{DOMAIN}_profile_changed",
+                {
+                    "schedule_id": target_id,
+                    "profile_name": profile_name,
+                }
+            )
+            
             # Force immediate update - clear state for all entities in the group
             group_data = await storage.async_get_groups()
             if target_id in group_data and "entities" in group_data[target_id]:
