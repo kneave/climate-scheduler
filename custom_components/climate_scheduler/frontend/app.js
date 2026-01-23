@@ -42,6 +42,7 @@ let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; //
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
+let currentSchedule = []; // Currently loaded schedule nodes with all properties (time, temp, hvac_mode, etc.)
 let isLoadingSchedule = false; // Flag to prevent auto-save during schedule loading
 let isSaveInProgress = false; // Flag to prevent concurrent saves
 let pendingSaveNeeded = false; // Flag to indicate a save was skipped and needs to be retried
@@ -686,8 +687,9 @@ function keyframesToScheduleNodes(keyframes) {
 // Get nodes from graph (canvas timeline)
 function getGraphNodes() {
     if (!graph) return [];
-    // Canvas graph - convert keyframes to nodes
-    return graph.keyframes ? keyframesToScheduleNodes(graph.keyframes) : [];
+    // Return currentSchedule which has all properties (hvac_mode, fan_mode, A/B/C, etc.)
+    // Don't convert from keyframes as that loses all non-temp properties
+    return currentSchedule || [];
 }
 
 // Set nodes on graph (canvas timeline)
@@ -911,25 +913,18 @@ async function editGroupSchedule(groupName, day = null) {
             const undoBtn = editor.querySelector('#undo-btn');
             const graphUndoBtn = editor.querySelector('#graph-undo-btn');
             
-            console.log('Setting up undo buttons:', { undoBtn, graphUndoBtn, graph, hasUndoDelete: typeof graph?.undoDelete });
-            
             const updateAndAttach = (btn) => {
                 if (!btn) return;
                 
                 btn.onclick = () => {
-                    console.log('Undo button clicked', { graph, undoStack: graph?.undoStack, hasMethod: typeof graph?.undoDelete });
                     if (graph && typeof graph.undoDelete === 'function') {
-                        console.log('Calling undoDelete');
                         graph.undoDelete();
-                    } else {
-                        console.error('Cannot call undoDelete - graph or method not available');
                     }
                 };
                 
                 const updateState = () => {
                     const stackLength = graph?.undoStack?.length || 0;
                     btn.disabled = stackLength === 0;
-                    console.log('Undo button state updated:', { button: btn.id, stackLength, disabled: btn.disabled });
                 };
                 
                 // Attach listeners
@@ -2465,29 +2460,51 @@ function attachEditorEventListeners(editorElement) {
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIndex) || !graph) return;
         
-        const node = graph.keyframes[nodeIndex];
-        if (!node) return;
+        const keyframe = graph.keyframes[nodeIndex];
+        if (!keyframe) return;
+        
+        // Find the corresponding node in currentSchedule
+        const oldHours = Math.floor(keyframe.time);
+        const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+        const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
+        
+        const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
         
         // Update time
         if (timeInput && timeInput.value) {
-            node.time = timeInput.value;
+            const [hours, minutes] = timeInput.value.split(':').map(Number);
+            const decimalTime = hours + (minutes / 60);
+            keyframe.time = decimalTime;
+            
+            // Update schedule node time
+            if (scheduleNode) {
+                scheduleNode.time = timeInput.value;
+            }
         }
         
         // Update temperature
         const tempNoChange = editorElement.querySelector('#temp-no-change');
         if (tempNoChange && tempNoChange.checked) {
-            node.noChange = true;
+            // Set noChange flag in schedule node
+            if (scheduleNode) {
+                scheduleNode.noChange = true;
+            }
         } else {
-            node.noChange = false;
+            if (scheduleNode) {
+                scheduleNode.noChange = false;
+            }
             if (tempInput && tempInput.value) {
                 const temp = parseFloat(tempInput.value);
                 if (!isNaN(temp)) {
-                    node.temp = temp;
+                    keyframe.value = temp;
+                    if (scheduleNode) {
+                        scheduleNode.temp = temp;
+                    }
                 }
             }
         }
         
-        graph.render();
+        graph.requestUpdate();
         saveSchedule();
     };
     
@@ -2507,19 +2524,32 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.keyframes[nodeIndex];
-            if (!node) return;
+            const keyframe = graph.keyframes[nodeIndex];
+            if (!keyframe) return;
             
-            // Parse time and add 15 minutes
-            const [hours, minutes] = node.time.split(':').map(Number);
-            let totalMinutes = hours * 60 + minutes + 15;
-            if (totalMinutes >= 1440) totalMinutes -= 1440; // Wrap at 24h
+            // Get old time string for finding scheduleNode
+            const oldHours = Math.floor(keyframe.time);
+            const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+            const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
             
-            const newHours = Math.floor(totalMinutes / 60);
-            const newMinutes = totalMinutes % 60;
-            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            // Add 15 minutes to decimal time
+            let newDecimalTime = keyframe.time + 0.25; // 15 minutes = 0.25 hours
+            if (newDecimalTime >= 24) newDecimalTime -= 24; // Wrap at 24h
             
-            timeInput.value = node.time;
+            // Update keyframe time (decimal)
+            keyframe.time = newDecimalTime;
+            
+            // Update corresponding scheduleNode time (string)
+            const newHours = Math.floor(newDecimalTime);
+            const newMinutes = Math.round((newDecimalTime - newHours) * 60);
+            const newTimeStr = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
+            if (scheduleNode) {
+                scheduleNode.time = newTimeStr;
+            }
+            
+            timeInput.value = newTimeStr;
             graph.render();
             saveSchedule();
         };
@@ -2531,19 +2561,32 @@ function attachEditorEventListeners(editorElement) {
             const nodeIndex = parseInt(panel.dataset.nodeIndex);
             if (isNaN(nodeIndex) || !graph) return;
             
-            const node = graph.keyframes[nodeIndex];
-            if (!node) return;
+            const keyframe = graph.keyframes[nodeIndex];
+            if (!keyframe) return;
             
-            // Parse time and subtract 15 minutes
-            const [hours, minutes] = node.time.split(':').map(Number);
-            let totalMinutes = hours * 60 + minutes - 15;
-            if (totalMinutes < 0) totalMinutes += 1440; // Wrap at 0
+            // Get old time string for finding scheduleNode
+            const oldHours = Math.floor(keyframe.time);
+            const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+            const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
             
-            const newHours = Math.floor(totalMinutes / 60);
-            const newMinutes = totalMinutes % 60;
-            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            // Subtract 15 minutes from decimal time
+            let newDecimalTime = keyframe.time - 0.25; // 15 minutes = 0.25 hours
+            if (newDecimalTime < 0) newDecimalTime += 24; // Wrap at 0
             
-            timeInput.value = node.time;
+            // Update keyframe time (decimal)
+            keyframe.time = newDecimalTime;
+            
+            // Update corresponding scheduleNode time (string)
+            const newHours = Math.floor(newDecimalTime);
+            const newMinutes = Math.round((newDecimalTime - newHours) * 60);
+            const newTimeStr = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
+            if (scheduleNode) {
+                scheduleNode.time = newTimeStr;
+            }
+            
+            timeInput.value = newTimeStr;
             graph.render();
             saveSchedule();
         };
@@ -2565,6 +2608,15 @@ function attachEditorEventListeners(editorElement) {
             // Increment based on inputTempStep setting
             const multiplier = 1 / inputTempStep;
             keyframe.value = Math.round((keyframe.value + inputTempStep) * multiplier) / multiplier;
+            
+            // Update corresponding scheduleNode.temp
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+            if (scheduleNode) {
+                scheduleNode.temp = keyframe.value;
+            }
             
             tempInput.value = keyframe.value;
             
@@ -2595,6 +2647,15 @@ function attachEditorEventListeners(editorElement) {
             // Decrement based on inputTempStep setting
             const multiplier = 1 / inputTempStep;
             keyframe.value = Math.round((keyframe.value - inputTempStep) * multiplier) / multiplier;
+            
+            // Update corresponding scheduleNode.temp
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+            if (scheduleNode) {
+                scheduleNode.temp = keyframe.value;
+            }
             
             tempInput.value = keyframe.value;
             
@@ -2703,44 +2764,52 @@ function attachEditorEventListeners(editorElement) {
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIndex) || !graph) return;
         
-        // Get the actual node from the graph
-        const node = graph.keyframes[nodeIndex];
-        if (!node) return;
+        // Get the keyframe from graph
+        const keyframe = graph.keyframes[nodeIndex];
+        if (!keyframe) return;
+        
+        // Find the corresponding node in currentSchedule by time
+        const hours = Math.floor(keyframe.time);
+        const minutes = Math.round((keyframe.time - hours) * 60);
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        
+        const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+        if (!scheduleNode) return;
         
         // Update or delete properties based on dropdown values
         if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
             const hvacMode = hvacModeSelect.value;
             if (hvacMode) {
-                node.hvac_mode = hvacMode;
+                scheduleNode.hvac_mode = hvacMode;
             } else {
-                delete node.hvac_mode;
+                delete scheduleNode.hvac_mode;
             }
         }
         
         if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
             const fanMode = fanModeSelect.value;
             if (fanMode) {
-                node.fan_mode = fanMode;
+                scheduleNode.fan_mode = fanMode;
             } else {
-                delete node.fan_mode;
+                delete scheduleNode.fan_mode;
             }
         }
         
         if (swingModeSelect && swingModeSelect.closest('.setting-item').style.display !== 'none') {
             const swingMode = swingModeSelect.value;
             if (swingMode) {
-                node.swing_mode = swingMode;
+                scheduleNode.swing_mode = swingMode;
             } else {
-                delete node.swing_mode;
+                delete scheduleNode.swing_mode;
             }
         }
         
         if (presetModeSelect && presetModeSelect.closest('.setting-item').style.display !== 'none') {
             const presetMode = presetModeSelect.value;
             if (presetMode) {
-                node.preset_mode = presetMode;
+                scheduleNode.preset_mode = presetMode;
             } else {
-                delete node.preset_mode;
+                delete scheduleNode.preset_mode;
             }
         }
         
@@ -2751,29 +2820,21 @@ function attachEditorEventListeners(editorElement) {
         
         if (valueAInput) {
             const val = valueAInput.value.trim();
-            node['A'] = val !== '' ? parseFloat(val) : null;
+            scheduleNode['A'] = val !== '' ? parseFloat(val) : null;
         }
         if (valueBInput) {
             const val = valueBInput.value.trim();
-            node['B'] = val !== '' ? parseFloat(val) : null;
+            scheduleNode['B'] = val !== '' ? parseFloat(val) : null;
         }
         if (valueCInput) {
             const val = valueCInput.value.trim();
-            node['C'] = val !== '' ? parseFloat(val) : null;
-        }
-        
-        // Update UI immediately before triggering save
-        if (graph.render) {
-            // Old SVG graph has render method
-            graph.render();
-        } else {
-            // Canvas timeline - request update
-            graph.requestUpdate();
+            scheduleNode['C'] = val !== '' ? parseFloat(val) : null;
         }
         
         // Trigger save - check if using canvas timeline or old graph
         if (graph.notifyChange) {
             // Old SVG graph has notifyChange method
+            graph.render();
             graph.notifyChange(true);
         } else {
             // Canvas timeline - save directly
@@ -3790,14 +3851,6 @@ async function performSave() {
 
 // Handle graph changes - auto-save and sync if needed
 async function handleGraphChange(event, force = false) {
-    // Handle graph change
-    console.log('[GRAPH] handleGraphChange triggered', {
-        timestamp: new Date().toISOString(),
-        eventType: event?.type,
-        force,
-        currentGroup
-    });
-    
     // If event has detail.force, use that
     if (event && event.detail && event.detail.force !== undefined) {
         force = event.detail.force;
@@ -4944,59 +4997,76 @@ function handleNodeSettings(event) {
         const nodeIdx = parseInt(panel.dataset.nodeIndex);
         if (isNaN(nodeIdx) || !graph) return;
         
-        // Get the actual node from the graph
-        const targetNode = graph.keyframes[nodeIdx];
-        if (!targetNode) return;
+        // Get the keyframe from graph
+        const keyframe = graph.keyframes[nodeIdx];
+        if (!keyframe) return;
+        
+        // Find the corresponding node in currentSchedule by time
+        const hours = Math.floor(keyframe.time);
+        const minutes = Math.round((keyframe.time - hours) * 60);
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        
+        const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+        if (!scheduleNode) return;
+        
+        // Query for current dropdown elements (not using closure variables)
+        const currentHvacSelect = getDocumentRoot().querySelector('#node-hvac-mode');
+        const currentFanSelect = getDocumentRoot().querySelector('#node-fan-mode');
+        const currentSwingSelect = getDocumentRoot().querySelector('#node-swing-mode');
+        const currentPresetSelect = getDocumentRoot().querySelector('#node-preset-mode');
+        const currentValueAInput = getDocumentRoot().querySelector('#node-value-A');
+        const currentValueBInput = getDocumentRoot().querySelector('#node-value-B');
+        const currentValueCInput = getDocumentRoot().querySelector('#node-value-C');
         
         // Update or delete properties based on dropdown values
-        if (hvacModeSelect && hvacModeItem.style.display !== 'none') {
-            const hvacMode = hvacModeSelect.value;
+        if (currentHvacSelect && currentHvacSelect.closest('.setting-item').style.display !== 'none') {
+            const hvacMode = currentHvacSelect.value;
             if (hvacMode) {
-                targetNode.hvac_mode = hvacMode;
+                scheduleNode.hvac_mode = hvacMode;
             } else {
-                delete targetNode.hvac_mode;
+                delete scheduleNode.hvac_mode;
             }
         }
         
-        if (fanModeSelect && fanModeItem.style.display !== 'none') {
-            const fanMode = fanModeSelect.value;
+        if (currentFanSelect && currentFanSelect.closest('.setting-item').style.display !== 'none') {
+            const fanMode = currentFanSelect.value;
             if (fanMode) {
-                targetNode.fan_mode = fanMode;
+                scheduleNode.fan_mode = fanMode;
             } else {
-                delete targetNode.fan_mode;
+                delete scheduleNode.fan_mode;
             }
         }
         
-        if (swingModeSelect && swingModeItem.style.display !== 'none') {
-            const swingMode = swingModeSelect.value;
+        if (currentSwingSelect && currentSwingSelect.closest('.setting-item').style.display !== 'none') {
+            const swingMode = currentSwingSelect.value;
             if (swingMode) {
-                targetNode.swing_mode = swingMode;
+                scheduleNode.swing_mode = swingMode;
             } else {
-                delete targetNode.swing_mode;
+                delete scheduleNode.swing_mode;
             }
         }
         
-        if (presetModeSelect && presetModeItem.style.display !== 'none') {
-            const presetMode = presetModeSelect.value;
+        if (currentPresetSelect && currentPresetSelect.closest('.setting-item').style.display !== 'none') {
+            const presetMode = currentPresetSelect.value;
             if (presetMode) {
-                targetNode.preset_mode = presetMode;
+                scheduleNode.preset_mode = presetMode;
             } else {
-                delete targetNode.preset_mode;
+                delete scheduleNode.preset_mode;
             }
         }
         
         // Update value fields
-        if (valueAInput) {
-            const val = valueAInput.value.trim();
-            targetNode['A'] = val !== '' ? parseFloat(val) : null;
+        if (currentValueAInput) {
+            const val = currentValueAInput.value.trim();
+            scheduleNode['A'] = val !== '' ? parseFloat(val) : null;
         }
-        if (valueBInput) {
-            const val = valueBInput.value.trim();
-            targetNode['B'] = val !== '' ? parseFloat(val) : null;
+        if (currentValueBInput) {
+            const val = currentValueBInput.value.trim();
+            scheduleNode['B'] = val !== '' ? parseFloat(val) : null;
         }
-        if (valueCInput) {
-            const val = valueCInput.value.trim();
-            targetNode['C'] = val !== '' ? parseFloat(val) : null;
+        if (currentValueCInput) {
+            const val = currentValueCInput.value.trim();
+            scheduleNode['C'] = val !== '' ? parseFloat(val) : null;
         }
         
         // Trigger save - check if using canvas timeline or old graph

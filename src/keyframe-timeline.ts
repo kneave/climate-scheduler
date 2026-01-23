@@ -1539,7 +1539,6 @@ export class KeyframeTimeline extends LitElement {
       this.selectedKeyframeIndex = clickedIndex;
       this.drawTimeline();
       
-      console.log('Clicked on keyframe:', this.keyframes[clickedIndex]);
       this.dispatchEvent(new CustomEvent('keyframe-clicked', {
         detail: { 
           index: clickedIndex,
