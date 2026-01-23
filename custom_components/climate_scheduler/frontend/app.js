@@ -2507,11 +2507,13 @@ function attachEditorEventListeners(editorElement) {
     };
     
     if (timeInput) {
+        timeInput.addEventListener('input', updateNodeFromInputs);  // Immediate update while typing
         timeInput.addEventListener('change', updateNodeFromInputs);
         timeInput.addEventListener('blur', updateNodeFromInputs);
     }
     
     if (tempInput) {
+        tempInput.addEventListener('input', updateNodeFromInputs);  // Immediate update while typing
         tempInput.addEventListener('change', updateNodeFromInputs);
         tempInput.addEventListener('blur', updateNodeFromInputs);
     }
@@ -2548,8 +2550,15 @@ function attachEditorEventListeners(editorElement) {
             }
             
             timeInput.value = newTimeStr;
+            
+            // Update UI immediately
             graph.render();
-            saveSchedule();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                graph.keyframes = [...graph.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
@@ -2585,8 +2594,15 @@ function attachEditorEventListeners(editorElement) {
             }
             
             timeInput.value = newTimeStr;
+            
+            // Update UI immediately
             graph.render();
-            saveSchedule();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                graph.keyframes = [...graph.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
