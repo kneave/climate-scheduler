@@ -136,12 +136,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.hoverY = null;
     }
     willUpdate(changedProperties) {
-        if (changedProperties.has('tooltipMode')) {
-            console.log(`[${this.instanceId}] KeyframeTimeline: tooltipMode changed from:`, changedProperties.get('tooltipMode'), 'to:', this.tooltipMode);
-        }
+        // Property change tracking
     }
     firstUpdated() {
-        console.log(`[${this.instanceId}] KeyframeTimeline: firstUpdated, tooltipMode is:`, this.tooltipMode);
         const canvasEl = this.shadowRoot?.querySelector('canvas');
         if (canvasEl) {
             this.canvas = canvasEl;
@@ -673,7 +670,6 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const adjustedX = x - leftMargin - yAxisWidth;
         const time = (adjustedX / graphWidth) * this.duration;
         let tooltipLines = [];
-        console.log(`[${this.instanceId}] Drawing tooltip, tooltipMode:`, this.tooltipMode);
         if (this.tooltipMode === 'cursor') {
             // Show interpolated value at cursor position on schedule line
             const tooltipValue = this.getInterpolatedValue(time);

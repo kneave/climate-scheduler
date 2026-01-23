@@ -359,13 +359,10 @@ export class KeyframeTimeline extends LitElement {
   private hoverY: number | null = null;
   
   willUpdate(changedProperties: Map<string, any>) {
-    if (changedProperties.has('tooltipMode')) {
-      console.log(`[${this.instanceId}] KeyframeTimeline: tooltipMode changed from:`, changedProperties.get('tooltipMode'), 'to:', this.tooltipMode);
-    }
+    // Property change tracking
   }
 
   firstUpdated() {
-    console.log(`[${this.instanceId}] KeyframeTimeline: firstUpdated, tooltipMode is:`, this.tooltipMode);
     const canvasEl = this.shadowRoot?.querySelector('canvas');
     if (canvasEl) {
       this.canvas = canvasEl;
@@ -984,8 +981,6 @@ export class KeyframeTimeline extends LitElement {
     const time = (adjustedX / graphWidth) * this.duration;
     
     let tooltipLines: Array<{ text: string; color?: string }> = [];
-    
-    console.log(`[${this.instanceId}] Drawing tooltip, tooltipMode:`, this.tooltipMode);
     
     if (this.tooltipMode === 'cursor') {
       // Show interpolated value at cursor position on schedule line
