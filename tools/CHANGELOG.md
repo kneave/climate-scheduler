@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+
+
+## [1.15.0-develop.2] - 2026-01-23
 
 ### Notes:
 This update includes a complete overhaul of the UI and there will be bugs in it, I've tried to reach parity with the old graph system but I can guarantee I've missed something. Please check issues on GitHub if you hit any to see if they've already been reported, otherwise please raise a new one.  
@@ -44,6 +46,7 @@ This update includes a complete overhaul of the UI and there will be bugs in it,
 
 ### Removed
 - Removed excessive debug logging for graph changes, undo operations, and keyframe clicks
+ame clicks
 
 
 ## [1.14.12] - 2026-01-21
