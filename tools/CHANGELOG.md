@@ -2,7 +2,28 @@
 
 
 
-## [1.15.0-develop.2] - 2026-01-23
+## [1.15.0-develop.4] - 2026-01-24
+
+### Changed
+- **Profile Selector**: Removed "Profile:" label from group header dropdowns for cleaner appearance
+- **Timeline Controls**: Hidden all timeline control buttons (Previous, Next, Collapse, Config, Undo, Clear) for simplified interface
+- **Mobile Layout Optimization**: Extensively reduced spacing on small screens (≤400px) for better space utilization
+  - Schedule editor padding: 20px → 4px
+  - Editor header margins: 20px → 6px
+  - Graph top controls gap: 16px → 4px
+  - Day period selector and quick actions padding: 12px → 4px
+  - All container padding/margins: 16px → 4px
+  - Editor controls gap: 15px → 4px
+  - Graph container top margin: 20px → 6px
+- **Tablet Layout Optimization**: Moderate spacing reduction on medium screens (≤768px)
+  - Schedule editor padding: 20px → 12px
+  - Editor header margins: 20px → 12px
+  - Day period selector and quick actions padding: 12px → 10px
+  - Container padding: 16px → 10px
+  - Graph container top margin: 20px → 12px
+- **Responsive Controls**: Graph top controls (day period selector and quick actions) now stack vertically on screens ≤768px instead of trying to fit side by side
+
+## [1.15.0-develop.3] - 2026-01-23
 
 ### Notes:
 This update includes a complete overhaul of the UI and there will be bugs in it, I've tried to reach parity with the old graph system but I can guarantee I've missed something. Please check issues on GitHub if you hit any to see if they've already been reported, otherwise please raise a new one.  
