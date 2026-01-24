@@ -64,22 +64,27 @@ climate-scheduler-panel {
     height: 100%;
 }
 
-/* Buttons - moved out of :host to work with light DOM */
-.schedule-btn {
-    min-width: 110px;
-    padding: 8px 16px;
+/* Base button styles - all buttons inherit from this */
+button, .btn {
+    padding: 6px 12px;
     font-size: 0.95rem;
     font-weight: 500;
     border-radius: 6px;
     margin: 0;
     box-sizing: border-box;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+/* Schedule buttons */
+.schedule-btn {
+    min-width: 110px;
 }
 
 .btn-primary {
     background: var(--primary-color);
     color: white;
     border: none;
-    transition: all 0.2s;
 }
 
 .btn-primary:hover {
@@ -96,7 +101,6 @@ climate-scheduler-panel {
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    transition: all 0.2s;
 }
 
 .btn-secondary:hover {
@@ -114,7 +118,6 @@ climate-scheduler-panel {
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border);
-    transition: all 0.2s;
 }
 
 .btn-secondary-outline:hover {
@@ -126,7 +129,6 @@ climate-scheduler-panel {
     background: transparent;
     color: var(--danger);
     border: 1px solid var(--danger);
-    transition: all 0.2s;
 }
 
 .btn-danger-outline:hover {
@@ -177,11 +179,7 @@ climate-scheduler-panel {
     background: var(--surface-light);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    padding: 8px 12px;
-    border-radius: 6px;
-    cursor: pointer;
     font-size: 1.2rem;
-    transition: all 0.2s;
 }
 
 .btn-icon:hover {
@@ -573,12 +571,8 @@ climate-scheduler-panel {
     background: var(--primary-color);
     color: white;
     border: none;
-    padding: 10px 24px;
-    border-radius: 6px;
     font-size: 1rem;
     font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
 }
 
 .btn-primary:hover {
@@ -595,11 +589,8 @@ climate-scheduler-panel {
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    padding: 10px 20px;
-    border-radius: 6px;
     font-size: 0.95rem;
-    font-weight: 500;
-    cursor: pointer;
+}
     transition: all 0.2s;
 }
 
@@ -793,6 +784,212 @@ footer {
         flex-direction: row;
         justify-content: space-between;
     }
+    
+    /* Stack graph top controls on tablet and mobile */
+    .graph-top-controls {
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    
+    .day-period-selector,
+    .graph-quick-actions {
+        width: 100%;
+        margin: 0;
+        padding: 10px;
+    }
+    
+    /* Reduce schedule editor padding on tablets */
+    .schedule-editor {
+        padding: 12px;
+    }
+    
+    .editor-header {
+        margin-bottom: 12px;
+        gap: 10px;
+    }
+    
+    .graph-container {
+        margin-top: 12px;
+    }
+    
+    /* Reduce 16px padding/margins to 10-12px on tablets */
+    .schedule-settings-panel,
+    .schedule-editor-inline {
+        padding: 10px;
+    }
+    
+    .group-members-container,
+    .instructions-container,
+    .editor-header-inline {
+        margin-bottom: 10px;
+    }
+}
+
+/* Extra small mobile devices (320px width) */
+@media (max-width: 400px) {
+    .container {
+        padding: 8px;
+    }
+
+    header h1 {
+        font-size: 1.2rem;
+    }
+
+    /* Make buttons more compact */
+    button, .btn {
+        padding: 4px 8px;
+        font-size: 0.85rem;
+    }
+
+    .schedule-btn {
+        min-width: 80px;
+    }
+
+    .btn-quick-action {
+        font-size: 0.8rem;
+        padding: 4px 6px;
+    }
+
+    /* Reduce spacing in group headers */
+    .group-header {
+        padding: 8px;
+        gap: 6px;
+    }
+
+    .group-title {
+        font-size: 0.9rem;
+    }
+
+    .group-count {
+        font-size: 0.75rem;
+    }
+
+    /* Make profile dropdown more compact */
+    .group-profile-selector {
+        gap: 4px;
+    }
+
+    .group-profile-selector label {
+        font-size: 0.8rem;
+    }
+
+    .group-profile-dropdown {
+        font-size: 0.8rem;
+        padding: 4px 6px;
+    }
+
+    /* Compact day selector */
+    .day-period-btn {
+        padding: 3px 6px;
+        font-size: 0.8rem;
+        min-width: 30px;
+    }
+
+    /* Reduce entity status text */
+    .entity-status {
+        gap: 6px;
+    }
+
+    .status-label {
+        font-size: 0.75rem;
+    }
+
+    .status-value {
+        font-size: 0.85rem;
+    }
+
+    /* Compact node settings panel */
+    .setting-item label {
+        font-size: 0.85rem;
+    }
+
+    .setting-item input,
+    .setting-item select {
+        font-size: 0.85rem;
+        padding: 4px 6px;
+    }
+
+    /* Reduce modal sizes */
+    .modal-content {
+        min-width: 280px;
+        max-width: 95%;
+        padding: 12px;
+    }
+
+    .modal-header h2 {
+        font-size: 1rem;
+    }
+
+    /* Compact graph controls */
+    .graph-controls {
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+    
+    /* Stack graph top controls on mobile */
+    .graph-top-controls {
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 4px;
+    }
+    
+    .day-period-selector,
+    .graph-quick-actions {
+        width: 100%;
+        margin: 0;
+        padding: 4px;
+    }
+    
+    /* Reduce schedule editor padding */
+    .schedule-editor {
+        padding: 4px;
+        border-radius: 8px;
+    }
+    
+    .editor-header {
+        margin-bottom: 6px;
+        gap: 4px;
+    }
+    
+    .editor-header h2 {
+        font-size: 1.1rem;
+    }
+    
+    .editor-controls {
+        gap: 4px;
+    }
+    
+    .graph-container {
+        margin-top: 6px;
+    }
+    
+    /* Reduce all padding/margins to 4px */
+    .schedule-settings-panel,
+    .schedule-editor-inline,
+    .group-members-container,
+    .instructions-container {
+        padding: 4px !important;
+        margin-bottom: 4px;
+    }
+    
+    .editor-header-inline {
+        margin-bottom: 4px;
+    }
+
+    /* Reduce spinner button sizes */
+    .spinner-btn {
+        padding: 3px 6px;
+        font-size: 0.7rem;
+        min-width: 20px;
+    }
+
+    /* Make input fields more compact */
+    .time-input, .temp-input {
+        padding: 4px 6px;
+        font-size: 0.85rem;
+        width: 70px;
+    }
 }
 
 /* Scrollbar */
@@ -876,10 +1073,7 @@ footer {
     border: 1px solid var(--border);
     color: var(--text-primary);
     font-size: 0.9rem;
-    cursor: pointer;
-    padding: 4px 10px;
-    border-radius: 4px;
-    transition: all 0.2s;
+}
     font-weight: bold;
 }
 
@@ -953,11 +1147,7 @@ footer {
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 0.75rem;
-    transition: all 0.2s;
     min-width: 24px;
 }
 
@@ -1131,7 +1321,6 @@ footer {
 }
 
 .btn-danger {
-    padding: 10px 24px;
     background: #d32f2f;
     color: #fff;
     border: none;
@@ -1152,15 +1341,10 @@ footer {
 }
 
 .btn-danger-outline {
-    padding: 8px 16px;
     background: transparent;
     color: var(--danger);
     border: 1px solid var(--danger);
-    border-radius: 6px;
     font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
 }
 
 .btn-danger-outline:hover {
@@ -1169,11 +1353,9 @@ footer {
 }
 
 .btn-secondary-outline {
-    padding: 8px 16px;
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border);
-    border-radius: 6px;
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
@@ -1531,11 +1713,7 @@ footer {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-secondary);
-    padding: 4px 8px;
-    border-radius: 4px;
-    cursor: pointer;
     font-size: 0.9rem;
-    transition: all 0.2s;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1593,12 +1771,8 @@ footer {
     background: none;
     border: none;
     color: var(--text-secondary);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 1.2rem;
     line-height: 1;
-    transition: all 0.2s;
 }
 
 .close-editor-btn:hover {
@@ -1895,7 +2069,6 @@ footer {
 }
 
 .btn-profile {
-    padding: 8px 12px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -1946,7 +2119,6 @@ footer {
 }
 
 .btn-quick-action {
-    padding: 6px 14px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -2025,19 +2197,17 @@ footer {
 }
 
 .day-period-btn {
-    padding: 8px 16px;
+    padding: 4px 10px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 6px;
     font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    min-width: 60px;
+    min-width: 40px;
 }
 
 .day-period-btn:hover {
     background: var(--surface-hover);
+}
     border-color: var(--primary-color);
 }
 

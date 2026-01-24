@@ -483,13 +483,8 @@ function createGroupContainer(groupName, groupData) {
     // Always display the actual group name for consistency with service calls/actions
     title.textContent = groupName;
     
-    const count = document.createElement('span');
-    count.className = 'group-count';
-    count.textContent = `${groupData.entities?.length || 0} entities`;
-    
     leftSide.appendChild(toggleIcon);
     leftSide.appendChild(title);
-    leftSide.appendChild(count);
     
     header.appendChild(leftSide);
     
@@ -502,10 +497,6 @@ function createGroupContainer(groupName, groupData) {
     const profileSelector = document.createElement('div');
     profileSelector.className = 'group-profile-selector';
     profileSelector.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-    
-    const profileLabel = document.createElement('label');
-    profileLabel.textContent = 'Profile:';
-    profileLabel.style.cssText = 'font-size: 0.9rem; color: var(--text-secondary);';
     
     const profileDropdown = document.createElement('select');
     profileDropdown.className = 'group-profile-dropdown';
@@ -553,7 +544,6 @@ function createGroupContainer(groupName, groupData) {
         }
     });
     
-    profileSelector.appendChild(profileLabel);
     profileSelector.appendChild(profileDropdown);
     actions.appendChild(profileSelector);
     
@@ -954,6 +944,7 @@ async function editGroupSchedule(groupName, day = null) {
         timeline.xAxisLabel = `Time of Day (24hr)`;
         timeline.showCurrentTime = true;
         timeline.tooltipMode = tooltipMode; // Set tooltip mode from global setting
+        timeline.showHeader = false; // Hide all timeline controls
         
         graphContainer.appendChild(timeline);
         
