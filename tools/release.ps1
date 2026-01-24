@@ -714,7 +714,7 @@ else {
 
 # Update .version file in frontend directory with current manifest version
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would update' } else { 'Updating' }) .version file..." -ForegroundColor Yellow
-$versionFilePath = Join-Path $PSScriptRoot "custom_components\climate_scheduler\frontend\.version"
+$versionFilePath = Join-Path (Split-Path $PSScriptRoot -Parent) "custom_components\climate_scheduler\frontend\.version"
 if (-not $DryRun) {
     Set-Content -Path $versionFilePath -Value $manifestVersion -NoNewline
     Write-Host "Updated .version file: $manifestVersion" -ForegroundColor Green
@@ -790,8 +790,7 @@ if (-not $DryRun) {
         Write-Host "No changes to commit (re-release mode - this is expected)" -ForegroundColor Green
     }
     else {
-        Write-Error "No changes to commit"
-        exit 1
+        Write-Host "No changes to commit (files may already be committed)" -ForegroundColor Yellow
     }
 }
 else {
