@@ -89,7 +89,6 @@ const loadScripts = (): Promise<void> => {
     
     return Promise.all([
         loadScript(`${basePath}/utils.js?v=${version}`),
-        loadScript(`${basePath}/graph.js?v=${version}`),
         loadScript(`${basePath}/ha-api.js?v=${version}`)
     ]).then(() => {
         return loadScript(`${basePath}/app.js?v=${version}`);
