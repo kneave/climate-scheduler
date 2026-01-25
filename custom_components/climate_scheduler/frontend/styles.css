@@ -223,6 +223,7 @@ button, .btn {
     margin-top: 0;
     padding-top: 0;
     border-top: none;
+    margin-bottom: 20px;
 }
 
 .groups-list {
@@ -328,7 +329,7 @@ button, .btn {
 }
 
 .ignored-section {
-    margin-bottom: 20px;
+    margin-bottom: 12px;
 }
 
 .ignored-list {
