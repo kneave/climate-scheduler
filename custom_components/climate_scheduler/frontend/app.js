@@ -4457,16 +4457,21 @@ function setupEventListeners() {
     // Toggle ignored entities section
     const toggleIgnored = getDocumentRoot().querySelector('#toggle-ignored');
     const ignoredList = getDocumentRoot().querySelector('#ignored-entity-list');
-    if (toggleIgnored && ignoredList) {
+    const ignoredContainer = getDocumentRoot().querySelector('#ignored-container');
+    if (toggleIgnored && ignoredList && ignoredContainer) {
         toggleIgnored.addEventListener('click', () => {
-            const toggleIcon = toggleIgnored.querySelector('.toggle-icon');
+            const toggleIcon = toggleIgnored.querySelector('.group-toggle-icon');
             
             if (ignoredList.style.display === 'none') {
                 ignoredList.style.display = 'flex';
-                if (toggleIcon) toggleIcon.textContent = '▼';
+                ignoredContainer.classList.remove('collapsed');
+                ignoredContainer.classList.add('expanded');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
             } else {
                 ignoredList.style.display = 'none';
-                if (toggleIcon) toggleIcon.textContent = '▶';
+                ignoredContainer.classList.remove('expanded');
+                ignoredContainer.classList.add('collapsed');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(-90deg)';
             }
         });
     }
@@ -5616,7 +5621,17 @@ async function setupSettingsPanel() {
     if (toggle) {
         toggle.addEventListener('click', () => {
             const panel = getDocumentRoot().querySelector('#settings-panel');
-            panel.classList.toggle('collapsed');
+            const indicator = toggle.querySelector('.collapse-indicator');
+            
+            if (panel.classList.contains('collapsed')) {
+                panel.classList.remove('collapsed');
+                panel.classList.add('expanded');
+                if (indicator) indicator.style.transform = 'rotate(0deg)';
+            } else {
+                panel.classList.remove('expanded');
+                panel.classList.add('collapsed');
+                if (indicator) indicator.style.transform = 'rotate(-90deg)';
+            }
         });
     }
     

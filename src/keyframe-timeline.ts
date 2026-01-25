@@ -73,7 +73,7 @@ export class KeyframeTimeline extends LitElement {
     .timeline-title {
       font-size: 16px;
       font-weight: 600;
-      color: var(--text-primary-color, #e1e1e1);
+      color: var(--primary-text-color, #e1e1e1);
       cursor: pointer;
       user-select: none;
       margin-bottom: 12px;
@@ -84,7 +84,7 @@ export class KeyframeTimeline extends LitElement {
       justify-content: space-between;
       align-items: center;
       margin-bottom: 12px;
-      color: var(--text-primary-color, #e1e1e1);
+      color: var(--primary-text-color, #e1e1e1);
     }
     
     .timeline-header span {
@@ -99,7 +99,7 @@ export class KeyframeTimeline extends LitElement {
     
     button {
       background: var(--primary-color, #03a9f4);
-      color: white;
+      color: var(--primary-text-color, white);
       border: none;
       padding: 6px 12px;
       border-radius: 4px;
@@ -142,7 +142,7 @@ export class KeyframeTimeline extends LitElement {
     
     input[type="number"], input[type="text"] {
       background: var(--timeline-track);
-      color: var(--text-primary-color, #e1e1e1);
+      color: var(--primary-text-color, #e1e1e1);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.12));
       border-radius: 4px;
       padding: 4px 8px;
@@ -182,7 +182,7 @@ export class KeyframeTimeline extends LitElement {
       transition: height 0.3s ease;
       cursor: pointer;
       scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      scrollbar-color: var(--scrollbar-thumb-color, rgba(128, 128, 128, 0.4)) transparent;
     }
     
     .timeline-canvas-wrapper::-webkit-scrollbar {
@@ -194,12 +194,12 @@ export class KeyframeTimeline extends LitElement {
     }
     
     .timeline-canvas-wrapper::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
+      background: var(--scrollbar-thumb-color, rgba(128, 128, 128, 0.4));
       border-radius: 4px;
     }
     
     .timeline-canvas-wrapper::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.3);
+      background: var(--scrollbar-thumb-color-hover, rgba(128, 128, 128, 0.6));
     }
     
     .timeline-canvas-wrapper.expanded {
@@ -247,14 +247,15 @@ export class KeyframeTimeline extends LitElement {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
+      background: var(--card-background-color, rgba(0, 0, 0, 0.7));
+      color: var(--primary-text-color, white);
       padding: 8px 16px;
       border-radius: 4px;
       font-size: 12px;
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.2s ease;
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
     }
     
     .timeline-canvas-wrapper:hover .expand-hint {
@@ -269,9 +270,9 @@ export class KeyframeTimeline extends LitElement {
       position: absolute;
       top: 50%;
       transform: translateY(-50%);
-      background: rgba(0, 0, 0, 0.6);
-      color: white;
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: var(--card-background-color, rgba(0, 0, 0, 0.6));
+      color: var(--primary-text-color, white);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
       border-radius: 4px;
       width: 32px;
       height: 32px;
@@ -286,7 +287,7 @@ export class KeyframeTimeline extends LitElement {
     }
     
     .scroll-nav:hover {
-      background: rgba(0, 0, 0, 0.8);
+      background: var(--secondary-background-color, rgba(0, 0, 0, 0.8));
     }
     
     .scroll-nav.left {
@@ -368,7 +369,6 @@ export class KeyframeTimeline extends LitElement {
       this.canvas = canvasEl;
       this.ctx = canvasEl.getContext('2d') || undefined;
       this.updateCanvasSize();
-      this.drawTimeline();
     }
     
     this.wrapperEl = this.shadowRoot?.querySelector('.timeline-canvas-wrapper') as HTMLElement;
@@ -386,7 +386,7 @@ export class KeyframeTimeline extends LitElement {
       this.checkScrollVisibility();
     });
     
-    // Ensure canvas renders correctly after initial layout
+    // Draw immediately - CSS variables should now be properly set via styles.css
     requestAnimationFrame(() => {
       this.updateCanvasSize();
       this.drawTimeline();
@@ -663,7 +663,7 @@ export class KeyframeTimeline extends LitElement {
     const hours = Math.floor(currentHours);
     const minutes = Math.floor((currentHours - hours) * 60);
     const timeLabel = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = this.getThemeColor('--canvas-text-primary');
     this.ctx.font = `bold ${baseFontSize * dpr}px sans-serif`;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'bottom';
@@ -1058,11 +1058,11 @@ export class KeyframeTimeline extends LitElement {
     }
     
     // Draw background
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    this.ctx.fillStyle = getComputedStyle(this).getPropertyValue('--canvas-label-bg') || 'rgba(0, 0, 0, 0.75)';
     this.ctx.fillRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
     
     // Draw border
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    this.ctx.strokeStyle = this.getThemeColor('--divider-color');
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
     

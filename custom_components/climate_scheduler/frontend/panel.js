@@ -222,22 +222,24 @@ class ClimateSchedulerPanel extends HTMLElement {
                             <div id="groups-list" class="groups-list">
                                 <!-- Dynamically populated with groups -->
                             </div>
-                            <button id="create-group-btn" class="btn-primary" style="margin-top: 10px; width: 100%;">
-                                + Create New Group
-                            </button>
                         </div>
                         
                         <div class="ignored-section">
-                            <button id="toggle-ignored" class="ignored-toggle">
-                                <span class="toggle-icon">▶</span>
-                                <span class="toggle-text">Unmonitored (<span id="ignored-count">0</span>)</span>
-                            </button>
-                            <div id="ignored-entity-list" class="entity-list ignored-list" style="display: none;">
-                                <div class="filter-box">
-                                    <input type="text" id="ignored-filter" placeholder="Filter by name..." />
+                            <div class="group-container collapsed" id="ignored-container">
+                                <div class="group-header" id="toggle-ignored">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="group-toggle-icon" style="transform: rotate(-90deg);">▼</span>
+                                        <span class="group-title">Unmonitored</span>
+                                    </div>
                                 </div>
-                                <div id="ignored-entities-container">
-                                    <!-- Dynamically populated -->
+                                <div id="ignored-entity-list" class="entity-list ignored-list" style="display: none;">
+                                    <div class="filter-box">
+                                        <input type="text" id="ignored-filter" placeholder="Filter by name..." />
+                                    </div>
+                                    <div id="ignored-entities-container">
+                                        <span id="ignored-count" style="display: none;">0</span>
+                                        <!-- Dynamically populated -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -344,12 +346,21 @@ class ClimateSchedulerPanel extends HTMLElement {
                     <!-- Settings Panel -->
                     <div id="settings-panel" class="settings-panel collapsed">
                         <div class="settings-header" id="settings-toggle">
-                            <h3>⚙️ Settings</h3>
-                            <span class="collapse-indicator">▼</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="collapse-indicator" style="transform: rotate(-90deg);">▼</span>
+                                <h3>Settings</h3>
+                            </div>
                         </div>
                         <div class="settings-content">
                             <div class="settings-flex" style="display: flex; gap: 24px; align-items: flex-start;">
                                 <div class="settings-main" style="flex: 1; min-width: 0;">
+                                    <div class="settings-section">
+                                        <h4>Group Management</h4>
+                                        <button id="create-group-btn" class="btn-secondary" style="width: 100%;">
+                                            + Create New Group
+                                        </button>
+                                    </div>
+                                    
                                     <div class="settings-section">
                                         <h4>Default Schedule</h4>
                                         <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>

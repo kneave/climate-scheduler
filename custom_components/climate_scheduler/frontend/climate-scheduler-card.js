@@ -276,16 +276,16 @@ ClimateSchedulerCard.styles = i$3 `
       padding: 16px;
     }
     .error {
-      color: red;
-      border: 1px solid red;
+      color: var(--error-color, red);
+      border: 1px solid var(--error-color, red);
       border-radius: 4px;
       margin: 16px;
     }
     .warning {
-      color: orange;
+      color: var(--warning-color, orange);
     }
     .error a {
-      color: #03a9f4;
+      color: var(--primary-color, #03a9f4);
     }
   `;
 __decorate([
