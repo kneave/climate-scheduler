@@ -872,6 +872,28 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 self.last_node_states[entity_id] = node_signature
                 self.last_node_times[entity_id] = node_time
                 
+                # SPECIAL CASE: If temperature is NO_CHANGE but we're transitioning nodes (including resync),
+                # we should still reapply settings to reset any manual overrides.
+                # Use the current target temperature from the climate entity.
+                temp_to_apply = clamped_temp
+                if is_no_change and (node_state_changed or node_time_changed):
+                    current_target_for_reapply = state.attributes.get("temperature")
+                    # For entities using min/max range (heat_cool/auto mode), check target_temp_high/low
+                    target_temp_high = state.attributes.get("target_temp_high")
+                    target_temp_low = state.attributes.get("target_temp_low")
+                    
+                    if current_target_for_reapply is not None:
+                        temp_to_apply = current_target_for_reapply
+                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition - will reapply current temperature {temp_to_apply}°C to reset manual overrides")
+                    elif target_temp_high is not None or target_temp_low is not None:
+                        # Entity uses min/max range - NO_CHANGE doesn't apply to range entities
+                        # Still set temp_to_apply to None so we skip temperature but apply modes
+                        temp_to_apply = None
+                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition - entity uses temp range (high={target_temp_high}, low={target_temp_low}), will apply modes only")
+                    else:
+                        temp_to_apply = None
+                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition but no current temperature available")
+                
                 # Re-get current state (we checked it exists earlier)
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
                 # Get current target temperature
@@ -921,16 +943,16 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             )
                 else:
                     # Update to new node temperature (already clamped in signature)
-                    # Only set temperature if not NO_CHANGE and entity supports temperature
-                    if clamped_temp is not None and not is_preset_only:
+                    # Only set temperature if we have a temperature to apply and entity supports temperature
+                    if temp_to_apply is not None and not is_preset_only:
                         _LOGGER.info(
-                            f"Updating {entity_id} to new node: temp={clamped_temp}°C"
+                            f"Updating {entity_id} to new node: temp={temp_to_apply}°C"
                         )
 
                         # Build service data
                         service_data = {
                             "entity_id": entity_id,
-                            ATTR_TEMPERATURE: clamped_temp,
+                            ATTR_TEMPERATURE: temp_to_apply,
                         }
 
                         # Call climate service to set temperature (handle per-entity errors)
@@ -951,10 +973,10 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             }
                             # Skip further actions for this entity
                             continue
-                    elif clamped_temp is not None and is_preset_only:
+                    elif temp_to_apply is not None and is_preset_only:
                         _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
                     else:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE and no node transition)")
                     
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
