@@ -33,5 +33,21 @@ export default [
         sourceMap: true
       })
     ]
+  },
+  {
+    input: 'src/panel.ts',
+    output: {
+      file: 'custom_components/climate_scheduler/frontend/panel.js',
+      format: 'es',
+      sourcemap: true
+    },
+    plugins: [
+      nodeResolve(),
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+        sourceMap: true
+      })
+    ]
   }
 ];

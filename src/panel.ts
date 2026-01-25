@@ -3,13 +3,10 @@
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
 
-import { LitElement, html, css, PropertyValues } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
-
 // Version checking - detect if browser cache is stale
 (async function() {
   try {
-    const scriptUrl = document.currentScript?.src || new URL(import.meta.url).href;
+    const scriptUrl = (document.currentScript as HTMLScriptElement)?.src || new URL(import.meta.url).href;
     const loadedVersion = new URL(scriptUrl).searchParams.get('v');
     
     // Fetch the current server version
@@ -17,8 +14,8 @@ import { customElement, property, state } from 'lit/decorators.js';
     if (response.ok) {
       const serverVersion = (await response.text()).trim().split(',')[0];
       
-      // Compare versions - if they don't match, user has stale cache
-      if (loadedVersion && serverVersion && loadedVersion !== serverVersion) {
+      // Compare versions - check the aren't None and if they don't match, user has stale cache
+      if ((loadedVersion && serverVersion) && loadedVersion !== serverVersion) {
         console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
         
         // Store in sessionStorage to avoid showing repeatedly
@@ -27,15 +24,15 @@ import { customElement, property, state } from 'lit/decorators.js';
         
         if (shownVersion !== serverVersion) {
           // Show persistent notification
-          const event = new Event('hass-notification', {
+          const event = new CustomEvent('hass-notification', {
             bubbles: true,
             cancelable: false,
-            composed: true
+            composed: true,
+            detail: {
+              message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
+              duration: 0  // Persistent notification
+            }
           });
-          event.detail = {
-            message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
-            duration: 0  // Persistent notification
-          };
           document.body.dispatchEvent(event);
           
           // Mark as shown for this session
@@ -50,11 +47,11 @@ import { customElement, property, state } from 'lit/decorators.js';
 })();
 
 // Load other JavaScript files
-const loadScript = (src) => {
+const loadScript = (src: string): Promise<void> => {
     return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
-        script.onload = resolve;
+        script.onload = () => resolve();
         script.onerror = reject;
         document.head.appendChild(script);
     });
@@ -63,7 +60,7 @@ const loadScript = (src) => {
 // Track if scripts are loaded
 let scriptsLoaded = false;
 
-const getVersion = () => {
+const getVersion = (): string | null => {
     const scriptUrl = import.meta.url;
     const version = new URL(scriptUrl).searchParams.get('v');
     if (!version) return null;
@@ -78,7 +75,7 @@ const getVersion = () => {
 }
 
 // Load dependencies in order
-const loadScripts = () => {
+const loadScripts = (): Promise<void> => {
     if (scriptsLoaded) return Promise.resolve();
     
     // Determine base path from where panel.js was loaded
@@ -91,6 +88,7 @@ const loadScripts = () => {
     console.log('Loading Climate Scheduler scripts from:', basePath);
     
     return Promise.all([
+        loadScript(`${basePath}/utils.js?v=${version}`),
         loadScript(`${basePath}/graph.js?v=${version}`),
         loadScript(`${basePath}/ha-api.js?v=${version}`)
     ]).then(() => {
@@ -104,47 +102,57 @@ const loadScripts = () => {
     });
 };
 
-@customElement('climate-scheduler-panel')
-class ClimateSchedulerPanel extends LitElement {
-    @property({ type: Object }) hass: any = null;
-    @property({ type: Boolean }) narrow = false;
-    @property({ type: Object }) route: any = null;
-    @property({ type: Object }) panel: any = null;
-    @state() private _scriptsLoaded = false;
+interface HassThemes {
+    darkMode: boolean;
+}
 
-    static get styles() {
-        return css`
-            :host {
-                display: block;
-            }
-        `;
+interface HassObject {
+    themes: HassThemes;
+    [key: string]: any;
+}
+
+declare global {
+    interface Window {
+        climateSchedulerPanelRoot: ClimateSchedulerPanel;
+        initClimateSchedulerApp?: (hass: HassObject) => void;
+        updateHassConnection?: (hass: HassObject) => void;
     }
+}
+
+class ClimateSchedulerPanel extends HTMLElement {
+    private _hass: HassObject | null = null;
+    narrow: boolean = false;
+    panel: any = null;
 
     constructor() {
         super();
-        this.hass = null;
-        this.narrow = false;
-        this.panel = null;
+    }
+
+    // Declare properties that Home Assistant looks for
+    static get properties() {
+        return {
+            hass: { type: Object },
+            narrow: { type: Boolean },
+            route: { type: Object },
+            panel: { type: Object }
+        };
+    }
+
+    async connectedCallback() {
+        this.render();
+
         // Store reference to this panel element globally so app.js can query within it
         window.climateSchedulerPanelRoot = this;
-        
-        // Initialize asynchronously
-        this._initialize();
-    }
-    
-    async _initialize() {
+
         // Wait for scripts to load before initializing
         try {
-            // Removed theme CSS wait - styles.css now uses HA theme variables directly
-            
             await loadScripts();
-            this._scriptsLoaded = true;
 
             // Small delay to ensure DOM is fully rendered
             await new Promise(resolve => setTimeout(resolve, 100));
 
             // Update version info in footer
-            const versionElement = this.shadowRoot.querySelector('#version-info');
+            const versionElement = this.querySelector('#version-info');
             if (versionElement) {
                 try {
                     const scriptUrl = import.meta.url;
@@ -176,55 +184,64 @@ class ClimateSchedulerPanel extends LitElement {
 
             // Initialize the app when panel is loaded and scripts are ready
             if (window.initClimateSchedulerApp) {
-                window.initClimateSchedulerApp(this.hass);
+                window.initClimateSchedulerApp(this.hass!);
             }
         } catch (error) {
             console.error('Failed to initialize Climate Scheduler:', error);
         }
     }
 
-    updated(changedProperties) {
-        if (changedProperties.has('hass') && this.hass) {
-            // Apply theme based on Home Assistant theme mode
-            if (this.hass.themes) {
-                const isDark : PropertyValues= this.hass.themes.darkMode;
-                if (isDark) {
-                    // Dark mode is default, remove attribute
-                    document.documentElement.removeAttribute('data-theme');
-                    this.removeAttribute('data-theme');
-                } else {
-                    // Light mode needs explicit attribute
-                    document.documentElement.setAttribute('data-theme', 'light');
-                    this.setAttribute('data-theme', 'light');
-                }
+    set hass(value: HassObject | null) {
+        this._hass = value;
+        
+        // Apply theme based on Home Assistant theme mode
+        if (value && value.themes) {
+            const isDark = value.themes.darkMode;
+            if (isDark) {
+                // Dark mode is default, remove attribute
+                document.documentElement.removeAttribute('data-theme');
+                this.removeAttribute('data-theme');
+            } else {
+                // Light mode needs explicit attribute
+                document.documentElement.setAttribute('data-theme', 'light');
+                this.setAttribute('data-theme', 'light');
             }
-            
-            // Pass hass object to app if it's already initialized
-            if (window.updateHassConnection) {
-                window.updateHassConnection(this.hass);
-            }
+        }
+        
+        // Pass hass object to app if it's already initialized
+        if (window.updateHassConnection && value) {
+            window.updateHassConnection(value);
         }
     }
 
+    get hass(): HassObject | null {
+        return this._hass;
+    }
+
     render() {
-        // Load CSS using same base path detection as scripts
-        const scriptUrl = import.meta.url;
-        const url = new URL(scriptUrl);
-        const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
-        const version = getVersion();
-        
-        return html`
-            <link rel="stylesheet" href="${basePath}/styles.css?v=${version}">
-            
-            <div class="container">
-                <section class="entity-selector">
-                    <div class="groups-section">
-                        <h3 class="section-title">Monitored (<span id="groups-count">0</span>)</h3>
-                        <div id="groups-list" class="groups-list">
-                            <!-- Dynamically populated with groups -->
+        if (!this.querySelector('.container')) {
+            // Load CSS using same base path detection as scripts
+            const scriptUrl = import.meta.url;
+            const url = new URL(scriptUrl);
+            const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
+            const version = getVersion();
+            const styleLink = document.createElement('link');
+            styleLink.rel = 'stylesheet';
+            styleLink.href = `${basePath}/styles.css?v=${version}`;
+            this.appendChild(styleLink);
+
+            // Create container div for content
+            const container = document.createElement('div');
+            container.innerHTML = `
+                <div class="container">
+                    <section class="entity-selector">
+                        <div class="groups-section">
+                            <h3 class="section-title">Monitored (<span id="groups-count">0</span>)</h3>
+                            <div id="groups-list" class="groups-list">
+                                <!-- Dynamically populated with groups -->
+                            </div>
                         </div>
-                    </div>
-                    
+                        
                         <div class="ignored-section">
                             <div class="group-container collapsed" id="ignored-container">
                                 <div class="group-header" id="toggle-ignored">
@@ -244,7 +261,7 @@ class ClimateSchedulerPanel extends LitElement {
                                 </div>
                             </div>
                         </div>
-                </section>
+                    </section>
 
                     <!-- Modals -->
                     <div id="confirm-modal" class="modal" style="display: none;">
@@ -408,8 +425,8 @@ class ClimateSchedulerPanel extends LitElement {
                                     
                                     <div class="settings-section">
                                         <h4>Graph Options</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1; min-width:220px;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="tooltip-mode">Tooltip Display:</label>
                                                 <select id="tooltip-mode">
                                                     <option value="history">Show Historical Temperature</option>
@@ -437,8 +454,8 @@ class ClimateSchedulerPanel extends LitElement {
                                     
                                     <div class="settings-section">
                                         <h4>Temperature Precision</h4>
-                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start;">
-                                            <div class="setting-item" style="flex:1;">
+                                        <div class="setting-row" style="display:flex; gap:18px; align-items:flex-start; flex-wrap: wrap;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="graph-snap-step">Graph Snap Step:</label>
                                                 <select id="graph-snap-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -447,7 +464,7 @@ class ClimateSchedulerPanel extends LitElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Temperature rounding when dragging nodes on the graph</p>
                                             </div>
-                                            <div class="setting-item" style="flex:1;">
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
                                                 <label for="input-temp-step">Input Field Step:</label>
                                                 <select id="input-temp-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
                                                     <option value="0.1">0.1°</option>
@@ -462,11 +479,58 @@ class ClimateSchedulerPanel extends LitElement {
                                     <div class="settings-section">
                                         <h4>Derivative Sensors</h4>
                                         <p class="settings-description">Automatically create sensors to track heating/cooling rates for performance analysis</p>
-                                        <div class="setting-item">
+                                        <div class="setting-item" style="max-width: 100%;">
                                             <label>
                                                 <input type="checkbox" id="create-derivative-sensors" style="margin-right: 8px;"> Auto-create derivative sensors
                                             </label>
                                             <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">When enabled, creates sensor.climate_scheduler_[name]_rate for each thermostat to track temperature change rate (°C/h)</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="settings-section">
+                                        <h4>Workday Integration</h4>
+                                        <p class="settings-description">Configure which days are workdays for 5/2 mode scheduling</p>
+                                        <div class="setting-item" style="max-width: 100%;">
+                                            <label id="use-workday-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                <input type="checkbox" id="use-workday-integration" style="margin-right: 8px;" disabled> 
+                                                <span>Use Workday integration for 5/2 scheduling</span>
+                                            </label>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;" id="workday-help-text">Checking if Workday integration is installed...</p>
+                                        </div>
+                                        
+                                        <div id="workday-selector" style="margin-top: 16px; display: none;">
+                                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Select Workdays:</label>
+                                            <p class="settings-description" style="margin-bottom: 8px; font-size: 0.85rem;">Choose which days are considered workdays when Workday integration is disabled</p>
+                                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="mon" style="cursor: pointer;">
+                                                    <span>Monday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="tue" style="cursor: pointer;">
+                                                    <span>Tuesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="wed" style="cursor: pointer;">
+                                                    <span>Wednesday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="thu" style="cursor: pointer;">
+                                                    <span>Thursday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="fri" style="cursor: pointer;">
+                                                    <span>Friday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sat" style="cursor: pointer;">
+                                                    <span>Saturday</span>
+                                                </label>
+                                                <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                                    <input type="checkbox" class="workday-checkbox" value="sun" style="cursor: pointer;">
+                                                    <span>Sunday</span>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -475,11 +539,12 @@ class ClimateSchedulerPanel extends LitElement {
                             </div>
 
                             <div class="settings-actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap;">
-                                <button id="refresh-entities-menu" class="btn-secondary">↻ Refresh Entities</button>
-                                <button id="sync-all-menu" class="btn-secondary">⟲ Sync All Thermostats</button>
-                                <button id="reload-integration-menu" class="btn-secondary">🔄 Reload Integration</button>
+                                <button id="refresh-entities-menu" class="btn-secondary">Refresh Entities</button>
+                                <button id="sync-all-menu" class="btn-secondary">Sync All Thermostats</button>
+                                <button id="reload-integration-menu" class="btn-secondary">Reload Integration</button>
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
-                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">🧹 Cleanup Derivative Sensors</button>
+                                <button id="cleanup-derivative-sensors-btn" class="btn-secondary">Cleanup Derivative Sensors</button>
+                                <button id="cleanup-orphaned-climate-btn" class="btn-secondary">Cleanup Orphaned Entities</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                             </div>
                         </div>
@@ -496,23 +561,18 @@ class ClimateSchedulerPanel extends LitElement {
                         </div>
                     </div>
 
-                <footer>
-                    <p id="version-info">Climate Scheduler</p>
-                    <div class="panel-footer" style="margin-top: 16px; text-align: center;">
+                    <footer>
                         <img alt="Integration Usage" src="https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.climate_scheduler.total" />
-                    </div>
-                </footer>
-            </div>
-        `;
+                            <p><span id="version-info">Climate Scheduler</span>, created by <a href="https://neave.engineering" target="_blank" rel="noopener noreferrer" style="color: var(--primary)">Keegan Neave</a></p>
+                            <p><a href="https://www.buymeacoffee.com/kneave" target="_blank" rel="noopener noreferrer" style="color: var(--primary);">☕ Buy me a coffee</a></p>
+                        </div>
+                    </footer>
+                </div>
+            `;
+            
+            this.appendChild(container);
+        }
     }
 }
 
 customElements.define('climate-scheduler-panel', ClimateSchedulerPanel);
-// Declare global types
-declare global {
-    interface Window {
-        climateSchedulerPanelRoot?: ClimateSchedulerPanel;
-        initClimateSchedulerApp?: (hass: any) => void;
-        updateHassConnection?: (hass: any) => void;
-    }
-}
