@@ -366,7 +366,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                                         <p class="settings-description">Set the default temperature schedule used when clearing or creating new schedules</p>
                                         
                                         <div class="graph-container">
-                                            <keyframe-timeline id="default-schedule-graph" class="temperature-graph"></keyframe-timeline>
+                                            <keyframe-timeline id="default-schedule-graph" class="temperature-graph" showHeader="false"></keyframe-timeline>
                                         </div>
                                         
                                         <div style="margin-top: 8px;">

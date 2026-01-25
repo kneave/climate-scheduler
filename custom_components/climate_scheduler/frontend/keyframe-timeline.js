@@ -1685,7 +1685,7 @@ KeyframeTimeline.styles = i$3 `
     .timeline-container {
       background: var(--background);
       border-radius: 4px;
-      padding: 16px;
+      padding: 0;
       user-select: none;
     }
     

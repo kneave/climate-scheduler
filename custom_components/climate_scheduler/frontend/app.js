@@ -5240,6 +5240,71 @@ async function handleProfileChanged(event) {
 let defaultScheduleSettings = [];
 
 let defaultScheduleGraph = null;
+
+// Initialize default schedule graph (called when settings panel is expanded)
+async function initializeDefaultScheduleGraph() {
+    // Load keyframe-timeline component
+    const canvasLoaded = await loadKeyframeTimeline();
+    if (!canvasLoaded) {
+        console.error('Failed to load keyframe-timeline component for default schedule');
+        return;
+    }
+    
+    // Initialize the default schedule graph (canvas timeline)
+    const container = getDocumentRoot().querySelector('#default-schedule-graph')?.parentElement;
+    if (container) {
+        // Remove existing element if present
+        const existingGraph = getDocumentRoot().querySelector('#default-schedule-graph');
+        if (existingGraph) {
+            existingGraph.remove();
+        }
+        
+        // Create keyframe-timeline element
+        const timeline = document.createElement('keyframe-timeline');
+        timeline.id = 'default-schedule-graph';
+        timeline.className = 'temperature-graph';
+        timeline.style.width = '100%';
+        timeline.style.setProperty('--timeline-height', '260px');
+        timeline.duration = 24;
+        timeline.slots = 96;
+        timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
+        timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
+        timeline.snapValue = graphSnapStep;
+        timeline.title = '';
+        timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
+        timeline.xAxisLabel = `Time of Day (24hr)`;
+        timeline.showCurrentTime = false;
+        timeline.tooltipMode = tooltipMode;
+        timeline.showHeader = false;
+        
+        container.appendChild(timeline);
+        
+        defaultScheduleGraph = timeline;
+        
+        // Convert defaultScheduleSettings nodes to keyframes and set them
+        // Always set keyframes, even if empty, to ensure timeline renders
+        if (defaultScheduleSettings && defaultScheduleSettings.length > 0) {
+            const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
+            // Force reactivity by creating new array reference
+            defaultScheduleGraph.keyframes = [...keyframes];
+        } else {
+            // Set empty keyframes array to ensure timeline renders
+            defaultScheduleGraph.keyframes = [];
+        }
+        
+        // Set previousDayEndValue (use middle of range as default)
+        const midValue = (timeline.minValue + timeline.maxValue) / 2;
+        defaultScheduleGraph.previousDayEndValue = midValue;
+        
+        // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
+        timeline.addEventListener('keyframe-moved', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-deleted', handleDefaultScheduleChange);
+        
+        // Attach node settings listener (canvas uses 'keyframe-selected')
+        timeline.addEventListener('keyframe-selected', handleDefaultNodeSettings);
+    }
+}
+
 // Global min/max settings (populated from loadSettings)
 let minTempSetting = null;
 let maxTempSetting = null;
@@ -5585,41 +5650,10 @@ function handleDefaultScheduleChange(event) {
 async function setupSettingsPanel() {
     await loadSettings();
     
-    // Initialize the default schedule graph (canvas timeline)
-    const canvasElement = getDocumentRoot().querySelector('#default-schedule-graph');
-    if (canvasElement) {
-        defaultScheduleGraph = canvasElement;
-        
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null) {
-            defaultScheduleGraph.minValue = minTempSetting;
-            defaultScheduleGraph.maxValue = maxTempSetting;
-        }
-        
-        // Convert defaultScheduleSettings nodes to keyframes and set them
-        if (defaultScheduleSettings && defaultScheduleSettings.length > 0) {
-            const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
-            defaultScheduleGraph.keyframes = keyframes;
-        }
-        
-        // Set tooltip mode from global setting AFTER setting keyframes to ensure it persists
-        defaultScheduleGraph.tooltipMode = tooltipMode;
-        console.log('Setting tooltipMode after keyframes to:', tooltipMode);
-        
-        // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
-        canvasElement.addEventListener('keyframe-moved', handleDefaultScheduleChange);
-        canvasElement.addEventListener('keyframe-deleted', handleDefaultScheduleChange);
-        
-        // Attach node settings listener (canvas uses 'keyframe-selected')
-        canvasElement.addEventListener('keyframe-selected', handleDefaultNodeSettings);
-        
-        // Canvas timeline updates node settings automatically during drag, no separate event needed
-    }
-    
     // Toggle collapse
     const toggle = getDocumentRoot().querySelector('#settings-toggle');
     if (toggle) {
-        toggle.addEventListener('click', () => {
+        toggle.addEventListener('click', async () => {
             const panel = getDocumentRoot().querySelector('#settings-panel');
             const indicator = toggle.querySelector('.collapse-indicator');
             
@@ -5627,6 +5661,11 @@ async function setupSettingsPanel() {
                 panel.classList.remove('collapsed');
                 panel.classList.add('expanded');
                 if (indicator) indicator.style.transform = 'rotate(0deg)';
+                
+                // Initialize the default schedule graph when expanding (only if not already initialized)
+                if (!defaultScheduleGraph) {
+                    await initializeDefaultScheduleGraph();
+                }
             } else {
                 panel.classList.remove('expanded');
                 panel.classList.add('collapsed');
