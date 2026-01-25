@@ -934,6 +934,7 @@ async function editGroupSchedule(groupName, day = null) {
         const timeline = document.createElement('keyframe-timeline');
         timeline.id = 'keyframe-timeline-graph';
         timeline.style.width = '100%';
+        timeline.style.setProperty('--timeline-height', '260px');
         timeline.duration = 24;
         timeline.slots = 96;
         timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
@@ -5287,18 +5288,34 @@ async function initializeDefaultScheduleGraph() {
             const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
             // Force reactivity by creating new array reference
             defaultScheduleGraph.keyframes = [...keyframes];
+            
+            // Set previousDayEndValue to last temperature from default schedule (wraparound)
+            const nodesWithTemp = defaultScheduleSettings.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
+            if (nodesWithTemp.length > 0) {
+                const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+                defaultScheduleGraph.previousDayEndValue = lastNode.temp;
+            } else {
+                // Use middle of range if no temperature nodes exist
+                const midValue = (timeline.minValue + timeline.maxValue) / 2;
+                defaultScheduleGraph.previousDayEndValue = midValue;
+            }
         } else {
             // Set empty keyframes array to ensure timeline renders
             defaultScheduleGraph.keyframes = [];
+            // Use middle of range as default when no schedule exists
+            const midValue = (timeline.minValue + timeline.maxValue) / 2;
+            defaultScheduleGraph.previousDayEndValue = midValue;
         }
-        
-        // Set previousDayEndValue (use middle of range as default)
-        const midValue = (timeline.minValue + timeline.maxValue) / 2;
-        defaultScheduleGraph.previousDayEndValue = midValue;
         
         // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
         timeline.addEventListener('keyframe-moved', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-added', handleDefaultScheduleChange);
         timeline.addEventListener('keyframe-deleted', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-restored', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframes-cleared', handleDefaultScheduleChange);
+        
+        // Real-time updates during dragging
+        timeline.addEventListener('nodeSettingsUpdate', handleDefaultScheduleUpdate);
         
         // Attach node settings listener (canvas uses 'keyframe-selected')
         timeline.addEventListener('keyframe-selected', handleDefaultNodeSettings);
@@ -5641,9 +5658,32 @@ async function saveSettings() {
 
 // Handle default schedule graph changes
 function handleDefaultScheduleChange(event) {
-    defaultScheduleSettings = event.detail.nodes;
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Convert keyframes to schedule nodes
+    defaultScheduleSettings = keyframesToScheduleNodes(keyframes);
+    
+    // Update previousDayEndValue to reflect the last temperature (wraparound)
+    if (keyframes.length > 0) {
+        const lastKeyframe = keyframes[keyframes.length - 1];
+        timeline.previousDayEndValue = lastKeyframe.value;
+    }
+    
     // Auto-save when default schedule is modified
     saveSettings();
+}
+
+// Handle real-time updates during dragging (no save)
+function handleDefaultScheduleUpdate(event) {
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Update previousDayEndValue in real-time to reflect the last temperature (wraparound)
+    if (keyframes.length > 0) {
+        const lastKeyframe = keyframes[keyframes.length - 1];
+        timeline.previousDayEndValue = lastKeyframe.value;
+    }
 }
 
 // Setup settings panel event listeners
@@ -5662,8 +5702,10 @@ async function setupSettingsPanel() {
                 panel.classList.add('expanded');
                 if (indicator) indicator.style.transform = 'rotate(0deg)';
                 
-                // Initialize the default schedule graph when expanding (only if not already initialized)
-                if (!defaultScheduleGraph) {
+                // Initialize the default schedule graph when expanding
+                // Check if graph variable points to an element that's still in the DOM
+                const graphStillValid = defaultScheduleGraph && getDocumentRoot().contains(defaultScheduleGraph);
+                if (!graphStillValid) {
                     await initializeDefaultScheduleGraph();
                 }
             } else {
