@@ -316,6 +316,7 @@ export class KeyframeTimeline extends LitElement {
   @property({ type: String }) yAxisLabel = ''; // Y axis label
   @property({ type: String }) title = ''; // Title displayed in top left
   @property({ type: Boolean }) showHeader = true; // Show header with controls
+  @property({ type: Boolean }) allowCollapse = true; // Allow collapsing the timeline
   @property({ type: Boolean }) readonly = false; // Disable all interactions
   @property({ type: Number }) indicatorTime?: number; // Time position for vertical indicator bar (0 to duration)
   @property({ type: Boolean }) showCurrentTime = false; // Automatically show indicator at current time
@@ -1837,6 +1838,7 @@ export class KeyframeTimeline extends LitElement {
   }
   
   private toggleCollapse() {
+    if (!this.allowCollapse) return; // Don't allow collapsing if disabled
     this.collapsed = !this.collapsed;
     // Update canvas height after state change
     setTimeout(() => {
@@ -1955,15 +1957,19 @@ export class KeyframeTimeline extends LitElement {
     
     return html`
       <div class="timeline-container">
-        ${!this.showHeader && this.title ? html`
+        ${!this.showHeader && this.title && this.allowCollapse ? html`
           <div class="timeline-title" @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+            ${this.title}
+          </div>
+        ` : !this.showHeader && this.title ? html`
+          <div class="timeline-title" style="cursor: default;">
             ${this.title}
           </div>
         ` : ''}
         
         ${this.showHeader ? html`
           <div class="timeline-header">
-            <span @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+            <span @click=${this.allowCollapse ? this.toggleCollapse : null} title="${this.allowCollapse ? `Click to ${this.collapsed ? 'expand' : 'collapse'}` : ''}" style="cursor: ${this.allowCollapse ? 'pointer' : 'default'};">
               ${this.title || `Timeline Editor (${this.duration}h • ${this.slots} slots @ ${slotMinutes.toFixed(0)}min)`}
             </span>
             <div class="timeline-controls">
@@ -1973,9 +1979,11 @@ export class KeyframeTimeline extends LitElement {
               <button class="secondary" @click=${this.selectNext} ?disabled=${this.keyframes.length === 0} title="Next keyframe">
                 ▶
               </button>
-              <button class="secondary" @click=${this.toggleCollapse}>
-                ${this.collapsed ? '▼ Expand' : '▲ Collapse'}
-              </button>
+              ${this.allowCollapse ? html`
+                <button class="secondary" @click=${this.toggleCollapse}>
+                  ${this.collapsed ? '▼ Expand' : '▲ Collapse'}
+                </button>
+              ` : ''}
               <button class="secondary" @click=${this.toggleConfig}>
                 ${this.showConfig ? 'Hide' : 'Show'} Config
               </button>
@@ -2072,7 +2080,7 @@ export class KeyframeTimeline extends LitElement {
         ` : ''}
         
         <div style="position: relative;">
-          <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed ? this.toggleCollapse : null}>
+          <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed && this.allowCollapse ? this.toggleCollapse : null}>
             <div class="timeline-canvas ${this.collapsed ? 'collapsed' : ''} ${this.isDragging ? 'dragging' : ''}">
               <canvas 
                 style="touch-action: none;"

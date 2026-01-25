@@ -102,6 +102,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.yAxisLabel = ''; // Y axis label
         this.title = ''; // Title displayed in top left
         this.showHeader = true; // Show header with controls
+        this.allowCollapse = true; // Allow collapsing the timeline
         this.readonly = false; // Disable all interactions
         this.showCurrentTime = false; // Automatically show indicator at current time
         this.backgroundGraphs = []; // Background reference graphs
@@ -1408,6 +1409,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.showConfig = !this.showConfig;
     }
     toggleCollapse() {
+        if (!this.allowCollapse)
+            return; // Don't allow collapsing if disabled
         this.collapsed = !this.collapsed;
         // Update canvas height after state change
         setTimeout(() => {
@@ -1511,15 +1514,19 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const slotMinutes = slotDuration * 60;
         return b `
       <div class="timeline-container">
-        ${!this.showHeader && this.title ? b `
+        ${!this.showHeader && this.title && this.allowCollapse ? b `
           <div class="timeline-title" @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+            ${this.title}
+          </div>
+        ` : !this.showHeader && this.title ? b `
+          <div class="timeline-title" style="cursor: default;">
             ${this.title}
           </div>
         ` : ''}
         
         ${this.showHeader ? b `
           <div class="timeline-header">
-            <span @click=${this.toggleCollapse} title="Click to ${this.collapsed ? 'expand' : 'collapse'}">
+            <span @click=${this.allowCollapse ? this.toggleCollapse : null} title="${this.allowCollapse ? `Click to ${this.collapsed ? 'expand' : 'collapse'}` : ''}" style="cursor: ${this.allowCollapse ? 'pointer' : 'default'};">
               ${this.title || `Timeline Editor (${this.duration}h • ${this.slots} slots @ ${slotMinutes.toFixed(0)}min)`}
             </span>
             <div class="timeline-controls">
@@ -1529,9 +1536,11 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
               <button class="secondary" @click=${this.selectNext} ?disabled=${this.keyframes.length === 0} title="Next keyframe">
                 ▶
               </button>
-              <button class="secondary" @click=${this.toggleCollapse}>
-                ${this.collapsed ? '▼ Expand' : '▲ Collapse'}
-              </button>
+              ${this.allowCollapse ? b `
+                <button class="secondary" @click=${this.toggleCollapse}>
+                  ${this.collapsed ? '▼ Expand' : '▲ Collapse'}
+                </button>
+              ` : ''}
               <button class="secondary" @click=${this.toggleConfig}>
                 ${this.showConfig ? 'Hide' : 'Show'} Config
               </button>
@@ -1628,7 +1637,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         ` : ''}
         
         <div style="position: relative;">
-          <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed ? this.toggleCollapse : null}>
+          <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed && this.allowCollapse ? this.toggleCollapse : null}>
             <div class="timeline-canvas ${this.collapsed ? 'collapsed' : ''} ${this.isDragging ? 'dragging' : ''}">
               <canvas 
                 style="touch-action: none;"
@@ -1956,6 +1965,9 @@ __decorate([
 __decorate([
     n({ type: Boolean })
 ], KeyframeTimeline.prototype, "showHeader", void 0);
+__decorate([
+    n({ type: Boolean })
+], KeyframeTimeline.prototype, "allowCollapse", void 0);
 __decorate([
     n({ type: Boolean })
 ], KeyframeTimeline.prototype, "readonly", void 0);

@@ -946,6 +946,7 @@ async function editGroupSchedule(groupName, day = null) {
         timeline.showCurrentTime = true;
         timeline.tooltipMode = tooltipMode; // Set tooltip mode from global setting
         timeline.showHeader = false; // Hide all timeline controls
+        timeline.allowCollapse = false; // Disable collapse functionality
         
         graphContainer.appendChild(timeline);
         
@@ -5277,6 +5278,7 @@ async function initializeDefaultScheduleGraph() {
         timeline.showCurrentTime = false;
         timeline.tooltipMode = tooltipMode;
         timeline.showHeader = false;
+        timeline.allowCollapse = false;
         
         container.appendChild(timeline);
         
