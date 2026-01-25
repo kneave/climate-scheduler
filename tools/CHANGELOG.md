@@ -2,6 +2,38 @@
 
 
 
+## [1.15.0-develop.5] - 2026-01-25
+
+- 2026-01-25
+
+### Fixed
+- **No-Change Node Resync**: Fixed issue #118 where nodes with no temperature/HVAC changes were not properly synchronizing schedules
+  - Improved node comparison logic in coordinator to handle nodes that only change time
+  - Enhanced resync reliability for multi-node schedules
+
+### Changed
+- **Code Migration**: Migrated panel.js to TypeScript for improved type safety and maintainability
+  - Updated rollup configuration to support TypeScript compilation
+  - Refactored panel logic with better type definitions
+  
+- **Light Mode Support**: Updated styling to better support light mode themes
+  - Improved contrast and readability across all UI components
+  - Updated colors for schedule editor, timeline, cards, and panel
+  - Better visual hierarchy in both light and dark themes
+  
+- **Layout Improvements**: Multiple UI layout refinements for better visual presentation
+  - Tidied graph layouts for cleaner appearance
+  - Optimized spacing throughout the interface
+  - Fixed default schedule graph rendering
+
+- **Timeline Behavior**: Disabled timeline collapsing functionality for more consistent user experience
+
+### Removed
+- **Legacy Code Cleanup**: Removed deprecated graph.js file (1,649 lines)
+  - Fully transitioned to new timeline-based visualization system
+  - Cleaned up obsolete graph implementation from both frontend and source directories
+ directories
+
 ## [1.15.0-develop.4] - 2026-01-24
 
 ### Changed
@@ -525,3 +557,4 @@ ame clicks
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
