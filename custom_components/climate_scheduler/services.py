@@ -619,7 +619,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             vol.Required("schedule_id"): cv.string,
             vol.Required("nodes"): vol.Any(cv.string, list, dict),
             vol.Optional("day"): cv.string,
-            vol.Optional("schedule_mode"): cv.string
+            vol.Optional("schedule_mode"): cv.string,
+            vol.Optional("profile_name"): cv.string
         }),
         "enable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "disable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
@@ -1161,15 +1162,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         nodes = call.data["nodes"]
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
+        profile_name = call.data.get("profile_name")
         _LOGGER.debug(
-            "[BACKEND] set_group_schedule service called: group=%s, nodes=%d, day=%s, mode=%s",
+            "[BACKEND] set_group_schedule service called: group=%s, nodes=%d, day=%s, mode=%s, profile=%s",
             group_name,
             len(nodes) if isinstance(nodes, list) else "?",
             day,
-            schedule_mode
+            schedule_mode,
+            profile_name
         )
         try:
-            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode, profile_name)
             _LOGGER.debug(
                 "[BACKEND] set_group_schedule succeeded: group=%s",
                 group_name

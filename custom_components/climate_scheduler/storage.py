@@ -1034,8 +1034,12 @@ class ScheduleStorage:
                 return group_name
         return None
 
-    async def async_set_group_schedule(self, group_name: str, nodes: List[Dict[str, Any]], day: Optional[str] = None, schedule_mode: Optional[str] = None) -> None:
-        """Set schedule for a group (applies to all entities in the group)."""
+    async def async_set_group_schedule(self, group_name: str, nodes: List[Dict[str, Any]], day: Optional[str] = None, schedule_mode: Optional[str] = None, profile_name: Optional[str] = None) -> None:
+        """Set schedule for a group (applies to all entities in the group).
+        
+        If profile_name is provided, saves to that specific profile without changing the active profile.
+        Otherwise saves to the currently active profile.
+        """
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
         
@@ -1076,22 +1080,36 @@ class ScheduleStorage:
                 # Individual mode or all_days mode
                 group_data["schedules"][day] = nodes
         
-        # Save to active profile
-        active_profile = group_data.get("active_profile", "Default")
+        # Determine which profile to save to
+        target_profile = profile_name if profile_name else group_data.get("active_profile", "Default")
+        
         if "profiles" not in group_data:
             group_data["profiles"] = {}
-        if active_profile not in group_data["profiles"]:
-            group_data["profiles"][active_profile] = {
+        
+        # Verify profile exists if explicitly specified
+        if profile_name and profile_name not in group_data["profiles"]:
+            raise ValueError(f"Profile '{profile_name}' does not exist in group '{group_name}'")
+        
+        # Create profile if it doesn't exist (only for active profile)
+        if target_profile not in group_data["profiles"]:
+            group_data["profiles"][target_profile] = {
                 "schedule_mode": current_mode,
                 "schedules": {}
             }
         
-        # Update the active profile with current schedule and mode
-        group_data["profiles"][active_profile]["schedule_mode"] = current_mode
-        group_data["profiles"][active_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
+        # Save to target profile
+        group_data["profiles"][target_profile]["schedule_mode"] = current_mode
+        group_data["profiles"][target_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
         
-        _LOGGER.info(f"Saved group schedule to profile '{active_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
-        _LOGGER.debug(f"Profile schedules after save: {group_data['profiles'][active_profile]['schedules'].keys()}")
+        # If saving to non-active profile, restore group's current schedule from active profile
+        if profile_name and profile_name != group_data.get("active_profile"):
+            active_profile = group_data.get("active_profile", "Default")
+            if active_profile in group_data["profiles"]:
+                group_data["schedule_mode"] = group_data["profiles"][active_profile].get("schedule_mode", "all_days")
+                group_data["schedules"] = copy.deepcopy(group_data["profiles"][active_profile].get("schedules", {}))
+        
+        _LOGGER.info(f"Saved group schedule to profile '{target_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
+        _LOGGER.debug(f"Profile schedules after save: {group_data['profiles'][target_profile]['schedules'].keys()}")
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes (day: {day}, mode: {schedule_mode})")

@@ -921,33 +921,41 @@ async function editGroupSchedule(groupName, day = null) {
         return;
     }
     
-    // Use keyframe-timeline component
+    // Create timeline editor using reusable function
     const graphContainer = editor.querySelector('.graph-container');
     if (graphContainer) {
-        // Remove SVG element if present
-        const svgElement = graphContainer.querySelector('#temperature-graph');
-        if (svgElement) {
-            svgElement.remove();
+        const editorInstance = createTimelineEditor({
+            idPrefix: 'main',
+            buttons: [
+                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change' },
+                { id: 'advance-schedule-btn', text: 'Advance', title: 'Advance to next scheduled node' },
+                { id: 'save-schedule-btn', text: 'Save', title: 'Save schedule', className: 'btn-quick-action btn-primary' }
+            ],
+            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+            snapValue: graphSnapStep,
+            title: getScheduleTitle(),
+            yAxisLabel: `Temperature (${temperatureUnit})`,
+            xAxisLabel: `Time of Day (24hr)`,
+            showCurrentTime: true,
+            tooltipMode: tooltipMode,
+            showHeader: false,
+            allowCollapse: false
+        });
+        
+        const { container: timelineEditorContainer, timeline } = editorInstance;
+        
+        // Replace the old editor-header with the new one from timelineEditorContainer
+        const oldEditorHeader = editor.querySelector('.editor-header-inline');
+        const newEditorHeader = timelineEditorContainer.querySelector('.editor-header-inline');
+        if (oldEditorHeader && newEditorHeader) {
+            oldEditorHeader.replaceWith(newEditorHeader);
         }
         
-        // Create keyframe-timeline element
-        const timeline = document.createElement('keyframe-timeline');
-        timeline.id = 'keyframe-timeline-graph';
-        timeline.style.width = '100%';
-        timeline.style.setProperty('--timeline-height', '260px');
-        timeline.duration = 24;
-        timeline.slots = 96;
-        timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
-        timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
-        timeline.snapValue = graphSnapStep;
-        timeline.title = getScheduleTitle();
-        timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
-        timeline.xAxisLabel = `Time of Day (24hr)`;
-        timeline.showCurrentTime = true;
-        timeline.tooltipMode = tooltipMode; // Set tooltip mode from global setting
-        timeline.showHeader = false; // Hide all timeline controls
-        timeline.allowCollapse = false; // Disable collapse functionality
-        
+        // Insert timeline into graph-container
+        graphContainer.innerHTML = '';
         graphContainer.appendChild(timeline);
         
         // Store reference
@@ -1004,7 +1012,7 @@ async function editGroupSchedule(groupName, day = null) {
     }
     
     // Get graph element (canvas timeline)
-    const graphElement = editor.querySelector('#keyframe-timeline-graph');
+    const graphElement = editor.querySelector('#main-timeline');
     
     if (graphElement) {
         // Create and insert settings panel after the graph container but before instructions
@@ -1158,12 +1166,11 @@ function createSettingsPanel(groupData, editor) {
     // Add profile selector
     const profileSelectorHTML = `
         <div class="profile-selector">
-            <h3>Schedule Profile</h3>
+            <h3>Profile Editor</h3>
             <div class="profile-controls">
                 <select id="profile-dropdown" class="profile-dropdown">
                     <option value="Default">Default</option>
                 </select>
-                <button id="edit-profile-btn" class="btn-profile btn-edit-profile" title="Edit selected profile">Edit</button>
                 <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
                 <button id="rename-profile-btn" class="btn-profile" title="Rename profile">✎</button>
                 <button id="delete-profile-btn" class="btn-profile" title="Delete profile">✕</button>
@@ -1171,45 +1178,7 @@ function createSettingsPanel(groupData, editor) {
         </div>
     `;
     
-    // Add schedule mode selector
-    const modeSelectorHTML = `
-        <div class="schedule-mode-selector">
-            <h3>Schedule Mode</h3>
-            <div class="mode-options">
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="all_days" id="mode-all-days" checked>
-                    <label for="mode-all-days">All Days</label>
-                </div>
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="5/2" id="mode-5-2">
-                    <label for="mode-5-2">5/2 (Weekday/Weekend)</label>
-                </div>
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="individual" id="mode-individual">
-                    <label for="mode-individual">Individual Days</label>
-                </div>
-            </div>
-            <div class="day-selector" id="day-selector">
-                <div class="day-buttons">
-                    <button class="day-btn" data-day="mon">Mon</button>
-                    <button class="day-btn" data-day="tue">Tue</button>
-                    <button class="day-btn" data-day="wed">Wed</button>
-                    <button class="day-btn" data-day="thu">Thu</button>
-                    <button class="day-btn" data-day="fri">Fri</button>
-                    <button class="day-btn" data-day="sat">Sat</button>
-                    <button class="day-btn" data-day="sun">Sun</button>
-                </div>
-            </div>
-            <div class="weekday-selector" id="weekday-selector">
-                <div class="day-buttons">
-                    <button class="day-btn weekday-btn" data-day="weekday">Weekday</button>
-                    <button class="day-btn weekday-btn" data-day="weekend">Weekend</button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    settingsPanel.innerHTML = controlsHTML + profileSelectorHTML + modeSelectorHTML;
+    settingsPanel.innerHTML = controlsHTML + profileSelectorHTML;
     
     // Toggle functionality
     toggleHeader.onclick = () => {
@@ -1324,13 +1293,10 @@ async function setupProfileHandlers(container, groupData) {
     // Load and populate profiles
     await loadProfiles(container, currentGroup);
     
-    // Profile dropdown change handler (no automatic loading)
+    // Profile dropdown change handler - automatically open editor when selection changes
     const profileDropdown = container.querySelector('#profile-dropdown');
-    
-    // Edit profile button handler
-    const editProfileBtn = container.querySelector('#edit-profile-btn');
-    if (editProfileBtn && profileDropdown) {
-        editProfileBtn.onclick = async () => {
+    if (profileDropdown) {
+        profileDropdown.onchange = async () => {
             const selectedProfile = profileDropdown.value;
             const activeProfile = groupData.active_profile;
             
@@ -1339,38 +1305,277 @@ async function setupProfileHandlers(container, groupData) {
                 const groupsResult = await haAPI.getGroups();
                 allGroups = groupsResult.groups || {};
                 
-                // Load the selected profile's schedule data into the graph
+                // Load the selected profile's schedule data
                 const updatedGroupData = allGroups[currentGroup];
                 if (updatedGroupData && updatedGroupData.profiles && updatedGroupData.profiles[selectedProfile]) {
                     const profileData = updatedGroupData.profiles[selectedProfile];
                     
-                    // Track which profile we're editing
-                    editingProfile = selectedProfile;
-                    
-                    // Update the schedules to show the selected profile
-                    currentScheduleMode = profileData.schedule_mode || 'all_days';
+                    // Get schedule data (don't modify global state)
+                    let profileScheduleMode = profileData.schedule_mode || 'all_days';
                     const schedules = profileData.schedules || {};
                     const day = currentDay || 'all_days';
                     const nodes = schedules[day] || schedules['all_days'] || [];
                     
-                    if (graph) {
-                        setGraphNodes(nodes);
-                    }
-                    
-                    // Show editing indicator if editing a different profile than active
-                    if (selectedProfile !== activeProfile) {
-                        showEditingProfileIndicator(selectedProfile, activeProfile);
-                    } else {
-                        showEditingProfileIndicator(null, activeProfile);
+                    // Find the profile-selector container
+                    const profileSelector = container.querySelector('.profile-selector');
+                    if (profileSelector) {
+                        // Remove any existing profile editor
+                        const existingEditor = profileSelector.querySelector('.timeline-editor-container');
+                        if (existingEditor) {
+                            existingEditor.remove();
+                        }
+                        
+                        // Get temperature settings from globals (same as main timeline)
+                        const temperatureUnit = updatedGroupData.temperature_unit || '°C';
+                        
+                        // Create timeline editor using reusable function
+                        const editorInstance = createTimelineEditor({
+                            idPrefix: 'profile',
+                            buttons: [
+                                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change', disabled: true },
+                                { id: 'graph-clear-btn', text: 'Clear', title: 'Clear all nodes' },
+                                { id: 'save-schedule-btn', text: 'Save', title: 'Save schedule', className: 'btn-quick-action btn-primary' },
+                                { id: 'close-btn', text: '✕', title: 'Close profile editor' }
+                            ],
+                            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+                            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+                            snapValue: graphSnapStep,
+                            title: `Editing Profile: ${selectedProfile}`,
+                            yAxisLabel: `Temperature (${temperatureUnit})`,
+                            xAxisLabel: `Time of Day (24hr)`,
+                            showCurrentTime: false,
+                            tooltipMode: tooltipMode || 'hover',
+                            showHeader: false,
+                            allowCollapse: false
+                        });
+                        
+                        const { container: editorContainer, timeline, controls } = editorInstance;
+                        const { modeDropdown, dayPeriodSelector, dayPeriodButtons, buttons } = controls;
+                        const copyBtn = buttons['graph-copy-btn'];
+                        const pasteBtn = buttons['graph-paste-btn'];
+                        const undoBtn = buttons['graph-undo-btn'];
+                        const clearBtn = buttons['graph-clear-btn'];
+                        const saveBtn = buttons['save-schedule-btn'];
+                        const closeBtn = buttons['close-btn'];
+                        
+                        // Set initial mode
+                        modeDropdown.value = profileScheduleMode;
+                        dayPeriodSelector.style.display = profileScheduleMode === 'all_days' ? 'none' : 'block';
+                        
+                        // Add to profile selector
+                        editorContainer.style.marginTop = '16px';
+                        profileSelector.appendChild(editorContainer);
+                        
+                        // Track current day for profile editor
+                        let currentProfileDay = day;
+                        
+                        // Function to update day/period buttons
+                        const updateDayPeriodButtons = (mode, activeDay) => {
+                            dayPeriodButtons.innerHTML = '';
+                            dayPeriodSelector.style.display = mode === 'all_days' ? 'none' : 'block';
+                            
+                            if (mode === 'individual') {
+                                const days = [
+                                    { value: 'mon', label: 'Mon' },
+                                    { value: 'tue', label: 'Tue' },
+                                    { value: 'wed', label: 'Wed' },
+                                    { value: 'thu', label: 'Thu' },
+                                    { value: 'fri', label: 'Fri' },
+                                    { value: 'sat', label: 'Sat' },
+                                    { value: 'sun', label: 'Sun' }
+                                ];
+                                
+                                days.forEach(dayInfo => {
+                                    const btn = document.createElement('button');
+                                    btn.className = 'day-period-btn';
+                                    btn.textContent = dayInfo.label;
+                                    btn.dataset.day = dayInfo.value;
+                                    if (activeDay === dayInfo.value) {
+                                        btn.classList.add('active');
+                                    }
+                                    btn.addEventListener('click', async () => {
+                                        currentProfileDay = dayInfo.value;
+                                        const newSchedules = profileData.schedules || {};
+                                        const newNodes = newSchedules[dayInfo.value] || [];
+                                        timeline.keyframes = scheduleNodesToKeyframes(newNodes);
+                                        
+                                        dayPeriodButtons.querySelectorAll('.day-period-btn').forEach(b => b.classList.remove('active'));
+                                        btn.classList.add('active');
+                                    });
+                                    dayPeriodButtons.appendChild(btn);
+                                });
+                            } else if (mode === '5/2') {
+                                const periods = [
+                                    { value: 'weekday', label: 'Weekday' },
+                                    { value: 'weekend', label: 'Weekend' }
+                                ];
+                                
+                                periods.forEach(period => {
+                                    const btn = document.createElement('button');
+                                    btn.className = 'day-period-btn';
+                                    btn.textContent = period.label;
+                                    btn.dataset.day = period.value;
+                                    if (activeDay === period.value) {
+                                        btn.classList.add('active');
+                                    }
+                                    btn.addEventListener('click', async () => {
+                                        currentProfileDay = period.value;
+                                        const newSchedules = profileData.schedules || {};
+                                        const newNodes = newSchedules[period.value] || [];
+                                        timeline.keyframes = scheduleNodesToKeyframes(newNodes);
+                                        
+                                        dayPeriodButtons.querySelectorAll('.day-period-btn').forEach(b => b.classList.remove('active'));
+                                        btn.classList.add('active');
+                                    });
+                                    dayPeriodButtons.appendChild(btn);
+                                });
+                            }
+                        };
+                        
+                        // Initial day/period buttons
+                        updateDayPeriodButtons(profileScheduleMode, currentProfileDay);
+                        
+                        // Mode dropdown change handler
+                        modeDropdown.addEventListener('change', async (e) => {
+                            const newMode = e.target.value;
+                            profileScheduleMode = newMode;
+                            
+                            // Determine new default day
+                            let newDay = currentProfileDay;
+                            if (newMode === 'all_days') {
+                                newDay = 'all_days';
+                            } else if (newMode === '5/2') {
+                                const now = new Date();
+                                const weekdayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                                newDay = (weekdayName === 'sat' || weekdayName === 'sun') ? 'weekend' : 'weekday';
+                            } else {
+                                const now = new Date();
+                                newDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                            }
+                            currentProfileDay = newDay;
+                            
+                            // Load schedule for new day
+                            const newSchedules = profileData.schedules || {};
+                            const newNodes = newSchedules[newDay] || [];
+                            timeline.keyframes = scheduleNodesToKeyframes(newNodes);
+                            
+                            // Update day/period buttons
+                            updateDayPeriodButtons(newMode, newDay);
+                            
+                            // Save mode change to profile
+                            try {
+                                const currentNodes = keyframesToScheduleNodes(timeline.keyframes);
+                                await haAPI.setGroupSchedule(currentGroup, currentNodes, newDay, newMode, selectedProfile);
+                                
+                                // Update local cache
+                                const refreshedGroupData = await haAPI.getGroups();
+                                allGroups = refreshedGroupData.groups || refreshedGroupData;
+                            } catch (error) {
+                                console.error('Failed to save mode change:', error);
+                                showToast('Failed to save mode change', 'error');
+                            }
+                        });
+                        
+                        // Update undo button state
+                        const updateUndoBtn = () => {
+                            undoBtn.disabled = !timeline.undoStack || timeline.undoStack.length === 0;
+                        };
+                        timeline.addEventListener('keyframe-moved', updateUndoBtn);
+                        timeline.addEventListener('keyframe-added', updateUndoBtn);
+                        timeline.addEventListener('keyframe-deleted', updateUndoBtn);
+                        timeline.addEventListener('keyframe-restored', updateUndoBtn);
+                        timeline.addEventListener('keyframes-cleared', updateUndoBtn);
+                        
+                        // Undo button handler
+                        undoBtn.onclick = () => {
+                            if (timeline && typeof timeline.undo === 'function') {
+                                timeline.undo();
+                            }
+                        };
+                        
+                        // Copy button handler
+                        copyBtn.onclick = () => {
+                            copiedSchedule = [...timeline.keyframes];
+                            pasteBtn.disabled = false;
+                            showToast('Schedule copied', 'success');
+                        };
+                        
+                        // Paste button handler
+                        pasteBtn.onclick = () => {
+                            if (copiedSchedule && copiedSchedule.length > 0) {
+                                timeline.keyframes = [...copiedSchedule];
+                                showToast('Schedule pasted', 'success');
+                            }
+                        };
+                        
+                        // Clear button handler
+                        clearBtn.onclick = () => {
+                            if (confirm('Clear all nodes for this profile?')) {
+                                timeline.keyframes = [];
+                            }
+                        };
+                        
+                        // Save button handler (manual save)
+                        saveBtn.onclick = async () => {
+                            try {
+                                const updatedNodes = keyframesToScheduleNodes(timeline.keyframes);
+                                
+                                await haAPI.setGroupSchedule(currentGroup, updatedNodes, currentProfileDay, profileScheduleMode, selectedProfile);
+                                
+                                const refreshedGroupData = await haAPI.getGroups();
+                                allGroups = refreshedGroupData.groups || refreshedGroupData;
+                                
+                                showToast('Profile saved successfully', 'success');
+                            } catch (error) {
+                                console.error('Failed to save profile changes:', error);
+                                showToast('Failed to save profile changes', 'error');
+                            }
+                        };
+                        
+                        // Close button handler
+                        closeBtn.onclick = () => {
+                            editorContainer.remove();
+                        };
+                        
+                        // Set the keyframes AFTER appending to DOM
+                        timeline.keyframes = scheduleNodesToKeyframes(nodes);
+                        
+                        // Add event listeners to save changes directly to the selected profile
+                        const saveProfileChanges = async () => {
+                            try {
+                                const updatedNodes = keyframesToScheduleNodes(timeline.keyframes);
+                                
+                                // Save to the selected profile using the new profile_name parameter
+                                await haAPI.setGroupSchedule(currentGroup, updatedNodes, currentProfileDay, profileScheduleMode, selectedProfile);
+                                
+                                // Update local cache
+                                const refreshedGroupData = await haAPI.getGroups();
+                                allGroups = refreshedGroupData.groups || refreshedGroupData;
+                            } catch (error) {
+                                console.error('Failed to save profile changes:', error);
+                                showToast('Failed to save profile changes', 'error');
+                            }
+                        };
+                        
+                        timeline.addEventListener('keyframe-moved', saveProfileChanges);
+                        timeline.addEventListener('keyframe-added', saveProfileChanges);
+                        timeline.addEventListener('keyframe-deleted', saveProfileChanges);
+                        timeline.addEventListener('keyframes-cleared', saveProfileChanges);
+                        timeline.addEventListener('keyframe-restored', saveProfileChanges);
+                        
+                        showToast(`Now editing profile: ${selectedProfile}`, 'info');
                     }
                 }
-                
-                showToast(`Now editing profile: ${selectedProfile}`, 'info');
             } catch (error) {
                 console.error('Failed to load profile:', error);
                 showToast('Failed to load profile: ' + error.message, 'error');
             }
         };
+        
+        // Trigger initial load of default profile
+        profileDropdown.onchange();
     }
     
     // New profile button
@@ -2033,6 +2238,128 @@ async function renderEntityList() {
     return;
 }
 
+/**
+ * Creates a timeline editor instance with controls
+ * @param {Object} config - Configuration object
+ * @param {string} config.idPrefix - Prefix for element IDs (e.g., 'main', 'profile')
+ * @param {Array} config.buttons - Array of button configs: [{id, text, title, className?, onClick?}]
+ * @param {number} config.minValue - Min temperature value
+ * @param {number} config.maxValue - Max temperature value
+ * @param {number} config.snapValue - Snap step value
+ * @param {string} config.title - Timeline title
+ * @param {string} config.yAxisLabel - Y-axis label
+ * @param {string} config.xAxisLabel - X-axis label
+ * @param {boolean} config.showCurrentTime - Show current time indicator
+ * @param {string} config.tooltipMode - Tooltip mode
+ * @param {boolean} config.showHeader - Show timeline header
+ * @param {boolean} config.allowCollapse - Allow timeline collapse
+ * @returns {Object} - {container, timeline, controls: {modeDropdown, dayPeriodSelector, dayPeriodButtons, buttons: {}}}
+ */
+function createTimelineEditor(config) {
+    const {
+        idPrefix = 'timeline',
+        buttons = [],
+        minValue = 5,
+        maxValue = 30,
+        snapValue = 0.5,
+        title = 'Schedule',
+        yAxisLabel = 'Temperature (°C)',
+        xAxisLabel = 'Time of Day (24hr)',
+        showCurrentTime = true,
+        tooltipMode = 'hover',
+        showHeader = false,
+        allowCollapse = false
+    } = config;
+    
+    // Create main container
+    const container = document.createElement('div');
+    container.className = 'timeline-editor-container';
+    
+    // Create editor header with controls
+    const editorHeader = document.createElement('div');
+    editorHeader.className = 'editor-header-inline';
+    
+    const graphTopControls = document.createElement('div');
+    graphTopControls.className = 'graph-top-controls';
+    
+    // Day/period selector
+    const dayPeriodSelector = document.createElement('div');
+    dayPeriodSelector.className = 'day-period-selector';
+    dayPeriodSelector.id = `${idPrefix}-day-period-selector`;
+    dayPeriodSelector.style.display = 'none';
+    
+    const dayPeriodButtons = document.createElement('div');
+    dayPeriodButtons.className = 'day-period-buttons';
+    dayPeriodButtons.id = `${idPrefix}-day-period-buttons`;
+    dayPeriodSelector.appendChild(dayPeriodButtons);
+    
+    // Quick actions container
+    const graphQuickActions = document.createElement('div');
+    graphQuickActions.className = 'graph-quick-actions';
+    
+    // Mode dropdown
+    const modeDropdown = document.createElement('select');
+    modeDropdown.id = `${idPrefix}-schedule-mode-dropdown`;
+    modeDropdown.className = 'mode-dropdown';
+    modeDropdown.title = 'Schedule mode';
+    modeDropdown.innerHTML = `
+        <option value="all_days">24hr</option>
+        <option value="5/2">Weekday</option>
+        <option value="individual">7 Day</option>
+    `;
+    graphQuickActions.appendChild(modeDropdown);
+    
+    // Create action buttons
+    const buttonElements = {};
+    buttons.forEach(btnConfig => {
+        const btn = document.createElement('button');
+        btn.id = `${idPrefix}-${btnConfig.id}`;
+        btn.className = btnConfig.className || 'btn-quick-action';
+        btn.textContent = btnConfig.text;
+        btn.title = btnConfig.title || '';
+        if (btnConfig.disabled) btn.disabled = true;
+        if (btnConfig.onClick) btn.onclick = btnConfig.onClick;
+        buttonElements[btnConfig.id] = btn;
+        graphQuickActions.appendChild(btn);
+    });
+    
+    graphTopControls.appendChild(dayPeriodSelector);
+    graphTopControls.appendChild(graphQuickActions);
+    editorHeader.appendChild(graphTopControls);
+    container.appendChild(editorHeader);
+    
+    // Create timeline instance
+    const timeline = document.createElement('keyframe-timeline');
+    timeline.id = `${idPrefix}-timeline`;
+    timeline.style.width = '100%';
+    timeline.style.setProperty('--timeline-height', '260px');
+    timeline.duration = 24;
+    timeline.slots = 96;
+    timeline.minValue = minValue;
+    timeline.maxValue = maxValue;
+    timeline.snapValue = snapValue;
+    timeline.title = title;
+    timeline.yAxisLabel = yAxisLabel;
+    timeline.xAxisLabel = xAxisLabel;
+    timeline.showCurrentTime = showCurrentTime;
+    timeline.tooltipMode = tooltipMode;
+    timeline.showHeader = showHeader;
+    timeline.allowCollapse = allowCollapse;
+    
+    container.appendChild(timeline);
+    
+    return {
+        container,
+        timeline,
+        controls: {
+            modeDropdown,
+            dayPeriodSelector,
+            dayPeriodButtons,
+            buttons: buttonElements
+        }
+    };
+}
+
 // Create the schedule editor element
 function createScheduleEditor() {
     const editor = document.createElement('div');
@@ -2046,6 +2373,11 @@ function createScheduleEditor() {
                     </div>
                 </div>
                 <div class="graph-quick-actions">
+                    <select id="schedule-mode-dropdown" class="mode-dropdown" title="Schedule mode">
+                        <option value="all_days">24hr</option>
+                        <option value="5/2">Weekday</option>
+                        <option value="individual">7 Day</option>
+                    </select>
                     <button id="graph-copy-btn" class="btn-quick-action" title="Copy schedule">Copy</button>
                     <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule" disabled>Paste</button>
                     <button id="graph-undo-btn" class="btn-quick-action" title="Undo last change">Undo</button>
@@ -2987,32 +3319,14 @@ function attachEditorEventListeners(editorElement) {
         valueCInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
     }
     
-    // Schedule mode radio buttons
-    const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
-    modeRadios.forEach(radio => {
-        radio.addEventListener('change', async (e) => {
-            if (e.target.checked) {
-                const newMode = e.target.value;
-                await switchScheduleMode(newMode);
-            }
+    // Schedule mode dropdown
+    const modeDropdown = editorElement.querySelector('#main-schedule-mode-dropdown');
+    if (modeDropdown) {
+        modeDropdown.addEventListener('change', async (e) => {
+            const newMode = e.target.value;
+            await switchScheduleMode(newMode);
         });
-    });
-    
-    // Day selector buttons (for individual mode)
-    const dayButtons = editorElement.querySelectorAll('#day-selector .day-btn');
-    dayButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await switchDay(btn.dataset.day);
-        });
-    });
-    
-    // Weekday selector buttons (for 5/2 mode)
-    const weekdayButtons = editorElement.querySelectorAll('#weekday-selector .day-btn');
-    weekdayButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await switchDay(btn.dataset.day);
-        });
-    });
+    }
     
     // Graph quick action buttons
     const graphCopyBtn = editorElement.querySelector('#graph-copy-btn');
@@ -3200,38 +3514,10 @@ function getScheduleTitle() {
 
 // Update schedule mode UI to reflect current mode and day
 function updateScheduleModeUI() {
-    // Update mode radio buttons
-    const modeRadios = getDocumentRoot().querySelectorAll('input[name="schedule-mode"]');
-    modeRadios.forEach(radio => {
-        radio.checked = (radio.value === currentScheduleMode);
-    });
-    
-    // Show/hide appropriate day selectors
-    const daySelector = getDocumentRoot().querySelector('#day-selector');
-    const weekdaySelector = getDocumentRoot().querySelector('#weekday-selector');
-    
-    if (daySelector && weekdaySelector) {
-        // Hide both first
-        daySelector.classList.remove('visible');
-        weekdaySelector.classList.remove('visible');
-        
-        // Show the appropriate one
-        if (currentScheduleMode === 'individual') {
-            daySelector.classList.add('visible');
-        } else if (currentScheduleMode === '5/2') {
-            weekdaySelector.classList.add('visible');
-        }
-    }
-    
-    // Update active day button
-    if (currentScheduleMode === 'individual') {
-        getDocumentRoot().querySelectorAll('#day-selector .day-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.day === currentDay);
-        });
-    } else if (currentScheduleMode === '5/2') {
-        getDocumentRoot().querySelectorAll('#weekday-selector .day-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.day === currentDay);
-        });
+    // Update mode dropdown
+    const modeDropdown = getDocumentRoot().querySelector('#main-schedule-mode-dropdown');
+    if (modeDropdown) {
+        modeDropdown.value = currentScheduleMode;
     }
     
     // Update day/period selector above graph
@@ -3243,8 +3529,8 @@ function updateScheduleModeUI() {
 
 // Update the day/period selector above the graph
 function updateGraphDaySelector() {
-    const dayPeriodSelector = getDocumentRoot().querySelector('#day-period-selector');
-    const dayPeriodButtons = getDocumentRoot().querySelector('#day-period-buttons');
+    const dayPeriodSelector = getDocumentRoot().querySelector('#main-day-period-selector');
+    const dayPeriodButtons = getDocumentRoot().querySelector('#main-day-period-buttons');
     
     if (!dayPeriodSelector || !dayPeriodButtons) return;
     
@@ -3467,14 +3753,22 @@ async function switchScheduleMode(newMode) {
         currentDay = weekday;
     }
     
-    // Save the mode change to backend first
+    // Save the mode change to the active profile in backend
     if (currentGroup) {
         const nodes = getGraphNodes();
-        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
+        const groupData = allGroups[currentGroup];
+        const activeProfile = groupData?.active_profile || 'Default';
+        
+        // Save with profile_name to ensure mode is saved to the active profile
+        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode, activeProfile);
         
         // Update local group data
         if (allGroups[currentGroup]) {
             allGroups[currentGroup].schedule_mode = currentScheduleMode;
+            // Also update the active profile's schedule_mode
+            if (allGroups[currentGroup].profiles && allGroups[currentGroup].profiles[activeProfile]) {
+                allGroups[currentGroup].profiles[activeProfile].schedule_mode = currentScheduleMode;
+            }
         }
     }
     

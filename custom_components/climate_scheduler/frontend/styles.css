@@ -2098,6 +2098,30 @@ footer {
     margin: 0 auto;
 }
 
+.mode-dropdown {
+    padding: 6px 10px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+    max-width: 200px;
+}
+
+.mode-dropdown:hover {
+    border-color: var(--primary-color);
+    background: var(--surface);
+}
+
+.mode-dropdown:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-color-alpha);
+}
+
 .btn-quick-action {
     background: var(--surface-light);
     color: var(--text-primary);

@@ -407,7 +407,7 @@ class HomeAssistantAPI {
         }
     }
     
-    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null, profileName = null) {
         const callStartTime = performance.now();
         console.debug('[HA-API] setGroupSchedule called', {
             timestamp: new Date().toISOString(),
@@ -415,6 +415,7 @@ class HomeAssistantAPI {
             nodeCount: nodes?.length,
             day,
             scheduleMode,
+            profileName,
             usingHassObject: this.usingHassObject
         });
         
@@ -436,6 +437,9 @@ class HomeAssistantAPI {
         }
         if (scheduleMode) {
             serviceData.schedule_mode = scheduleMode;
+        }
+        if (profileName) {
+            serviceData.profile_name = profileName;
         }
         
         console.debug('[HA-API] Calling climate_scheduler.set_group_schedule', {
