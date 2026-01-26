@@ -2,6 +2,48 @@
 
 
 
+## [Unreleased]
+
+### Added
+- **Profile Editor Enhancements**: Major improvements to profile editing workflow
+  - Replaced "Schedule Profile" with "Profile Editor" heading for clarity
+  - Removed Edit button - profiles now automatically load in editor when selected from dropdown
+  - Profile editor opens immediately upon selecting a profile from the dropdown
+  - Added Copy and Paste buttons to profile editor for easy schedule duplication
+  - Added Save button for manual profile saves (in addition to auto-save)
+  - Added Close button (✕) to dismiss profile editor
+  - Profile editor now uses same reusable timeline component as main schedule
+
+- **Reusable Timeline Component**: Created `createTimelineEditor()` function for consistent timeline creation
+  - Eliminates code duplication between main schedule and profile editor
+  - Shared logic for timeline creation, controls, and button configuration
+  - Supports customizable button sets and ID prefixes
+  - Both editors now use identical layout and control structure
+
+### Changed
+- **Schedule Mode UI Improvements**: 
+  - Moved schedule mode selector from settings panel to dropdown in graph quick actions
+  - Renamed mode options: "All Days" → "24hr", "5/2 (Weekday/Weekend)" → "Weekday", "Individual Days" → "7 Day"
+  - Consistent mode selector across main schedule and profile editor
+
+- **Profile Editor Architecture**: Made schedule mode a per-profile property
+  - Each profile now maintains its own schedule mode (24hr, Weekday, 7 Day)
+  - Mode selection in profile editor is independent from main schedule
+  - Profile mode is saved and restored correctly when switching profiles
+
+### Fixed
+- **Profile Data Conversion**: Fixed critical data format issues in profile editor
+  - Profile editor now properly converts between backend format (HH:MM strings) and timeline format (decimal hours)
+  - Uses `scheduleNodesToKeyframes()` when loading profiles to convert "HH:MM" → decimal time
+  - Uses `keyframesToScheduleNodes()` when saving profiles to convert decimal time → "HH:MM"
+  - Fixed "timeStr.split is not a function" error when switching to profiles edited in profile editor
+  - Profiles created in main schedule now load correctly in profile editor and vice versa
+
+- **Profile Editor Variable Scoping**: Fixed variable declaration issues
+  - Changed `const profileScheduleMode` to `let` to allow mode updates
+  - Fixed `currentProfileDay` to track active day correctly in auto-save
+  - Profile editor day tracking is now scoped per timeline instance (independent from main schedule)
+
 ## [1.15.0-develop.5] - 2026-01-25
 
 - 2026-01-25
