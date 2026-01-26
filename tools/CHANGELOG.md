@@ -1,8 +1,6 @@
 # Changelog
 
-
-
-## [Unreleased]
+## [1.15.0-develop.6] - 2026-01-26
 
 ### Added
 - **Profile Editor Enhancements**: Major improvements to profile editing workflow
@@ -43,6 +41,7 @@
   - Changed `const profileScheduleMode` to `let` to allow mode updates
   - Fixed `currentProfileDay` to track active day correctly in auto-save
   - Profile editor day tracking is now scoped per timeline instance (independent from main schedule)
+m main schedule)
 
 ## [1.15.0-develop.5] - 2026-01-25
 
@@ -599,4 +598,5 @@ ame clicks
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
