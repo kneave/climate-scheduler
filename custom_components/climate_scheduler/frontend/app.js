@@ -6242,6 +6242,51 @@ async function setupSettingsPanel() {
     }
     
     // Cleanup derivative sensors button
+    // Run diagnostics button
+    const runDiagnosticsBtn = getDocumentRoot().querySelector('#run-diagnostics-btn');
+    if (runDiagnosticsBtn) {
+        runDiagnosticsBtn.addEventListener('click', async () => {
+            try {
+                runDiagnosticsBtn.textContent = '🔍 Running diagnostics...';
+                runDiagnosticsBtn.disabled = true;
+                
+                const result = await haAPI.runDiagnostics();
+                
+                // Create a downloadable JSON file
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `climate-scheduler-diagnostics-${timestamp}.json`;
+                const jsonString = JSON.stringify(result, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create a temporary download link and trigger it
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = filename;
+                downloadLink.style.display = 'none';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                
+                // Clean up the URL object
+                setTimeout(() => URL.revokeObjectURL(url), 100);
+                
+                showToast(`Diagnostics saved to ${filename}`, 'success', 4000);
+                
+                runDiagnosticsBtn.textContent = '✓ Diagnostics Complete!';
+                setTimeout(() => {
+                    runDiagnosticsBtn.textContent = 'Run Diagnostics';
+                    runDiagnosticsBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to run diagnostics:', error);
+                showToast('Failed to run diagnostics: ' + error.message, 'error');
+                runDiagnosticsBtn.textContent = 'Run Diagnostics';
+                runDiagnosticsBtn.disabled = false;
+            }
+        });
+    }
+    
     const cleanupBtn = getDocumentRoot().querySelector('#cleanup-derivative-sensors-btn');
     if (cleanupBtn) {
         cleanupBtn.addEventListener('click', async () => {

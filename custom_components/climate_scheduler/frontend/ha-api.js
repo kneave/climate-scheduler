@@ -624,6 +624,16 @@ class HomeAssistantAPI {
         }
     }
     
+    async runDiagnostics() {
+        try {
+            const result = await this.callService('climate_scheduler', 'diagnostics', {}, true);
+            return result;
+        } catch (error) {
+            console.error('Failed to run diagnostics:', error);
+            throw error;
+        }
+    }
+    
     onStateUpdate(callback) {
         this.stateUpdateCallbacks.push(callback);
     }

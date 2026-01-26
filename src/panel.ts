@@ -542,6 +542,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                                 <button id="sync-all-menu" class="btn-secondary">Sync All Thermostats</button>
                                 <button id="reload-integration-menu" class="btn-secondary">Reload Integration</button>
                                 <button id="convert-temperature-btn" class="btn-secondary">Convert All Schedules...</button>
+                                <button id="run-diagnostics-btn" class="btn-secondary">Run Diagnostics</button>
                                 <button id="cleanup-derivative-sensors-btn" class="btn-secondary">Cleanup Derivative Sensors</button>
                                 <button id="cleanup-orphaned-climate-btn" class="btn-secondary">Cleanup Orphaned Entities</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>

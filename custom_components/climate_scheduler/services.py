@@ -1628,7 +1628,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "integration": {},
             "card_registration": {},
             "card_accessibility": {},
-            "recommendations": []
+            "storage": {},
+            "climate_entities": {},
+            "devices": {}
         }
         
         # Get integration version from manifest
@@ -1643,7 +1645,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         except Exception as e:
             result["integration"]["version"] = "error reading manifest"
             result["integration"]["error"] = str(e)
-            result["recommendations"].append("Unable to read manifest.json - integration may be corrupted")
         
         # Check if card is registered in Lovelace resources
         try:
@@ -1651,7 +1652,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if lovelace_data is None:
                 result["card_registration"]["status"] = "lovelace_unavailable"
                 result["card_registration"]["message"] = "Lovelace integration not available"
-                result["recommendations"].append("Lovelace is not available - this is unusual")
             else:
                 # Get resources based on HA version
                 from homeassistant.const import __version__ as ha_version
@@ -1668,12 +1668,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 if resources is None:
                     result["card_registration"]["status"] = "resources_unavailable"
                     result["card_registration"]["message"] = "Lovelace resources not available"
-                    result["recommendations"].append("Lovelace resources API not available")
                 elif not hasattr(resources, "store") or resources.store is None:
                     result["card_registration"]["status"] = "yaml_mode"
                     result["card_registration"]["message"] = "Lovelace is in YAML mode"
-                    result["recommendations"].append("You are using Lovelace YAML mode - you must manually add the card resource to your configuration")
-                    result["recommendations"].append("Add to your lovelace config: resources: [{url: /climate_scheduler/static/climate-scheduler-card.js, type: module}]")
                 else:
                     # Ensure resources are loaded
                     if not resources.loaded:
@@ -1701,19 +1698,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         result["card_registration"]["status"] = "registered"
                         result["card_registration"]["count"] = len(registered_cards)
                         result["card_registration"]["resources"] = registered_cards
-                        
-                        if len(registered_cards) > 1:
-                            result["recommendations"].append(f"Found {len(registered_cards)} card registrations - you may have duplicate entries")
-                            result["recommendations"].append("Run the climate_scheduler.reregister_card service to clean up and register a fresh entry")
                     else:
                         result["card_registration"]["status"] = "not_registered"
                         result["card_registration"]["message"] = "Card not found in Lovelace resources"
-                        result["recommendations"].append("Card is not registered! Run the climate_scheduler.reregister_card service to register it")
-                        result["recommendations"].append("Or try reloading the integration or restarting Home Assistant")
         except Exception as e:
             result["card_registration"]["status"] = "error"
             result["card_registration"]["error"] = str(e)
-            result["recommendations"].append(f"Error checking card registration: {e}")
         
         # Check if card file is accessible via URL
         try:
@@ -1752,29 +1742,118 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                                     result["card_accessibility"]["appears_valid"] = True
                                 else:
                                     result["card_accessibility"]["appears_valid"] = False
-                                    result["recommendations"].append("Card file is accessible but content doesn't look like Climate Scheduler card")
                             else:
                                 result["card_accessibility"]["status"] = "http_error"
                                 result["card_accessibility"]["http_status"] = response.status
-                                result["recommendations"].append(f"Card returned HTTP {response.status} - file may not be accessible")
                 finally:
                     await session.close()
             except asyncio.TimeoutError:
                 result["card_accessibility"]["status"] = "timeout"
                 result["card_accessibility"]["error"] = "Request timed out after 5 seconds"
-                result["recommendations"].append("Card request timed out - may indicate server issues")
         except Exception as e:
             result["card_accessibility"]["status"] = "error"
             result["card_accessibility"]["error"] = str(e)
-            result["recommendations"].append(f"Error checking card accessibility: {e}")
         
-        # Add general recommendations
-        if not result["recommendations"]:
-            result["recommendations"].append("Everything looks good! If you still can't find the card:")
-            result["recommendations"].append("1. Clear your browser cache (Ctrl+Shift+Delete)")
-            result["recommendations"].append("2. Do a hard refresh (Ctrl+Shift+R or Ctrl+F5)")
-            result["recommendations"].append("3. Try a different browser or incognito mode")
-            result["recommendations"].append("4. Check browser console for JavaScript errors (F12)")
+        # Get full storage data
+        try:
+            storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
+            storage_data = await storage.async_get_groups()
+            
+            result["storage"]["status"] = "loaded"
+            result["storage"]["data"] = storage_data
+            result["storage"]["group_count"] = len(storage_data)
+            
+            # Count entities across all groups
+            total_entities = 0
+            for group_data in storage_data.values():
+                if isinstance(group_data.get("entities"), list):
+                    total_entities += len(group_data["entities"])
+            
+            result["storage"]["total_entities"] = total_entities
+            
+        except Exception as e:
+            result["storage"]["status"] = "error"
+            result["storage"]["error"] = str(e)
+        
+        # Get all climate entities detected by Home Assistant
+        try:
+            from homeassistant.helpers import entity_registry as er
+            
+            entity_reg = er.async_get(hass)
+            
+            # Get all climate entities
+            climate_entities = []
+            for entity in entity_reg.entities.values():
+                if entity.domain == "climate":
+                    climate_entities.append({
+                        "entity_id": entity.entity_id,
+                        "platform": entity.platform,
+                        "disabled": entity.disabled,
+                        "name": entity.name or entity.original_name,
+                        "device_id": entity.device_id,
+                    })
+            
+            result["climate_entities"]["status"] = "loaded"
+            result["climate_entities"]["count"] = len(climate_entities)
+            result["climate_entities"]["entities"] = climate_entities
+            
+            # Get states for climate entities
+            climate_states = []
+            for entity in climate_entities:
+                entity_id = entity["entity_id"]
+                state = hass.states.get(entity_id)
+                if state:
+                    climate_states.append({
+                        "entity_id": entity_id,
+                        "state": state.state,
+                        "available": state.state != "unavailable",
+                        "attributes": dict(state.attributes)  # Include all attributes
+                    })
+            
+            result["climate_entities"]["states"] = climate_states
+            result["climate_entities"]["available_count"] = sum(1 for s in climate_states if s["available"])
+            
+        except Exception as e:
+            result["climate_entities"]["status"] = "error"
+            result["climate_entities"]["error"] = str(e)
+        
+        # Get all devices associated with the integration
+        try:
+            from homeassistant.helpers import device_registry as dr
+            
+            device_reg = dr.async_get(hass)
+            
+            # Get all devices for this integration
+            integration_devices = []
+            for device in device_reg.devices.values():
+                # Check if device has any config entry that belongs to our integration
+                for entry_id in device.config_entries:
+                    entry = hass.config_entries.async_get_entry(entry_id)
+                    if entry and entry.domain == DOMAIN:
+                        integration_devices.append({
+                            "id": device.id,
+                            "name": device.name,
+                            "name_by_user": device.name_by_user,
+                            "manufacturer": device.manufacturer,
+                            "model": device.model,
+                            "sw_version": device.sw_version,
+                            "hw_version": device.hw_version,
+                            "config_entries": list(device.config_entries),
+                            "connections": list(device.connections),
+                            "identifiers": list(device.identifiers),
+                            "via_device_id": device.via_device_id,
+                            "disabled_by": device.disabled_by,
+                            "entry_type": device.entry_type,
+                        })
+                        break
+            
+            result["devices"]["status"] = "loaded"
+            result["devices"]["count"] = len(integration_devices)
+            result["devices"]["devices"] = integration_devices
+            
+        except Exception as e:
+            result["devices"]["status"] = "error"
+            result["devices"]["error"] = str(e)
         
         return result
     
