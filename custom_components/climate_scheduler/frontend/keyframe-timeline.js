@@ -190,6 +190,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         // Redraw when keyframes, backgroundGraphs or advanceHistory changes
         if (changedProperties.has('keyframes')) {
             this.drawTimeline();
+            this.updateNavigationButtonsState();
         }
         // Redraw when backgroundGraphs or advanceHistory changes
         if (changedProperties.has('backgroundGraphs') || changedProperties.has('advanceHistory')) {
@@ -1321,6 +1322,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.undoStack = this.undoStack.slice(-50);
         }
         this.updateUndoButtonState();
+        this.updateNavigationButtonsState();
     }
     // Public undo method (can be called externally or via Ctrl+Z)
     undo() {
@@ -1333,6 +1335,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.keyframes = previousState.map(kf => ({ ...kf }));
         this.drawTimeline();
         this.updateUndoButtonState();
+        this.updateNavigationButtonsState();
         this.dispatchEvent(new CustomEvent('keyframe-restored', {
             detail: { keyframes: this.keyframes },
             bubbles: true,
@@ -1346,6 +1349,38 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (this.undoButton) {
             this.undoButton.addEventListener('click', () => this.undo());
             this.updateUndoButtonState();
+        }
+    }
+    // Set external previous button reference
+    setPreviousButton(buttonElement) {
+        this.previousButton = buttonElement;
+        if (this.previousButton) {
+            this.previousButton.addEventListener('click', () => this.selectPrevious());
+            this.updateNavigationButtonsState();
+        }
+    }
+    // Set external next button reference
+    setNextButton(buttonElement) {
+        this.nextButton = buttonElement;
+        if (this.nextButton) {
+            this.nextButton.addEventListener('click', () => this.selectNext());
+            this.updateNavigationButtonsState();
+        }
+    }
+    // Set external clear button reference
+    setClearButton(buttonElement) {
+        if (buttonElement) {
+            buttonElement.addEventListener('click', () => this.clearKeyframes());
+        }
+    }
+    // Update navigation buttons disabled state
+    updateNavigationButtonsState() {
+        const canNavigate = this.keyframes.length >= 2;
+        if (this.previousButton) {
+            this.previousButton.disabled = !canNavigate;
+        }
+        if (this.nextButton) {
+            this.nextButton.disabled = !canNavigate;
         }
     }
     // Update undo button disabled state

@@ -927,6 +927,8 @@ async function editGroupSchedule(groupName, day = null) {
         const editorInstance = createTimelineEditor({
             idPrefix: 'main',
             buttons: [
+                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
                 { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
                 { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
                 { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change' },
@@ -945,7 +947,7 @@ async function editGroupSchedule(groupName, day = null) {
             allowCollapse: false
         });
         
-        const { container: timelineEditorContainer, timeline } = editorInstance;
+        const { container: timelineEditorContainer, timeline, controls } = editorInstance;
         
         // Replace the old editor-header with the new one from timelineEditorContainer
         const oldEditorHeader = editor.querySelector('.editor-header-inline');
@@ -974,41 +976,38 @@ async function editGroupSchedule(groupName, day = null) {
             showNodeSettingsPanel(editor, index, keyframe);
         });
         
-        // Setup undo buttons immediately after graph is created
-        const setupUndoButtonsForGraph = () => {
-            const undoBtn = editor.querySelector('#undo-btn');
-            const graphUndoBtn = editor.querySelector('#graph-undo-btn');
-            
-            const updateAndAttach = (btn) => {
-                if (!btn) return;
-                
-                btn.onclick = () => {
-                    if (graph && typeof graph.undoDelete === 'function') {
-                        graph.undoDelete();
-                    }
-                };
-                
-                const updateState = () => {
-                    const stackLength = graph?.undoStack?.length || 0;
-                    btn.disabled = stackLength === 0;
-                };
-                
-                // Attach listeners
-                graph.addEventListener('keyframe-moved', updateState);
-                graph.addEventListener('keyframe-added', updateState);
-                graph.addEventListener('keyframe-deleted', updateState);
-                graph.addEventListener('keyframe-restored', updateState);
-                graph.addEventListener('keyframes-cleared', updateState);
-                
-                updateState();
-            };
-            
-            updateAndAttach(undoBtn);
-            updateAndAttach(graphUndoBtn);
-        };
+        // Link external undo button to timeline's undo system
+        const graphUndoBtn = controls.buttons['graph-undo-btn'];
+        if (graphUndoBtn && typeof timeline.setUndoButton === 'function') {
+            timeline.setUndoButton(graphUndoBtn);
+        }
         
-        // Call setup after a short delay to ensure DOM is ready
-        setTimeout(setupUndoButtonsForGraph, 0);
+        // Link previous/next buttons to timeline navigation
+        const graphPrevBtn = controls.buttons['graph-prev-btn'];
+        if (graphPrevBtn && typeof timeline.setPreviousButton === 'function') {
+            timeline.setPreviousButton(graphPrevBtn);
+        }
+        
+        const graphNextBtn = controls.buttons['graph-next-btn'];
+        if (graphNextBtn && typeof timeline.setNextButton === 'function') {
+            timeline.setNextButton(graphNextBtn);
+        }
+        
+        // Link other control buttons if they exist
+        const graphCopyBtn = controls.buttons['graph-copy-btn'];
+        const graphPasteBtn = controls.buttons['graph-paste-btn'];
+        const advanceBtn = controls.buttons['advance-schedule-btn'];
+        const saveBtn = controls.buttons['save-schedule-btn'];
+        
+        // Attach copy/paste handlers
+        if (graphCopyBtn) {
+            graphCopyBtn.onclick = () => copySchedule();
+        }
+        if (graphPasteBtn) {
+            graphPasteBtn.onclick = () => pasteSchedule();
+        }
+        
+        // Note: Advance and Save buttons have custom handlers in attachEditorEventListeners
     }
     
     // Get graph element (canvas timeline)
@@ -1169,6 +1168,7 @@ function createSettingsPanel(groupData, editor) {
             <h3>Profile Editor</h3>
             <div class="profile-controls">
                 <select id="profile-dropdown" class="profile-dropdown">
+                    <option value="" disabled selected>Select a profile to edit...</option>
                     <option value="Default">Default</option>
                 </select>
                 <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
@@ -1298,6 +1298,12 @@ async function setupProfileHandlers(container, groupData) {
     if (profileDropdown) {
         profileDropdown.onchange = async () => {
             const selectedProfile = profileDropdown.value;
+            
+            // Don't load anything if no profile is selected (placeholder option)
+            if (!selectedProfile) {
+                return;
+            }
+            
             const activeProfile = groupData.active_profile;
             
             try {
@@ -1332,12 +1338,14 @@ async function setupProfileHandlers(container, groupData) {
                         const editorInstance = createTimelineEditor({
                             idPrefix: 'profile',
                             buttons: [
+                                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
                                 { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
                                 { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
                                 { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change', disabled: true },
                                 { id: 'graph-clear-btn', text: 'Clear', title: 'Clear all nodes' },
                                 { id: 'save-schedule-btn', text: 'Save', title: 'Save schedule', className: 'btn-quick-action btn-primary' },
-                                { id: 'close-btn', text: '✕', title: 'Close profile editor' }
+                                { id: 'close-btn', text: 'Close', title: 'Close profile editor' }
                             ],
                             minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
                             maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
@@ -1353,12 +1361,40 @@ async function setupProfileHandlers(container, groupData) {
                         
                         const { container: editorContainer, timeline, controls } = editorInstance;
                         const { modeDropdown, dayPeriodSelector, dayPeriodButtons, buttons } = controls;
+                        const prevBtn = buttons['graph-prev-btn'];
+                        const nextBtn = buttons['graph-next-btn'];
                         const copyBtn = buttons['graph-copy-btn'];
                         const pasteBtn = buttons['graph-paste-btn'];
                         const undoBtn = buttons['graph-undo-btn'];
                         const clearBtn = buttons['graph-clear-btn'];
                         const saveBtn = buttons['save-schedule-btn'];
                         const closeBtn = buttons['close-btn'];
+                        
+                        // Attach copy/paste handlers for profile timeline
+                        if (copyBtn) {
+                            copyBtn.onclick = () => copySchedule();
+                        }
+                        if (pasteBtn) {
+                            pasteBtn.onclick = () => pasteSchedule();
+                        }
+                        
+                        // Link undo button to timeline's undo system
+                        if (undoBtn && typeof timeline.setUndoButton === 'function') {
+                            timeline.setUndoButton(undoBtn);
+                        }
+                        
+                        // Link previous/next buttons to timeline navigation
+                        if (prevBtn && typeof timeline.setPreviousButton === 'function') {
+                            timeline.setPreviousButton(prevBtn);
+                        }
+                        if (nextBtn && typeof timeline.setNextButton === 'function') {
+                            timeline.setNextButton(nextBtn);
+                        }
+                        
+                        // Link clear button to timeline's clear functionality
+                        if (clearBtn && typeof timeline.setClearButton === 'function') {
+                            timeline.setClearButton(clearBtn);
+                        }
                         
                         // Set initial mode
                         modeDropdown.value = profileScheduleMode;
@@ -1537,6 +1573,12 @@ async function setupProfileHandlers(container, groupData) {
                         // Close button handler
                         closeBtn.onclick = () => {
                             editorContainer.remove();
+                            
+                            // Reset dropdown to placeholder
+                            const profileDropdown = container.querySelector('#profile-dropdown');
+                            if (profileDropdown) {
+                                profileDropdown.value = '';
+                            }
                         };
                         
                         // Set the keyframes AFTER appending to DOM
@@ -1564,8 +1606,6 @@ async function setupProfileHandlers(container, groupData) {
                         timeline.addEventListener('keyframe-deleted', saveProfileChanges);
                         timeline.addEventListener('keyframes-cleared', saveProfileChanges);
                         timeline.addEventListener('keyframe-restored', saveProfileChanges);
-                        
-                        showToast(`Now editing profile: ${selectedProfile}`, 'info');
                     }
                 }
             } catch (error) {
@@ -1573,9 +1613,6 @@ async function setupProfileHandlers(container, groupData) {
                 showToast('Failed to load profile: ' + error.message, 'error');
             }
         };
-        
-        // Trigger initial load of default profile
-        profileDropdown.onchange();
     }
     
     // New profile button
@@ -1673,13 +1710,19 @@ async function loadProfiles(container, targetId) {
         
         // Clear and repopulate dropdown
         dropdown.innerHTML = '';
+        
+        // Add placeholder option
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = 'Choose Profile to Edit';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        dropdown.appendChild(placeholderOption);
+        
         Object.keys(profiles).forEach(profileName => {
             const option = document.createElement('option');
             option.value = profileName;
             option.textContent = profileName;
-            if (profileName === activeProfile) {
-                option.selected = true;
-            }
             dropdown.appendChild(option);
         });
         
@@ -2268,7 +2311,8 @@ function createTimelineEditor(config) {
         showCurrentTime = true,
         tooltipMode = 'hover',
         showHeader = false,
-        allowCollapse = false
+        allowCollapse = false,
+        showModeDropdown = true
     } = config;
     
     // Create main container
@@ -2307,7 +2351,9 @@ function createTimelineEditor(config) {
         <option value="5/2">Weekday</option>
         <option value="individual">7 Day</option>
     `;
-    graphQuickActions.appendChild(modeDropdown);
+    if (showModeDropdown) {
+        graphQuickActions.appendChild(modeDropdown);
+    }
     
     // Create action buttons
     const buttonElements = {};
@@ -2379,7 +2425,7 @@ function createScheduleEditor() {
                         <option value="individual">7 Day</option>
                     </select>
                     <button id="graph-copy-btn" class="btn-quick-action" title="Copy schedule">Copy</button>
-                    <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule" disabled>Paste</button>
+                    <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule">Paste</button>
                     <button id="graph-undo-btn" class="btn-quick-action" title="Undo last change">Undo</button>
                     <button id="advance-schedule-btn" class="btn-quick-action" title="Advance to next scheduled node">Advance</button>
                     <button id="save-schedule-btn" class="btn-quick-action btn-primary" title="Save schedule">Save</button>
@@ -2568,37 +2614,7 @@ function attachEditorEventListeners(editorElement) {
         };
     }
     
-    // Undo button - triggers timeline's built-in undo
-    const undoBtn = editorElement.querySelector('#undo-btn');
-    const graphUndoBtn = editorElement.querySelector('#graph-undo-btn');
-    
-    const setupUndoButton = (btn) => {
-        if (btn && graph) {
-            btn.onclick = () => {
-                if (graph && typeof graph.undoDelete === 'function') {
-                    graph.undoDelete();
-                }
-            };
-            
-            // Listen for keyframe changes to update undo button state
-            if (graph) {
-                const updateUndoButton = () => {
-                    btn.disabled = !graph.undoStack || graph.undoStack.length === 0;
-                };
-                
-                // Update on timeline changes
-                graph.addEventListener('keyframe-moved', updateUndoButton);
-                graph.addEventListener('keyframe-added', updateUndoButton);
-                graph.addEventListener('keyframe-deleted', updateUndoButton);
-                
-                // Initial state
-                updateUndoButton();
-            }
-        }
-    };
-    
-    setupUndoButton(undoBtn);
-    setupUndoButton(graphUndoBtn);
+    // Note: Undo buttons are now linked via timeline.setUndoButton() in editGroupSchedule
     
     // Ignore button (Unmonitor button for single-entity groups)
     const ignoreBtn = editorElement.querySelector('#ignore-entity-btn');
@@ -3349,14 +3365,23 @@ let scheduleClipboard = null;
 
 // Update paste button state based on clipboard
 function updatePasteButtonState() {
-    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
-    if (pasteBtn) {
-        pasteBtn.disabled = !scheduleClipboard || scheduleClipboard.length === 0;
-    }
-    const graphPasteBtn = getDocumentRoot().querySelector('#graph-paste-btn');
-    if (graphPasteBtn) {
-        graphPasteBtn.disabled = !scheduleClipboard || scheduleClipboard.length === 0;
-    }
+    const hasClipboard = scheduleClipboard && scheduleClipboard.length > 0;
+    
+    // Update all paste buttons (handles both old IDs and new prefixed IDs)
+    const pasteButtons = [
+        '#paste-schedule-btn',
+        '#graph-paste-btn',
+        '#main-graph-paste-btn',
+        '#profile-graph-paste-btn',
+        '#default-graph-paste-btn'
+    ];
+    
+    pasteButtons.forEach(selector => {
+        const btn = getDocumentRoot().querySelector(selector);
+        if (btn) {
+            btn.disabled = !hasClipboard;
+        }
+    });
 }
 
 // Copy current schedule to clipboard
@@ -3615,6 +3640,17 @@ function updateGraphProfileDropdown() {
     
     // Update dropdown options
     profileDropdown.innerHTML = '';
+    
+    // Add placeholder option for profile editor dropdown
+    if (profileDropdown.id === 'profile-dropdown') {
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = 'Choose Profile to Edit';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        profileDropdown.appendChild(placeholderOption);
+    }
+    
     profiles.forEach(profileName => {
         const option = document.createElement('option');
         option.value = profileName;
@@ -3625,8 +3661,11 @@ function updateGraphProfileDropdown() {
         profileDropdown.appendChild(option);
     });
     
-    // Ensure the active profile is selected
-    profileDropdown.value = activeProfile;
+    // Don't set value for profile editor dropdown (keep placeholder selected)
+    if (profileDropdown.id !== 'profile-dropdown') {
+        // Ensure the active profile is selected for group selector
+        profileDropdown.value = activeProfile;
+    }
 }
 
 // Set previous day's last temperature for graph rendering
@@ -5555,30 +5594,74 @@ async function initializeDefaultScheduleGraph() {
             existingGraph.remove();
         }
         
-        // Create keyframe-timeline element
-        const timeline = document.createElement('keyframe-timeline');
+        // Create timeline editor using reusable function
+        const editorInstance = createTimelineEditor({
+            idPrefix: 'default',
+            buttons: [
+                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
+                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change' },
+                { id: 'graph-clear-btn', text: 'Clear', title: 'Clear all nodes' }
+            ],
+            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+            snapValue: graphSnapStep,
+            title: '',
+            yAxisLabel: `Temperature (${temperatureUnit})`,
+            xAxisLabel: `Time of Day (24hr)`,
+            showCurrentTime: false,
+            tooltipMode: tooltipMode,
+            showHeader: false,
+            allowCollapse: false,
+            showModeDropdown: false
+        });
+        
+        const { container: timelineEditorContainer, timeline, controls } = editorInstance;
         timeline.id = 'default-schedule-graph';
         timeline.className = 'temperature-graph';
-        timeline.style.width = '100%';
-        timeline.style.setProperty('--timeline-height', '260px');
-        timeline.duration = 24;
-        timeline.slots = 96;
-        timeline.minValue = minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5);
-        timeline.maxValue = maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30);
-        timeline.snapValue = graphSnapStep;
-        timeline.title = '';
-        timeline.yAxisLabel = `Temperature (${temperatureUnit})`;
-        timeline.xAxisLabel = `Time of Day (24hr)`;
-        timeline.showCurrentTime = false;
-        timeline.tooltipMode = tooltipMode;
-        timeline.showHeader = false;
-        timeline.allowCollapse = false;
         
-        container.appendChild(timeline);
+        container.appendChild(timelineEditorContainer);
         
         defaultScheduleGraph = timeline;
         
-        // Convert defaultScheduleSettings nodes to keyframes and set them
+        // Get button references
+        const undoBtn = controls.buttons['graph-undo-btn'];
+        const prevBtn = controls.buttons['graph-prev-btn'];
+        const nextBtn = controls.buttons['graph-next-btn'];
+        const copyBtn = controls.buttons['graph-copy-btn'];
+        const pasteBtn = controls.buttons['graph-paste-btn'];
+        const clearBtn = controls.buttons['graph-clear-btn'];
+        
+        // Attach copy/paste handlers for default timeline
+        if (copyBtn) {
+            copyBtn.onclick = () => copySchedule();
+        }
+        if (pasteBtn) {
+            pasteBtn.onclick = () => pasteSchedule();
+        }
+        
+        // Link external undo button to timeline's undo system
+        if (undoBtn && typeof timeline.setUndoButton === 'function') {
+            timeline.setUndoButton(undoBtn);
+        }
+        
+        // Link previous/next buttons to timeline navigation
+        if (prevBtn && typeof timeline.setPreviousButton === 'function') {
+            timeline.setPreviousButton(prevBtn);
+        }
+        
+        if (nextBtn && typeof timeline.setNextButton === 'function') {
+            timeline.setNextButton(nextBtn);
+        }
+        
+        // Link clear button to timeline's clear functionality
+        if (clearBtn && typeof timeline.setClearButton === 'function') {
+            timeline.setClearButton(clearBtn);
+        }
+        
+        // Link external undo button to timeline's undo system\n        const undoBtn = controls.buttons['graph-undo-btn'];\n        if (undoBtn && typeof timeline.setUndoButton === 'function') {\n            timeline.setUndoButton(undoBtn);\n        }\n        \n        // Convert defaultScheduleSettings nodes to keyframes and set them
         // Always set keyframes, even if empty, to ensure timeline renders
         if (defaultScheduleSettings && defaultScheduleSettings.length > 0) {
             const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
