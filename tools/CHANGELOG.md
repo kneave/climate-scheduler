@@ -1,5 +1,49 @@
 # Changelog
 
+
+
+## [1.15.0-develop.7] - 2026-01-27
+
+### Added
+- **Navigation Controls**: Added Previous/Next keyframe navigation buttons to all timelines
+  - Navigate between keyframes using ◀/▶ buttons
+  - Buttons are active when 2+ keyframes exist
+  - Available in main schedule, profile editor, and default schedule timelines
+
+### Changed
+- **Profile Editor UI Improvements**:
+  - Profile dropdown now shows "Choose Profile to Edit" placeholder by default
+  - Profile timeline hidden until a profile is explicitly selected
+  - Close button now resets dropdown to placeholder state
+  - Close button text changed from "✕" to "Close" for better clarity
+  - Removed "Now editing..." toast notification
+  - Timeline title hidden in profile editor
+
+- **Default Schedule UI Cleanup**:
+  - Removed schedule mode dropdown (locked to 24hr mode)
+  - Removed timeline title text
+  - Cleaner, more focused interface
+
+- **Button State Management**:
+  - Paste buttons now properly disabled until a schedule is copied
+  - Copy button handlers properly attached to all timeline instances
+  - Button states update correctly across all timelines
+
+- **Timeline Headers**:
+  - Disabled `showHeader` property for all timelines (main, profile, default)
+  - Removed built-in timeline header controls in favor of external button controls
+
+### Fixed
+- **Copy/Paste Functionality**: Fixed paste button state management
+  - Paste buttons now query correct prefixed IDs (main-graph-paste-btn, profile-graph-paste-btn, etc.)
+  - Copy button click handlers properly attached to timeline button references
+  - `updatePasteButtonState()` now handles all paste button variants
+
+- **Profile Editor Initialization**: Fixed "editor is not defined" error
+  - Removed incorrect code attempting to modify profile editor dropdown during group container creation
+  - Profile editor dropdown properly populated via `loadProfiles()` function
+()` function
+
 ## [1.15.0-develop.6] - 2026-01-26
 
 ### Added
@@ -598,5 +642,6 @@ ame clicks
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 

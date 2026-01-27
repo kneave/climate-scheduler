@@ -771,8 +771,8 @@ if (-not $DryRun) {
         if (Test-Path $versionFilePath) {
             git add $versionFilePath
         }
-        if ($needsChangelogUpdate -and (Test-Path "CHANGELOG.md")) {
-            git add CHANGELOG.md
+        if ($needsChangelogUpdate -and (Test-Path "tools\CHANGELOG.md")) {
+            git add tools\CHANGELOG.md
         }
         # Add .version file
         git add custom_components/climate_scheduler/frontend/.version
