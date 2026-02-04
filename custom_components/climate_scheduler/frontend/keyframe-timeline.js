@@ -235,8 +235,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     updateCanvasSize() {
         if (!this.canvas)
             return;
-        const rect = this.canvas.getBoundingClientRect();
-        this.canvasWidth = rect.width * window.devicePixelRatio;
+        // Use offsetWidth to get actual canvas width (not clipped by scroll container)
+        const canvasCSSWidth = this.canvas.offsetWidth;
+        this.canvasWidth = canvasCSSWidth * window.devicePixelRatio;
         // Read height from CSS variables
         const computedStyle = getComputedStyle(this);
         const cssHeightVar = this.collapsed ? '--timeline-height-collapsed' : '--timeline-height';
@@ -268,6 +269,29 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return Math.round(value / this.snapValue) * this.snapValue;
         }
         return value;
+    }
+    getGraphDimensions(rect) {
+        const labelHeight = 30;
+        const leftMargin = 35;
+        const yAxisWidth = 35;
+        const rightMargin = 35;
+        const topMargin = 25;
+        const bottomMargin = 25;
+        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
+        // Use canvas width (not rect width which is clipped by scroll container)
+        const canvasWidthCSS = this.canvas.width / (window.devicePixelRatio || 1);
+        const graphWidth = canvasWidthCSS - leftMargin - yAxisWidth - rightMargin;
+        return {
+            labelHeight,
+            leftMargin,
+            yAxisWidth,
+            rightMargin,
+            topMargin,
+            bottomMargin,
+            graphHeight,
+            graphWidth,
+            canvasWidthCSS
+        };
     }
     sortKeyframes() {
         // Keep track of what was selected/dragging before sort
@@ -643,14 +667,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (!this.ctx)
             return;
         const dpr = window.devicePixelRatio || 1;
-        const labelHeight = 30;
-        const leftMargin = 35;
-        const yAxisWidth = 35;
-        const rightMargin = 35;
-        const topMargin = 25;
-        const bottomMargin = 25;
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, rightMargin, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if in graph area
         if (x < leftMargin + yAxisWidth || x > rect.width - rightMargin ||
             y < topMargin || y > topMargin + graphHeight) {
@@ -790,16 +807,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
         const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
         const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-        const x = clientX - rect.left + scrollOffset;
+        const x = clientX - rect.left;
         const y = clientY - rect.top;
-        const labelHeight = 30;
-        const leftMargin = 35; // CSS pixels (drawing uses 35 * dpr)
-        const yAxisWidth = 35; // CSS pixels (drawing uses 35 * dpr)
-        const rightMargin = 35; // CSS pixels (drawing uses 35 * dpr)
-        const topMargin = 25; // CSS pixels (drawing uses 25 * dpr)
-        const bottomMargin = 25; // CSS pixels (drawing uses 25 * dpr)
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, rightMargin, topMargin, bottomMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if scrollable (only in expanded mode)
         const isScrollable = !this.collapsed && this.wrapperEl && this.wrapperEl.scrollWidth > this.wrapperEl.clientWidth;
         // For touch devices, set up long-press detection FIRST (before any returns)
@@ -835,6 +845,85 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
             const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
             return distance < 20;
+        });
+        // Debug logging for click detection
+        // Calculate rendering positions using the same logic as drawTimeline (device pixels)
+        const dpr = window.devicePixelRatio;
+        const renderLabelHeight = 30 * dpr;
+        const renderLeftMargin = 35 * dpr;
+        const renderYAxisWidth = 35 * dpr;
+        const renderRightMargin = 35 * dpr;
+        const renderTopMargin = 45 * dpr;
+        const renderBottomMargin = 25 * dpr;
+        const renderGraphHeight = this.canvasHeight - renderLabelHeight - renderTopMargin - renderBottomMargin;
+        const renderGraphWidth = this.canvasWidth - renderLeftMargin - renderYAxisWidth - renderRightMargin;
+        console.log('[Click Handler Debug]', {
+            eventType: e instanceof MouseEvent ? 'mouse' : 'touch',
+            clientCoords: {
+                clientX: e instanceof MouseEvent ? e.clientX : e.touches[0].clientX,
+                clientY: e instanceof MouseEvent ? e.clientY : e.touches[0].clientY
+            },
+            rect: {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height
+            },
+            scrollOffset,
+            adjustedCoords: { x, y },
+            graphDimensions: {
+                leftMargin,
+                yAxisWidth,
+                rightMargin,
+                topMargin,
+                bottomMargin,
+                graphWidth,
+                graphHeight
+            },
+            renderingDimensions: {
+                leftMargin: renderLeftMargin,
+                yAxisWidth: renderYAxisWidth,
+                rightMargin: renderRightMargin,
+                topMargin: renderTopMargin,
+                bottomMargin: renderBottomMargin,
+                graphWidth: renderGraphWidth,
+                graphHeight: renderGraphHeight,
+                note: 'These are in device pixels (includes DPR multiplier)'
+            },
+            canvasSize: {
+                canvasWidth: this.canvas?.width,
+                canvasHeight: this.canvas?.height,
+                dpr: window.devicePixelRatio
+            },
+            clickedIndex,
+            clickedNode: clickedIndex >= 0 ? {
+                index: clickedIndex,
+                keyframe: this.keyframes[clickedIndex],
+                calculatedPosition: {
+                    kfX: leftMargin + yAxisWidth + ((this.keyframes[clickedIndex].time / this.duration) * graphWidth),
+                    kfY: topMargin + ((1 - this.normalizeValue(this.keyframes[clickedIndex].value)) * graphHeight)
+                },
+                distance: Math.sqrt(Math.pow(x - (leftMargin + yAxisWidth + ((this.keyframes[clickedIndex].time / this.duration) * graphWidth)), 2) +
+                    Math.pow(y - (topMargin + ((1 - this.normalizeValue(this.keyframes[clickedIndex].value)) * graphHeight)), 2))
+            } : null,
+            allNodeDistances: this.keyframes.map((kf, idx) => {
+                const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
+                const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
+                const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
+                // Calculate where rendering actually draws it (in device pixels, then convert to CSS)
+                const renderX = (renderLeftMargin + renderYAxisWidth + ((kf.time / this.duration) * renderGraphWidth)) / dpr;
+                const renderY = (renderTopMargin + ((1 - this.normalizeValue(kf.value)) * renderGraphHeight)) / dpr;
+                return {
+                    index: idx,
+                    time: kf.time,
+                    value: kf.value,
+                    hitDetectionPosition: { kfX, kfY },
+                    renderPosition: { x: renderX, y: renderY },
+                    positionMismatch: Math.sqrt(Math.pow(renderX - kfX, 2) + Math.pow(renderY - kfY, 2)),
+                    distance,
+                    withinHitArea: distance < 20
+                };
+            })
         });
         if (clickedIndex >= 0) {
             // Check for double-click to delete (desktop)
@@ -895,8 +984,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         // Update hover position for tooltip (only for mouse, not touch)
         if (e instanceof MouseEvent && !this.isDragging && !this.isPanning && this.canvas) {
             const rect = this.canvas.getBoundingClientRect();
-            const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-            this.hoverX = e.clientX - rect.left + scrollOffset;
+            this.wrapperEl?.scrollLeft || 0;
+            this.hoverX = e.clientX - rect.left;
             this.hoverY = e.clientY - rect.top;
             this.drawTimeline();
         }
@@ -912,8 +1001,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (e instanceof TouchEvent && this.holdTimer) {
             const rect = this.canvas?.getBoundingClientRect();
             if (rect) {
-                const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-                const x = e.touches[0].clientX - rect.left + scrollOffset;
+                this.wrapperEl?.scrollLeft || 0;
+                const x = e.touches[0].clientX - rect.left;
                 const y = e.touches[0].clientY - rect.top;
                 const dx = x - this.holdStartX;
                 const dy = y - this.holdStartY;
@@ -930,8 +1019,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (this.draggingSegment !== null) {
             const rect = this.canvas.getBoundingClientRect();
             const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
-            const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-            const currentX = clientX - rect.left + scrollOffset;
+            this.wrapperEl?.scrollLeft || 0;
+            const currentX = clientX - rect.left;
             const dx = currentX - this.dragStartX;
             const distance = Math.abs(dx);
             if (distance < 5)
@@ -940,10 +1029,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.saveUndoState();
                 this.hasMoved = true;
             }
-            const leftMargin = 35;
-            const yAxisWidth = 35;
-            const rightMargin = 35;
-            const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+            const { leftMargin, yAxisWidth, graphWidth } = this.getGraphDimensions(rect);
             // Calculate time delta
             const pixelDelta = currentX - this.draggingSegment.initialPointerX;
             const timeDelta = (pixelDelta / graphWidth) * this.duration;
@@ -998,8 +1084,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const rect = this.canvas.getBoundingClientRect();
         const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
         const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
-        const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-        const currentX = clientX - rect.left + scrollOffset;
+        this.wrapperEl?.scrollLeft || 0;
+        const currentX = clientX - rect.left;
         const currentY = clientY - rect.top;
         // Calculate distance from drag start
         const dx = currentX - this.dragStartX;
@@ -1019,16 +1105,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return;
         let x = currentX;
         let y = currentY;
-        const labelHeight = 30;
-        const leftMargin = 35; // CSS pixels
-        const yAxisWidth = 35; // CSS pixels
-        const rightMargin = 35; // CSS pixels
-        const topMargin = 25; // CSS pixels
-        const bottomMargin = 25; // CSS pixels
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, rightMargin, topMargin, bottomMargin, graphHeight, graphWidth, canvasWidthCSS } = this.getGraphDimensions(rect);
         // Clamp to canvas bounds (graph area only)
-        x = Math.max(leftMargin + yAxisWidth, Math.min(x, rect.width - rightMargin));
+        x = Math.max(leftMargin + yAxisWidth, Math.min(x, canvasWidthCSS - rightMargin));
         y = Math.max(topMargin, Math.min(y, topMargin + graphHeight));
         // Snap time to nearest slot (adjust for Y axis offset)
         const adjustedX = x - leftMargin - yAxisWidth;
@@ -1119,18 +1198,11 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (this.hasMoved)
             return;
         const rect = this.canvas.getBoundingClientRect();
-        const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-        const x = e.clientX - rect.left + scrollOffset;
+        this.wrapperEl?.scrollLeft || 0;
+        const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         // Use CSS pixels for click detection (canvas drawing uses device pixels with dpr scaling)
-        const labelHeight = 30; // CSS pixels
-        const leftMargin = 35; // CSS pixels  
-        const yAxisWidth = 35; // CSS pixels
-        const rightMargin = 35; // CSS pixels
-        const topMargin = 25; // CSS pixels
-        const bottomMargin = 25; // CSS pixels
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
             const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
@@ -1162,20 +1234,13 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             return;
         e.preventDefault(); // Prevent default context menu
         const rect = this.canvas.getBoundingClientRect();
-        const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-        const x = e.clientX - rect.left + scrollOffset;
+        this.wrapperEl?.scrollLeft || 0;
+        const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         this.handleContextMenu(x, y, rect);
     }
     handleContextMenu(x, y, rect) {
-        const labelHeight = 30;
-        const leftMargin = 35; // CSS pixels
-        const yAxisWidth = 35; // CSS pixels
-        const rightMargin = 35; // CSS pixels
-        const topMargin = 25; // CSS pixels
-        const bottomMargin = 25; // CSS pixels
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
             const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
@@ -1198,20 +1263,13 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         if (!this.canvas || this.collapsed || this.readonly || this.justDeletedKeyframe)
             return;
         const rect = this.canvas.getBoundingClientRect();
-        const scrollOffset = this.wrapperEl?.scrollLeft || 0;
-        const x = e.clientX - rect.left + scrollOffset;
+        this.wrapperEl?.scrollLeft || 0;
+        const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         this.handleDoubleClick(x, y, rect);
     }
     handleDoubleClick(x, y, rect) {
-        const labelHeight = 30;
-        const leftMargin = 35; // CSS pixels
-        const yAxisWidth = 35; // CSS pixels
-        const rightMargin = 35; // CSS pixels
-        const topMargin = 25; // CSS pixels
-        const bottomMargin = 25; // CSS pixels
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if clicking on existing keyframe
         const clickedIndex = this.keyframes.findIndex(kf => {
             const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
@@ -1272,14 +1330,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     // Find segment (line between keyframes) at given point
     findSegmentAtPoint(x, y, rect) {
-        const labelHeight = 30;
-        const leftMargin = 35;
-        const yAxisWidth = 35;
-        const rightMargin = 35;
-        const topMargin = 25;
-        const bottomMargin = 25;
-        const graphHeight = rect.height - labelHeight - topMargin - bottomMargin;
-        const graphWidth = rect.width - leftMargin - yAxisWidth - rightMargin;
+        const { leftMargin, yAxisWidth, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check each segment
         for (let i = 0; i < this.keyframes.length - 1; i++) {
             const kf1 = this.keyframes[i];

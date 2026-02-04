@@ -2,6 +2,11 @@
 
 
 
+
+## [1.15.0-develop.8] - 2026-02-04
+### Fixed
+- #137: rectLeft and scroll were essentially applied twice to the click/tap handler screwing things up
+
 ## [1.15.0-develop.7] - 2026-01-27
 
 ### Added
@@ -642,6 +647,7 @@ ame clicks
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
