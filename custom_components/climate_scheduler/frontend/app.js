@@ -594,20 +594,10 @@ function createGroupContainer(groupName, groupData) {
     renameBtn.textContent = '✎';
     renameBtn.className = 'btn-icon';
     renameBtn.title = 'Rename group';
-    renameBtn.style.cssText = 'padding: 4px 8px; font-size: 1rem; background: none; border: none; cursor: pointer; color: var(--text-secondary);';
-    renameBtn.onclick = async (e) => {
+    renameBtn.style.cssText = 'padding: 4px 8px; font-size: 1rem; background: none; border: none; cursor: pointer; color: var(--text-secondary); transform: scaleX(-1);';
+    renameBtn.onclick = (e) => {
         e.stopPropagation();
-        const newName = prompt(`Rename group "${groupName}" to:`, groupName);
-        if (newName && newName.trim() !== '' && newName !== groupName) {
-            try {
-                await haAPI.renameGroup(groupName, newName.trim());
-                showToast(`Renamed group to: ${newName}`, 'success');
-                await loadGroups();
-            } catch (error) {
-                console.error('Failed to rename group:', error);
-                showToast('Failed to rename group: ' + error.message, 'error');
-            }
-        }
+        showEditGroupModal(groupName);
     };
     
     actions.appendChild(renameBtn);
@@ -1146,14 +1136,7 @@ function createSettingsPanel(groupData, editor) {
     }
     
     controlsHTML += `
-            <button id="clear-schedule-btn" class="btn-danger-outline schedule-btn" title="Clear entire schedule">Clear Schedule</button>`;
-    
-    // Add delete group button if this is a group
-    if (groupData) {
-        controlsHTML += `<button id="delete-group-btn" class="btn-danger schedule-btn" title="Delete this group">Delete Group</button>`;
-    }
-    
-    controlsHTML += `
+            <button id="clear-schedule-btn" class="btn-danger-outline schedule-btn" title="Clear entire schedule">Clear Schedule</button>
             <label class="toggle-switch">
                 <input type="checkbox" id="schedule-enabled">
                 <span class="slider"></span>
@@ -1197,23 +1180,8 @@ function createSettingsPanel(groupData, editor) {
     container.appendChild(toggleHeader);
     container.appendChild(settingsPanel);
     
-    // Add delete group handler
+    // Add profile management handlers
     setTimeout(() => {
-        // Add delete group button handler if this is a group
-        if (groupData) {
-            const deleteGroupBtn = container.querySelector('#delete-group-btn');
-            if (deleteGroupBtn) {
-                deleteGroupBtn.onclick = () => {
-                    // Get group name from currentGroup or from groupData
-                    const groupName = currentGroup;
-                    if (groupName) {
-                        confirmDeleteGroup(groupName);
-                    }
-                };
-            }
-        }
-        
-        // Add profile management handlers
         setupProfileHandlers(container, groupData);
     }, 0);
     
@@ -2227,6 +2195,26 @@ function showAddToGroupModal(entityId) {
     }
     
     modal.style.display = 'flex';
+}
+
+// Show edit group modal
+function showEditGroupModal(groupName) {
+    const modal = getDocumentRoot().querySelector('#edit-group-modal');
+    const input = getDocumentRoot().querySelector('#edit-group-name');
+    
+    if (!modal || !input) return;
+    
+    // Store group name on modal dataset
+    modal.dataset.groupName = groupName;
+    input.value = groupName;
+    
+    modal.style.display = 'flex';
+    
+    // Focus the input and select the text
+    setTimeout(() => {
+        input.focus();
+        input.select();
+    }, 100);
 }
 
 // Confirm delete group
@@ -5151,6 +5139,113 @@ function setupEventListeners() {
         convertTempModal.addEventListener('click', (e) => {
             if (e.target.id === 'convert-temperature-modal') {
                 convertTempModal.style.display = 'none';
+            }
+        });
+    }
+    
+    // Edit group modal handlers
+    
+    // Edit group - cancel
+    const editGroupCancel = getDocumentRoot().querySelector('#edit-group-cancel');
+    if (editGroupCancel) {
+        editGroupCancel.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                delete modal.dataset.groupName;
+            }
+        });
+    }
+    
+    // Edit group - save (rename)
+    const editGroupSave = getDocumentRoot().querySelector('#edit-group-save');
+    if (editGroupSave) {
+        editGroupSave.addEventListener('click', async () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            const input = getDocumentRoot().querySelector('#edit-group-name');
+            const currentGroupName = modal?.dataset.groupName;
+            const newName = input?.value.trim();
+            
+            if (newName && newName !== '' && newName !== currentGroupName) {
+                try {
+                    await haAPI.renameGroup(currentGroupName, newName);
+                    showToast(`Renamed group to: ${newName}`, 'success');
+                    await loadGroups();
+                    
+                    if (modal) {
+                        modal.style.display = 'none';
+                        delete modal.dataset.groupName;
+                    }
+                } catch (error) {
+                    console.error('Failed to rename group:', error);
+                    showToast('Failed to rename group: ' + error.message, 'error');
+                }
+            } else if (newName === currentGroupName) {
+                // Name unchanged, just close
+                if (modal) {
+                    modal.style.display = 'none';
+                    delete modal.dataset.groupName;
+                }
+            }
+        });
+    }
+    
+    // Edit group - delete
+    const editGroupDelete = getDocumentRoot().querySelector('#edit-group-delete');
+    if (editGroupDelete) {
+        editGroupDelete.addEventListener('click', async () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            const groupName = modal?.dataset.groupName;
+            
+            if (!groupName) {
+                console.error('No group name found in modal');
+                return;
+            }
+            
+            if (confirm(`Delete group "${groupName}"? All entities will be moved back to the entity list.`)) {
+                try {
+                    await haAPI.deleteGroup(groupName);
+                    showToast(`Deleted group: ${groupName}`, 'success');
+                    await loadGroups();
+                    await renderEntityList();
+                    
+                    if (modal) {
+                        modal.style.display = 'none';
+                        delete modal.dataset.groupName;
+                    }
+                } catch (error) {
+                    console.error('Failed to delete group:', error);
+                    showToast('Failed to delete group: ' + error.message, 'error');
+                }
+            }
+        });
+    }
+    
+    // Close edit group modal when clicking outside
+    const editGroupModal = getDocumentRoot().querySelector('#edit-group-modal');
+    if (editGroupModal) {
+        editGroupModal.addEventListener('click', (e) => {
+            if (e.target.id === 'edit-group-modal') {
+                editGroupModal.style.display = 'none';
+                delete editGroupModal.dataset.groupName;
+            }
+        });
+    }
+    
+    // Edit group input - handle Enter key
+    const editGroupInput = getDocumentRoot().querySelector('#edit-group-name');
+    if (editGroupInput) {
+        editGroupInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const saveBtn = getDocumentRoot().querySelector('#edit-group-save');
+                if (saveBtn) saveBtn.click();
+            } else if (e.key === 'Escape') {
+                const modal = getDocumentRoot().querySelector('#edit-group-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    delete modal.dataset.groupName;
+                }
             }
         });
     }
