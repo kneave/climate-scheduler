@@ -1056,9 +1056,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                     newEndTime -= shift;
                 }
             }
-            // Clamp to boundaries
+            // Clamp to boundaries (max 23:59 to prevent 24:00)
             newStartTime = Math.max(0, newStartTime);
-            newEndTime = Math.min(this.duration, newEndTime);
+            newEndTime = Math.min(23 + (59 / 60), newEndTime);
             // Snap times to nearest slot (15-minute intervals)
             const slotDuration = this.duration / this.slots;
             newStartTime = Math.round(newStartTime / slotDuration) * slotDuration;
@@ -1113,7 +1113,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const adjustedX = x - leftMargin - yAxisWidth;
         const slotWidth = graphWidth / this.slots;
         const slotIndex = Math.round(adjustedX / slotWidth);
-        let time = (slotIndex / this.slots) * this.duration;
+        // Clamp to 23:59 (23.9833 hours) to prevent 24:00
+        let time = Math.min((slotIndex / this.slots) * this.duration, 23 + (59 / 60));
         // Constrain time to not pass adjacent keyframes (array is already sorted)
         if (this.draggingIndex > 0) {
             const prevTime = this.keyframes[this.draggingIndex - 1].time;
@@ -1300,7 +1301,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         const adjustedX = x - leftMargin - yAxisWidth;
         const slotWidth = graphWidth / this.slots;
         const slotIndex = Math.round(adjustedX / slotWidth);
-        const time = (slotIndex / this.slots) * this.duration;
+        // Clamp to 23:59 (23.9833 hours) to prevent 24:00
+        const time = Math.min((slotIndex / this.slots) * this.duration, 23 + (59 / 60));
         // Value is in minValue-maxValue range (adjust for top margin)
         const adjustedY = y - topMargin;
         const normalizedValue = 1 - (adjustedY / graphHeight);

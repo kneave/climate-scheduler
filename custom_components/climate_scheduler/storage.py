@@ -33,6 +33,9 @@ def validate_node(node: Dict[str, Any]) -> bool:
     try:
         hours, minutes = time_str.split(":")
         h, m = int(hours), int(minutes)
+        # Normalize 24:00 to 23:59 to avoid clash with 00:00 on next day
+        if h == 24 and m == 0:
+            h, m = 23, 59
         if not (0 <= h <= 23 and 0 <= m <= 59):
             _LOGGER.error(f"Time out of range: {time_str}")
             return False

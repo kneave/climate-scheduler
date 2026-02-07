@@ -719,8 +719,10 @@ function scheduleNodesToKeyframes(nodes) {
 // Convert keyframes {time: decimal_hours, value: number} to schedule nodes {time: "HH:MM", temp: number}
 function keyframesToScheduleNodes(keyframes) {
     return keyframes.map(kf => {
-        const hours = Math.floor(kf.time);
-        const minutes = Math.round((kf.time - hours) * 60);
+        // Clamp time to 23:59 (23.9833 hours) to prevent 24:00 which would clash with 00:00 on next day
+        const clampedTime = Math.min(kf.time, 23 + (59/60));
+        const hours = Math.floor(clampedTime);
+        const minutes = Math.round((clampedTime - hours) * 60);
         const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         return {
             time: timeStr,
