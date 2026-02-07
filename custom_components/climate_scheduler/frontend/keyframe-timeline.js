@@ -1177,6 +1177,20 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 composed: true
             }));
         }
+        // Handle tap selection for touch devices (when not dragging)
+        if (e instanceof TouchEvent && this.draggingIndex !== null && !this.hasMoved) {
+            // Select the keyframe
+            this.selectedKeyframeIndex = this.draggingIndex;
+            this.drawTimeline();
+            this.dispatchEvent(new CustomEvent('keyframe-clicked', {
+                detail: {
+                    index: this.draggingIndex,
+                    keyframe: this.keyframes[this.draggingIndex]
+                },
+                bubbles: true,
+                composed: true
+            }));
+        }
         this.draggingIndex = null;
         this.draggingSegment = null;
         this.isDragging = false;
