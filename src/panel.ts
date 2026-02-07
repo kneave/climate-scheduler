@@ -360,6 +360,24 @@ class ClimateSchedulerPanel extends HTMLElement {
                         </div>
                     </div>
 
+                    <div id="edit-group-modal" class="modal" style="display: none;">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3>Edit Group</h3>
+                            </div>
+                            <div class="modal-body">
+                                <label for="edit-group-name">Group Name:</label>
+                                <input type="text" id="edit-group-name" placeholder="Group name" style="width: 100%; padding: 8px; margin-top: 8px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;" />
+                            </div>
+                            <div class="modal-actions">
+                                <button id="edit-group-delete" class="btn-danger">Delete Group</button>
+                                <div style="flex: 1;"></div>
+                                <button id="edit-group-cancel" class="btn-secondary">Cancel</button>
+                                <button id="edit-group-save" class="btn-primary">Save</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Settings Panel -->
                     <div id="settings-panel" class="settings-panel collapsed">
                         <div class="settings-header" id="settings-toggle">
