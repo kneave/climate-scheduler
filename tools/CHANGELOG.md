@@ -1,7 +1,46 @@
 # Changelog
 
+## [1.15.0-develop.9] - 2026-02-07
+### Added
+- **Debug Visualization**: Added "Show Node Hit Areas" checkbox in settings panel
+  - Shows circular boundaries around timeline nodes indicating clickable/touchable areas
+  - Helps visualize the 20px hit detection radius for debugging interaction issues
+  - Can be toggled on/off as needed
 
+- **Edit Group Modal Dialog**: Replaced browser prompt with modal dialog for group editing
+  - Modal includes group name input field
+  - Integrated "Delete Group" button directly in the edit modal
+  - Supports keyboard shortcuts: Enter to save, Escape to cancel
+  - Click outside modal to dismiss
 
+### Changed
+- **Group Management UI Cleanup**: Removed redundant "Delete Group" button from settings panel
+  - Delete functionality now only available through edit group modal
+  - Cleaner, more streamlined settings interface
+
+- **Icon Improvements**: Vertically flipped pencil icon (✎) in edit group button
+  - Icon now points in correct direction for better visual consistency
+
+### Fixed
+- **#150: Invalid time format: 24:00**: Fixed error when placing nodes at midnight end-of-day
+  - Timeline now clamps times to maximum 23:59 to prevent 24:00 format
+  - Prevents clash with 00:00 nodes on next day (coordinator checks once per minute)
+  - Frontend clamps on keyframe creation, dragging, and conversion to schedule nodes
+  - Backend normalizes 24:00 → 23:59 as safety net during validation
+  - Fixes warnings: "Invalid time format: 24:00" in logs
+
+- **Timeline Scroll Click Detection**: Fixed click/touch detection failing when timeline is scrolled horizontally
+  - Removed double-counting of scroll offset in coordinate calculations
+  - getBoundingClientRect().left already accounts for scroll position
+  - Fixed in 7 locations: mouse down, move, click, double-click, context menu handlers
+
+- **Touch Interaction**: Fixed nodes requiring double-tap to select on touch devices
+  - Single tap now correctly selects nodes (when not dragging)
+  - Improved touch responsiveness and user experience on mobile/tablet devices
+
+- **Edit Group Modal Scope**: Fixed "null" appearing in delete confirmation prompt
+  - Changed from closure variable to dataset storage pattern for group name
+  - Modal now correctly stores and retrieves group name across all operations
 
 ## [1.15.0-develop.8] - 2026-02-04
 ### Fixed
