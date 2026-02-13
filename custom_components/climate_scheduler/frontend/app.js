@@ -968,6 +968,12 @@ async function editGroupSchedule(groupName, day = null) {
             showNodeSettingsPanel(editor, index, keyframe);
         });
         
+        // Update node settings panel when selection changes (prev/next navigation)
+        timeline.addEventListener('keyframe-selected', (e) => {
+            const { index, keyframe } = e.detail;
+            showNodeSettingsPanel(editor, index, keyframe);
+        });
+        
         // Link external undo button to timeline's undo system
         const graphUndoBtn = controls.buttons['graph-undo-btn'];
         if (graphUndoBtn && typeof timeline.setUndoButton === 'function') {
@@ -2463,81 +2469,16 @@ function createScheduleEditor() {
             <div class="settings-header">
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
-                    <h3>Node Settings</h3>
+                    <div class="setting-item" style="margin: 0;">
+                        <select id="node-time-input" class="mode-select" style="min-width: 100px;">
+                        </select>
+                    </div>
                     <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
                 </div>
                 <button id="close-settings" class="btn-close-settings">✕</button>
             </div>
-            <div class="settings-grid">
-                        <div class="setting-item">
-                            <label>Time:</label>
-                            <div class="input-spinner">
-                                <button class="spinner-btn" id="time-down" title="-15 minutes">▼</button>
-                                <input type="time" id="node-time-input" class="time-input" />
-                                <button class="spinner-btn" id="time-up" title="+15 minutes">▲</button>
-                            </div>
-                        </div>
-                        <div class="setting-item">
-                            <label>Temperature:</label>
-                            <div class="input-spinner">
-                                <button class="spinner-btn" id="temp-down">▼</button>
-                                <input type="number" id="node-temp-input" class="temp-input" />
-                                <button class="spinner-btn" id="temp-up">▲</button>
-                            </div>
-                        </div>
-                        <div class="setting-item" style="padding-left: 20px;">
-                            <label style="display: flex; align-items: center; cursor: pointer;">
-                                <input type="checkbox" id="temp-no-change" style="margin-right: 8px; cursor: pointer;" />
-                                <span>No Change</span>
-                            </label>
-                        </div>
-                        <div class="setting-item">
-                            <label>HVAC Mode:</label>
-                            <select id="node-hvac-mode" disabled title="Coming soon">
-                                <option value="heat">Heat</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Fan Mode:</label>
-                            <select id="node-fan-mode" disabled title="Coming soon">
-                                <option value="auto">Auto</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Swing Mode:</label>
-                            <select id="node-swing-mode" disabled title="Coming soon">
-                                <option value="off">Off</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Preset Mode:</label>
-                            <select id="node-preset-mode" disabled title="Coming soon">
-                                <option value="none">None</option>
-                            </select>
-                        </div>
-                        <div class="setting-item" style="grid-column: 1 / -1;">
-                            <label style="display: block; margin-bottom: 8px;">Custom Values:</label>
-                            <div style="display: flex; gap: 12px;">
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">A:</label>
-                                    <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">B:</label>
-                                    <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">C:</label>
-                                    <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="settings-actions">
-                        <button id="test-fire-event-btn" class="btn-secondary" title="Test fire event with this node">🧪 Test Event</button>
-                        <button id="delete-node" class="btn-danger">Delete Node</button>
-                    </div>
-                </div>
+            <div id="climate-dialog-container"></div>
+        </div>
         
         <!-- Instructions Section (Collapsible) -->
         <div class="instructions-container">
@@ -2555,6 +2496,31 @@ function createScheduleEditor() {
         </div>
     `;
     return editor;
+}
+
+let climateDialogLoaded = false;
+
+async function loadClimateDialog() {
+    if (climateDialogLoaded) return;
+    
+    try {
+        const basePath = '/climate_scheduler/static';
+        const version = window.climateSchedulerVersion || Date.now();
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = `${basePath}/climate-dialog.js?v=${version}`;
+        
+        await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+        
+        climateDialogLoaded = true;
+        console.log('Climate dialog component loaded');
+    } catch (error) {
+        console.error('Failed to load climate dialog:', error);
+    }
 }
 
 // Collapse all editors
@@ -2907,14 +2873,44 @@ function attachEditorEventListeners(editorElement) {
             }
         }
         
-        graph.requestUpdate();
+        // Sort the schedule by time to maintain correct order
+        currentSchedule.sort((a, b) => {
+            const [aHours, aMinutes] = a.time.split(':').map(Number);
+            const [bHours, bMinutes] = b.time.split(':').map(Number);
+            const aDecimal = aHours + aMinutes / 60;
+            const bDecimal = bHours + bMinutes / 60;
+            return aDecimal - bDecimal;
+        });
+        
+        // Rebuild keyframes from sorted schedule
+        const keyframes = scheduleNodesToKeyframes(currentSchedule);
+        graph.keyframes = keyframes;
+        
+        // Find the new index of the node we're editing (by time)
+        const newNodeIndex = currentSchedule.findIndex(n => n.time === timeInput.value);
+        if (newNodeIndex !== -1 && newNodeIndex !== nodeIndex) {
+            // Update the panel's nodeIndex to the new position
+            panel.dataset.nodeIndex = newNodeIndex;
+            
+            // Close and reopen the panel to refresh the time dropdown
+            panel.style.display = 'none';
+            setTimeout(() => {
+                // Trigger a node selection event to reopen with updated dropdown
+                graph.dispatchEvent(new CustomEvent('keyframe-selected', {
+                    detail: { 
+                        nodeIndex: newNodeIndex,
+                        node: currentSchedule[newNodeIndex]
+                    },
+                    bubbles: true
+                }));
+            }, 10);
+        }
+        
         saveSchedule();
     };
     
     if (timeInput) {
-        timeInput.addEventListener('input', updateNodeFromInputs);  // Immediate update while typing
         timeInput.addEventListener('change', updateNodeFromInputs);
-        timeInput.addEventListener('blur', updateNodeFromInputs);
     }
     
     if (tempInput) {
@@ -5257,348 +5253,179 @@ function setupEventListeners() {
 }
 
 // Handle node settings panel
-function handleNodeSettings(event) {
+async function handleNodeSettings(event) {
     const { nodeIndex, node } = event.detail;
     
-    let entity;
-    let allHvacModes = [];
-    let allFanModes = [];
-    let allSwingModes = [];
-    let allPresetModes = [];
+    // Load the climate dialog component if not already loaded
+    await loadClimateDialog();
     
-    // Check if we're editing a group or individual entity
+    const keyframe = graph.keyframes[nodeIndex];
+    if (!keyframe) return;
+    
+    // Find the schedule node
+    const scheduleNode = currentSchedule.find(n => n.time === node.time);
+    if (!scheduleNode) return;
+    
+    // Get the first entity to determine available features
+    const entityIds = currentGroup ? allGroups[currentGroup].entities : [currentEntityId];
+    const firstEntityId = entityIds[0];
+    const entity = climateEntities.find(e => e.entity_id === firstEntityId);
+    if (!entity) return;
+    
+    // Create friendly display name
+    let displayName;
     if (currentGroup) {
-        // For groups, aggregate capabilities from all entities in the group
-        const groupData = allGroups[currentGroup];
-        if (!groupData) return;
-        
-        const groupEntities = (groupData.entities || [])
-            .map(id => climateEntities.find(e => e.entity_id === id))
-            .filter(e => e);
-        
-        // For virtual groups (no entities), use empty mode arrays
-        if (groupEntities.length === 0) {
-            // Virtual schedule - no modes available
-            allHvacModes = [];
-            allFanModes = [];
-            allSwingModes = [];
-            allPresetModes = [];
-        } else {
-            // Use first entity for basic attributes
-            entity = groupEntities[0];
-            
-            // Aggregate all unique modes from all entities
-            const hvacModesSet = new Set();
-            const fanModesSet = new Set();
-            const swingModesSet = new Set();
-            const presetModesSet = new Set();
-            
-            groupEntities.forEach(e => {
-                if (e.attributes.hvac_modes) {
-                    e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
-                }
-                if (e.attributes.fan_modes) {
-                    e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
-                }
-                if (e.attributes.swing_modes) {
-                    e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
-                }
-                if (e.attributes.preset_modes) {
-                    e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
-                }
-            });
-            
-            allHvacModes = Array.from(hvacModesSet);
-            allFanModes = Array.from(fanModesSet);
-            allSwingModes = Array.from(swingModesSet);
-            allPresetModes = Array.from(presetModesSet);
-        }
+        displayName = currentGroup;
     } else {
-        // For individual entities
-        entity = climateEntities.find(e => e.entity_id === currentEntityId);
-        if (!entity) return;
-        
-        allHvacModes = entity.attributes.hvac_modes || [];
-        allFanModes = entity.attributes.fan_modes || [];
-        allSwingModes = entity.attributes.swing_modes || [];
-        allPresetModes = entity.attributes.preset_modes || [];
+        displayName = entity.attributes.friendly_name || entity.entity_id;
     }
     
-    // Update panel content
-    const timeInput = getDocumentRoot().querySelector('#node-time-input');
-    const tempInput = getDocumentRoot().querySelector('#node-temp-input');
-    const tempNoChange = getDocumentRoot().querySelector('#temp-no-change');
-    const tempUpBtn = getDocumentRoot().querySelector('#temp-up');
-    const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
-    
-    if (timeInput) timeInput.value = node.time;
-    
-    // Handle temperature and no-change checkbox
-    const isNoChange = node.noChange === true;
-    if (tempNoChange) tempNoChange.checked = isNoChange;
-    if (tempInput) {
-        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
-        tempInput.disabled = isNoChange;
-        tempInput.step = inputTempStep.toString(); // Set step dynamically
-    }
-    if (tempUpBtn) {
-        tempUpBtn.disabled = isNoChange;
-        tempUpBtn.title = `+${inputTempStep}°`;
-    }
-    if (tempDownBtn) {
-        tempDownBtn.disabled = isNoChange;
-        tempDownBtn.title = `-${inputTempStep}°`;
-    }
-    
-    // Populate HVAC mode dropdown
-    const hvacModeSelect = getDocumentRoot().querySelector('#node-hvac-mode');
-    const hvacModeItem = hvacModeSelect.closest('.setting-item');
-    hvacModeSelect.innerHTML = '';
-    
-    if (allHvacModes.length > 0) {
-        hvacModeItem.style.display = '';
-        hvacModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.hvac_mode) noneOption.selected = true;
-        hvacModeSelect.appendChild(noneOption);
-        
-        allHvacModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.hvac_mode === mode) option.selected = true;
-            hvacModeSelect.appendChild(option);
-        });
-    } else {
-        hvacModeItem.style.display = 'none';
-    }
-    
-    // Populate fan mode dropdown if available
-    const fanModeSelect = getDocumentRoot().querySelector('#node-fan-mode');
-    const fanModeItem = fanModeSelect.closest('.setting-item');
-    fanModeSelect.innerHTML = '';
-    
-    if (allFanModes.length > 0) {
-        fanModeItem.style.display = '';
-        fanModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.fan_mode) noneOption.selected = true;
-        fanModeSelect.appendChild(noneOption);
-        
-        allFanModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.fan_mode === mode) option.selected = true;
-            fanModeSelect.appendChild(option);
-        });
-    } else {
-        fanModeItem.style.display = 'none';
-    }
-    
-    // Populate swing mode dropdown if available
-    const swingModeSelect = getDocumentRoot().querySelector('#node-swing-mode');
-    const swingModeItem = swingModeSelect.closest('.setting-item');
-    swingModeSelect.innerHTML = '';
-    
-    if (allSwingModes.length > 0) {
-        swingModeItem.style.display = '';
-        swingModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.swing_mode) noneOption.selected = true;
-        swingModeSelect.appendChild(noneOption);
-        
-        allSwingModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.swing_mode === mode) option.selected = true;
-            swingModeSelect.appendChild(option);
-        });
-    } else {
-        swingModeItem.style.display = 'none';
-    }
-    
-    // Populate preset mode dropdown if available
-    const presetModeSelect = getDocumentRoot().querySelector('#node-preset-mode');
-    const presetModeItem = presetModeSelect.closest('.setting-item');
-    presetModeSelect.innerHTML = '';
-    
-    if (allPresetModes.length > 0) {
-        presetModeItem.style.display = '';
-        presetModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.preset_mode) noneOption.selected = true;
-        presetModeSelect.appendChild(noneOption);
-        
-        allPresetModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.preset_mode === mode) option.selected = true;
-            presetModeSelect.appendChild(option);
-        });
-    } else {
-        presetModeItem.style.display = 'none';
-    }
-    
-    // Update value inputs
-    const valueAInput = getDocumentRoot().querySelector('#node-value-A');
-    const valueBInput = getDocumentRoot().querySelector('#node-value-B');
-    const valueCInput = getDocumentRoot().querySelector('#node-value-C');
-    
-    if (valueAInput) valueAInput.value = (node['A'] !== null && node['A'] !== undefined) ? node['A'] : '';
-    if (valueBInput) valueBInput.value = (node['B'] !== null && node['B'] !== undefined) ? node['B'] : '';
-    if (valueCInput) valueCInput.value = (node['C'] !== null && node['C'] !== undefined) ? node['C'] : '';
-    
-    // Auto-save handler for node settings
-    const autoSaveNodeSettings = async () => {
-        const panel = getDocumentRoot().querySelector('#node-settings-panel');
-        if (!panel) return;
-        
-        const nodeIdx = parseInt(panel.dataset.nodeIndex);
-        if (isNaN(nodeIdx) || !graph) return;
-        
-        // Get the keyframe from graph
-        const keyframe = graph.keyframes[nodeIdx];
-        if (!keyframe) return;
-        
-        // Find the corresponding node in currentSchedule by time
-        const hours = Math.floor(keyframe.time);
-        const minutes = Math.round((keyframe.time - hours) * 60);
-        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-        
-        const scheduleNode = currentSchedule.find(n => n.time === timeStr);
-        if (!scheduleNode) return;
-        
-        // Query for current dropdown elements (not using closure variables)
-        const currentHvacSelect = getDocumentRoot().querySelector('#node-hvac-mode');
-        const currentFanSelect = getDocumentRoot().querySelector('#node-fan-mode');
-        const currentSwingSelect = getDocumentRoot().querySelector('#node-swing-mode');
-        const currentPresetSelect = getDocumentRoot().querySelector('#node-preset-mode');
-        const currentValueAInput = getDocumentRoot().querySelector('#node-value-A');
-        const currentValueBInput = getDocumentRoot().querySelector('#node-value-B');
-        const currentValueCInput = getDocumentRoot().querySelector('#node-value-C');
-        
-        // Update or delete properties based on dropdown values
-        if (currentHvacSelect && currentHvacSelect.closest('.setting-item').style.display !== 'none') {
-            const hvacMode = currentHvacSelect.value;
-            if (hvacMode) {
-                scheduleNode.hvac_mode = hvacMode;
-            } else {
-                delete scheduleNode.hvac_mode;
-            }
-        }
-        
-        if (currentFanSelect && currentFanSelect.closest('.setting-item').style.display !== 'none') {
-            const fanMode = currentFanSelect.value;
-            if (fanMode) {
-                scheduleNode.fan_mode = fanMode;
-            } else {
-                delete scheduleNode.fan_mode;
-            }
-        }
-        
-        if (currentSwingSelect && currentSwingSelect.closest('.setting-item').style.display !== 'none') {
-            const swingMode = currentSwingSelect.value;
-            if (swingMode) {
-                scheduleNode.swing_mode = swingMode;
-            } else {
-                delete scheduleNode.swing_mode;
-            }
-        }
-        
-        if (currentPresetSelect && currentPresetSelect.closest('.setting-item').style.display !== 'none') {
-            const presetMode = currentPresetSelect.value;
-            if (presetMode) {
-                scheduleNode.preset_mode = presetMode;
-            } else {
-                delete scheduleNode.preset_mode;
-            }
-        }
-        
-        // Update value fields
-        if (currentValueAInput) {
-            const val = currentValueAInput.value.trim();
-            scheduleNode['A'] = val !== '' ? parseFloat(val) : null;
-        }
-        if (currentValueBInput) {
-            const val = currentValueBInput.value.trim();
-            scheduleNode['B'] = val !== '' ? parseFloat(val) : null;
-        }
-        if (currentValueCInput) {
-            const val = currentValueCInput.value.trim();
-            scheduleNode['C'] = val !== '' ? parseFloat(val) : null;
-        }
-        
-        // Trigger save - check if using canvas timeline or old graph
-        if (graph.notifyChange) {
-            // Old SVG graph has notifyChange method
-            graph.notifyChange(true);
-        } else {
-            // Canvas timeline - redraw and save
-            graph.requestUpdate();
-            handleGraphChange({ detail: { force: true } }, true);
+    // Create climate state object
+    const climateState = {
+        entity_id: displayName,
+        state: scheduleNode.hvac_mode || 'heat',
+        attributes: {
+            supported_features: entity.attributes.supported_features,
+            hvac_modes: entity.attributes.hvac_modes || ['heat', 'cool', 'heat_cool', 'off'],
+            temperature: scheduleNode.temp,
+            target_temp_low: scheduleNode.target_temp_low,
+            target_temp_high: scheduleNode.target_temp_high,
+            min_temp: entity.attributes.min_temp,
+            max_temp: entity.attributes.max_temp,
+            fan_mode: scheduleNode.fan_mode,
+            fan_modes: entity.attributes.fan_modes,
+            preset_mode: scheduleNode.preset_mode,
+            preset_modes: entity.attributes.preset_modes,
+            swing_mode: scheduleNode.swing_mode,
+            swing_modes: entity.attributes.swing_modes,
+            swing_horizontal_mode: scheduleNode.swing_horizontal_mode,
+            swing_horizontal_modes: entity.attributes.swing_horizontal_modes,
+            target_humidity: scheduleNode.target_humidity,
+            min_humidity: entity.attributes.min_humidity,
+            max_humidity: entity.attributes.max_humidity,
+            aux_heat: scheduleNode.aux_heat
         }
     };
     
-    // Remove existing event listeners to avoid duplicates (clone and replace)
-    if (hvacModeSelect) {
-        const newHvacSelect = hvacModeSelect.cloneNode(true);
-        hvacModeSelect.parentNode.replaceChild(newHvacSelect, hvacModeSelect);
-        newHvacSelect.addEventListener('change', autoSaveNodeSettings);
-    }
+    // Get or create the dialog element in the panel
+    const container = getDocumentRoot().querySelector('#climate-dialog-container');
+    if (!container) return;
     
-    if (fanModeSelect) {
-        const newFanSelect = fanModeSelect.cloneNode(true);
-        fanModeSelect.parentNode.replaceChild(newFanSelect, fanModeSelect);
-        newFanSelect.addEventListener('change', autoSaveNodeSettings);
-    }
+    container.innerHTML = '';
     
-    if (swingModeSelect) {
-        const newSwingSelect = swingModeSelect.cloneNode(true);
-        swingModeSelect.parentNode.replaceChild(newSwingSelect, swingModeSelect);
-        newSwingSelect.addEventListener('change', autoSaveNodeSettings);
-    }
+    const dialogEl = document.createElement('climate-control-dialog');
+    dialogEl.stateObj = climateState;
+    dialogEl.dataset.nodeIndex = nodeIndex;
     
-    if (presetModeSelect) {
-        const newPresetSelect = presetModeSelect.cloneNode(true);
-        presetModeSelect.parentNode.replaceChild(newPresetSelect, presetModeSelect);
-        newPresetSelect.addEventListener('change', autoSaveNodeSettings);
-    }
+    // Add event listeners for all the custom events
+    dialogEl.addEventListener('hvac-mode-changed', (e) => {
+        scheduleNode.hvac_mode = e.detail.mode;
+        keyframe.hvacMode = e.detail.mode;
+        // Trigger Lit reactivity by reassigning the array
+        graph.keyframes = [...graph.keyframes];
+        saveSchedule();
+    });
     
-    if (valueAInput) {
-        const newValueAInput = valueAInput.cloneNode(true);
-        valueAInput.parentNode.replaceChild(newValueAInput, valueAInput);
-        newValueAInput.addEventListener('change', autoSaveNodeSettings);
-    }
+    dialogEl.addEventListener('temperature-changed', (e) => {
+        scheduleNode.temp = e.detail.temperature;
+        keyframe.value = e.detail.temperature;
+        // Trigger Lit reactivity by reassigning the array
+        graph.keyframes = [...graph.keyframes];
+        saveSchedule();
+    });
     
-    if (valueBInput) {
-        const newValueBInput = valueBInput.cloneNode(true);
-        valueBInput.parentNode.replaceChild(newValueBInput, valueBInput);
-        newValueBInput.addEventListener('change', autoSaveNodeSettings);
-    }
+    dialogEl.addEventListener('target-temp-low-changed', (e) => {
+        scheduleNode.target_temp_low = e.detail.temperature;
+        saveSchedule();
+    });
     
-    if (valueCInput) {
-        const newValueCInput = valueCInput.cloneNode(true);
-        valueCInput.parentNode.replaceChild(newValueCInput, valueCInput);
-        newValueCInput.addEventListener('change', autoSaveNodeSettings);
+    dialogEl.addEventListener('target-temp-high-changed', (e) => {
+        scheduleNode.target_temp_high = e.detail.temperature;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('humidity-changed', (e) => {
+        scheduleNode.target_humidity = e.detail.humidity;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('fan-mode-changed', (e) => {
+        scheduleNode.fan_mode = e.detail.mode;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('preset-mode-changed', (e) => {
+        scheduleNode.preset_mode = e.detail.mode;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('swing-mode-changed', (e) => {
+        scheduleNode.swing_mode = e.detail.mode;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('swing-horizontal-mode-changed', (e) => {
+        scheduleNode.swing_horizontal_mode = e.detail.mode;
+        saveSchedule();
+    });
+    
+    dialogEl.addEventListener('aux-heat-changed', (e) => {
+        scheduleNode.aux_heat = e.detail.enabled ? 'on' : 'off';
+        saveSchedule();
+    });
+    
+    container.appendChild(dialogEl);
+    
+    // Populate and update time dropdown with 15-minute increments
+    const timeInput = getDocumentRoot().querySelector('#node-time-input');
+    if (timeInput) {
+        // Clear existing options
+        timeInput.innerHTML = '';
+        
+        // Get all existing times in the schedule (excluding current node)
+        const existingTimes = new Set(currentSchedule.map(n => n.time));
+        
+        // Generate all 15-minute increment times (00:00, 00:15, 00:30, etc.)
+        for (let hour = 0; hour < 24; hour++) {
+            for (let minute = 0; minute < 60; minute += 15) {
+                const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                const option = document.createElement('option');
+                option.value = timeStr;
+                option.textContent = timeStr;
+                
+                // Check if this time is already used by a different node
+                const isCurrentNodeTime = timeStr === node.time;
+                const isAlreadyUsed = existingTimes.has(timeStr) && !isCurrentNodeTime;
+                
+                if (isAlreadyUsed) {
+                    option.disabled = true;
+                    option.textContent = `${timeStr} (in use)`;
+                }
+                
+                if (timeStr === node.time) {
+                    option.selected = true;
+                }
+                timeInput.appendChild(option);
+            }
+        }
+        
+        // Add 23:59 as final option
+        const lastOption = document.createElement('option');
+        lastOption.value = '23:59';
+        const isCurrentNodeTime = node.time === '23:59';
+        const isAlreadyUsed = existingTimes.has('23:59') && !isCurrentNodeTime;
+        
+        if (isAlreadyUsed) {
+            lastOption.disabled = true;
+            lastOption.textContent = '23:59 (in use)';
+        } else {
+            lastOption.textContent = '23:59';
+        }
+        
+        if (node.time === '23:59') {
+            lastOption.selected = true;
+        }
+        timeInput.appendChild(lastOption);
     }
     
     // Show panel

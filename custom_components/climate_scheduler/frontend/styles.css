@@ -986,9 +986,9 @@ footer {
 /* Node Settings Panel (inline) */
 .node-settings-panel {
     margin-top: 20px;
-    padding: 20px;
+    padding: 0;
     background: var(--surface-light);
-    border: 2px solid var(--primary-color);
+    border: 1px solid var(--border);
     border-radius: 8px;
     animation: slideDown 0.3s ease-out;
 }
@@ -1004,15 +1004,23 @@ footer {
     }
 }
 
-.settings-header {
+.node-settings-panel .settings-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 10px;
+    padding: 12px 20px;
+    background: var(--surface-light);
     border-bottom: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
 }
 
-.settings-header h3 {
+#climate-dialog-container {
+    background: var(--surface-light);
+    padding: 20px;
+    border-radius: 0 0 8px 8px;
+}
+
+.node-settings-panel .settings-header h3 {
     margin: 0;
     font-size: 1.1rem;
     color: var(--primary-color);

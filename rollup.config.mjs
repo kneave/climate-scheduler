@@ -49,5 +49,21 @@ export default [
         sourceMap: true
       })
     ]
+  },
+  {
+    input: 'src/climate-dialog.ts',
+    output: {
+      file: 'custom_components/climate_scheduler/frontend/climate-dialog.js',
+      format: 'es',
+      sourcemap: true
+    },
+    plugins: [
+      nodeResolve(),
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+        sourceMap: true
+      })
+    ]
   }
 ];
