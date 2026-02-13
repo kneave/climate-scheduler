@@ -914,11 +914,33 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 swing_modes = state.attributes.get("swing_modes", [])
                 preset_modes = state.attributes.get("preset_modes", [])
                 
-                # Check if we're turning off - if so, skip temperature and just turn off
+                # Check if we're turning off - set temperature first so it persists when manually turned back on
                 target_hvac_mode = active_node.get("hvac_mode")
                 _LOGGER.info(f"{entity_id} target_hvac_mode: {target_hvac_mode}, supported modes: {hvac_modes}")
                 if target_hvac_mode == "off":
                     _LOGGER.info(f"Turning off {entity_id}")
+                    
+                    # Set temperature BEFORE turning off so it persists when device is manually turned back on
+                    if temp_to_apply is not None and not is_preset_only:
+                        _LOGGER.info(f"Setting temperature to {temp_to_apply}°C before turning off {entity_id}")
+                        try:
+                            await self.hass.services.async_call(
+                                "climate",
+                                "set_temperature",
+                                {
+                                    "entity_id": entity_id,
+                                    ATTR_TEMPERATURE: temp_to_apply,
+                                },
+                                blocking=True,
+                            )
+                        except Exception as exc:
+                            _LOGGER.warning(f"Failed to set temperature before turning off {entity_id}: {exc}")
+                            # Continue with turn_off even if temperature setting failed
+                    elif temp_to_apply is not None and is_preset_only:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+                    else:
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
+                    
                     # Try using turn_off service first (more reliable for some integrations)
                     try:
                         await self.hass.services.async_call(
