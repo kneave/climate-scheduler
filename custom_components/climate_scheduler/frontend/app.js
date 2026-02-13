@@ -718,15 +718,63 @@ function scheduleNodesToKeyframes(nodes) {
 
 // Convert keyframes {time: decimal_hours, value: number} to schedule nodes {time: "HH:MM", temp: number}
 function keyframesToScheduleNodes(keyframes) {
-    return keyframes.map(kf => {
+    // Sort keyframes by time to maintain correct order
+    const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+    
+    return sortedKeyframes.map((kf, index) => {
         // Clamp time to 23:59 (23.9833 hours) to prevent 24:00 which would clash with 00:00 on next day
         const clampedTime = Math.min(kf.time, 23 + (59/60));
         const hours = Math.floor(clampedTime);
         const minutes = Math.round((clampedTime - hours) * 60);
         const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        
+        // Find existing node in currentSchedule to preserve properties
+        const existingNode = currentSchedule.find(n => n.time === timeStr);
+        if (existingNode) {
+            // Keep existing node with updated temp
+            return {
+                ...existingNode,
+                temp: kf.value
+            };
+        }
+        
+        // New node - inherit hvac_mode from previous node
+        let hvac_mode;
+        if (index > 0) {
+            // Get previous node's time
+            const prevKf = sortedKeyframes[index - 1];
+            const prevHours = Math.floor(Math.min(prevKf.time, 23 + (59/60)));
+            const prevMinutes = Math.round((Math.min(prevKf.time, 23 + (59/60)) - prevHours) * 60);
+            const prevTimeStr = `${String(prevHours).padStart(2, '0')}:${String(prevMinutes).padStart(2, '0')}`;
+            const prevNode = currentSchedule.find(n => n.time === prevTimeStr);
+            hvac_mode = prevNode?.hvac_mode;
+        }
+        
+        // If no previous node or no hvac_mode found, use default
+        if (!hvac_mode) {
+            // Get available HVAC modes from current entity or group
+            let availableModes = [];
+            if (currentGroup) {
+                // For groups, get modes from first entity in the group
+                const groupData = allGroups[currentGroup];
+                if (groupData && groupData.entities && groupData.entities.length > 0) {
+                    const firstEntityId = groupData.entities[0];
+                    const entity = climateEntities.find(e => e.entity_id === firstEntityId);
+                    availableModes = entity?.attributes?.hvac_modes || [];
+                }
+            } else {
+                // For single entities
+                const entity = climateEntities.find(e => e.entity_id === currentEntityId);
+                availableModes = entity?.attributes?.hvac_modes || [];
+            }
+            // Prefer 'off' if available, otherwise use first mode
+            hvac_mode = availableModes.includes('off') ? 'off' : (availableModes[0] || 'heat');
+        }
+        
         return {
             time: timeStr,
-            temp: kf.value
+            temp: kf.value,
+            hvac_mode: hvac_mode
         };
     });
 }

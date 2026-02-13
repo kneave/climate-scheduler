@@ -712,12 +712,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         "C": active_node.get("C"),
                     }
                     
-                    # Check if we've transitioned to a new node (including time check)
+                    # Check if we've transitioned to a new node (time or state change)
                     last_node = self.last_node_states.get(virtual_key)
                     last_node_time = self.last_node_times.get(virtual_key)
                     
-                    # For virtual groups, we include time in the signature itself
-                    # so we can rely on signature comparison alone
+                    # For virtual groups, only fire event on transitions (no settings to apply)
                     if last_node == node_signature:
                         _LOGGER.debug(f"Virtual group '{group_name}' still on same node (time: {node_time}), skipping")
                         results[virtual_key] = {
@@ -842,17 +841,19 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "preset_mode": active_node.get("preset_mode"),
                 }
                 
-                # Get the node time to detect time-based transitions
+                # Get the node time for tracking
                 node_time = active_node.get("time")
                 last_node_time = self.last_node_times.get(entity_id)
                 
-                # Check if we've transitioned to a new node (either state changed OR time changed)
+                # Check if we've transitioned to a new node or if this is first run
                 last_node = self.last_node_states.get(entity_id)
                 node_time_changed = last_node_time != node_time
                 node_state_changed = last_node != node_signature
+                is_first_run = last_node is None
                 
-                if last_node == node_signature and not node_time_changed:
-                    # Still on same node with same time, don't override manual changes
+                # Only apply settings on: time transitions, state changes (user edits), or first run (initialization)
+                if not is_first_run and not node_time_changed and not node_state_changed:
+                    # Still on same node with same settings, don't override manual changes
                     _LOGGER.debug(f"{entity_id} still on same node (time: {node_time}), skipping")
                     results[entity_id] = {
                         "updated": False,
@@ -861,22 +862,22 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     }
                     continue
                 
-                # Node has changed (state or time), update the temperature and settings
-                if node_time_changed and not node_state_changed:
-                    _LOGGER.info(f"{entity_id} node time changed ({last_node_time} -> {node_time}), reapplying same settings")
-                elif node_state_changed:
+                # Log the reason for applying settings
+                if is_first_run:
+                    _LOGGER.info(f"{entity_id} first run - applying initial settings")
+                elif node_time_changed and not node_state_changed:
+                    _LOGGER.info(f"{entity_id} node time changed ({last_node_time} -> {node_time}), applying settings")
+                elif node_state_changed and not node_time_changed:
                     _LOGGER.info(f"{entity_id} node state changed: {last_node} -> {node_signature}")
                 else:
-                    _LOGGER.info(f"{entity_id} node changed")
+                    _LOGGER.info(f"{entity_id} node changed (time and state)")
                     
                 self.last_node_states[entity_id] = node_signature
                 self.last_node_times[entity_id] = node_time
                 
-                # SPECIAL CASE: If temperature is NO_CHANGE but we're transitioning nodes (including resync),
-                # we should still reapply settings to reset any manual overrides.
-                # Use the current target temperature from the climate entity.
+                # SPECIAL CASE: If temperature is NO_CHANGE, use the current target temperature from the climate entity.
                 temp_to_apply = clamped_temp
-                if is_no_change and (node_state_changed or node_time_changed):
+                if is_no_change:
                     current_target_for_reapply = state.attributes.get("temperature")
                     # For entities using min/max range (heat_cool/auto mode), check target_temp_high/low
                     target_temp_high = state.attributes.get("target_temp_high")
@@ -884,15 +885,15 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     
                     if current_target_for_reapply is not None:
                         temp_to_apply = current_target_for_reapply
-                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition - will reapply current temperature {temp_to_apply}°C to reset manual overrides")
+                        _LOGGER.info(f"{entity_id} NO_CHANGE - will use current temperature {temp_to_apply}°C")
                     elif target_temp_high is not None or target_temp_low is not None:
                         # Entity uses min/max range - NO_CHANGE doesn't apply to range entities
                         # Still set temp_to_apply to None so we skip temperature but apply modes
                         temp_to_apply = None
-                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition - entity uses temp range (high={target_temp_high}, low={target_temp_low}), will apply modes only")
+                        _LOGGER.info(f"{entity_id} NO_CHANGE - entity uses temp range (high={target_temp_high}, low={target_temp_low}), will apply modes only")
                     else:
                         temp_to_apply = None
-                        _LOGGER.info(f"{entity_id} NO_CHANGE with node transition but no current temperature available")
+                        _LOGGER.info(f"{entity_id} NO_CHANGE but no current temperature available")
                 
                 # Re-get current state (we checked it exists earlier)
                 _LOGGER.info(f"{entity_id} state found: {state.state}")
@@ -976,7 +977,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     elif temp_to_apply is not None and is_preset_only:
                         _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
                     else:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE and no node transition)")
+                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
                     
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
@@ -1070,7 +1071,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled transition)")
                 else:
-                    _LOGGER.debug(f"Skipping event for {entity_id} - node state changed but time unchanged (user edit)")
+                    _LOGGER.debug(f"Skipping event for {entity_id} - settings applied but not a time transition (user edit or first run)")
                 
                 results[entity_id] = {
                     "updated": True,
