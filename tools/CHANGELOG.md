@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.15.0-develop.10] - 2026-02-13
+
+### Changed
+- Renamed "Preset Mode" to "Thermostat Preset" in node settings to reduce confusion between it and schedule presets
+
+- **Coordinator**: Settings now applied only when needed
+  - Apply settings on: time transitions, user edits to current node, or first run (initialization)
+  - Ensures correct settings after server reboot via first-run detection
+  - Virtual groups still fire events only on actual node transitions
+  
+- **Node Settings Panel Layout**: Improved panel structure
+  - Removed redundant "time:" label from header
+  - Time dropdown integrated into settings header for cleaner appearance
+  - Climate dialog container has proper padding and rounded bottom corners
+  - Consistent background colors across header and content areas
+
+
 ## [1.15.0-develop.9] - 2026-02-07
 ### Added
 - **Debug Visualization**: Added "Show Node Hit Areas" checkbox in settings panel
