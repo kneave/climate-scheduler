@@ -1217,7 +1217,7 @@ function createSettingsPanel(groupData, editor) {
                 </select>
                 <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
                 <button id="rename-profile-btn" class="btn-profile" title="Rename profile">✎</button>
-                <button id="delete-profile-btn" class="btn-profile" title="Delete profile">✕</button>
+                <button id="delete-profile-btn" class="btn-profile" title="Delete profile">🗑</button>
             </div>
         </div>
     `;
@@ -1990,7 +1990,7 @@ function createGroupMembersTable(entityIds) {
         
         const moveBtn = document.createElement('button');
         moveBtn.className = 'btn-icon-small move-entity-btn';
-        moveBtn.innerHTML = 'M';
+        moveBtn.innerHTML = '⇄';
         moveBtn.title = 'Move to another group';
         moveBtn.onclick = (e) => {
             e.stopPropagation();
@@ -2002,7 +2002,7 @@ function createGroupMembersTable(entityIds) {
         
         const removeBtn = document.createElement('button');
         removeBtn.className = 'btn-icon-small remove-entity-btn';
-        removeBtn.innerHTML = '✕';
+        removeBtn.innerHTML = '🗑';
         removeBtn.title = 'Remove from group';
         removeBtn.onclick = (e) => {
             e.stopPropagation();
