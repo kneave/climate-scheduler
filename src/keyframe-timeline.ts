@@ -297,6 +297,72 @@ export class KeyframeTimeline extends LitElement {
     .scroll-nav.right {
       right: 10px;
     }
+
+    .graph-legend {
+      position: absolute;
+      top: 10px;
+      left: 70px;
+      z-index: 12;
+      min-width: 160px;
+      max-width: 240px;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
+      border-radius: 6px;
+      color: var(--canvas-text-primary);
+      font-size: 12px;
+    }
+
+    .graph-legend-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 600;
+    }
+
+    .graph-legend-toggle {
+      display: inline-block;
+      font-size: 11px;
+      transform: rotate(90deg);
+      transition: transform 0.2s ease;
+    }
+
+    .graph-legend.collapsed .graph-legend-toggle {
+      transform: rotate(0deg);
+    }
+
+    .graph-legend-items {
+      padding: 0 8px 8px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .graph-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .graph-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.3));
+      flex: 0 0 auto;
+    }
+
+    .graph-legend-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--canvas-text-secondary);
+    }
     
     .info {
       margin-top: 12px;
@@ -334,6 +400,7 @@ export class KeyframeTimeline extends LitElement {
   @state() private showScrollNavLeft = false;
   @state() private showScrollNavRight = false;
   @state() undoStack: Keyframe[][] = []; // Changed to store full keyframe arrays
+  @state() private legendCollapsed = true;
   
   private canvas?: HTMLCanvasElement;
   private ctx?: CanvasRenderingContext2D;
@@ -504,6 +571,15 @@ export class KeyframeTimeline extends LitElement {
 
   private getThemeColor(cssVar: string): string {
     return getComputedStyle(this).getPropertyValue(cssVar).trim();
+  }
+
+  private getBackgroundGraphColor(bgGraph: BackgroundGraph, graphIndex: number): string {
+    return bgGraph.color || BACKGROUND_GRAPH_COLORS[graphIndex % BACKGROUND_GRAPH_COLORS.length];
+  }
+
+  private toggleLegend(e: Event) {
+    e.stopPropagation();
+    this.legendCollapsed = !this.legendCollapsed;
   }
 
   private getBaseFontSize(): number {
@@ -709,6 +785,7 @@ export class KeyframeTimeline extends LitElement {
     }
     
     // Draw background graphs (reference data)
+    const ctx = this.ctx;
     this.backgroundGraphs.forEach((bgGraph, graphIndex) => {
       if (bgGraph.keyframes.length === 0) return;
       
@@ -716,10 +793,10 @@ export class KeyframeTimeline extends LitElement {
       const sortedKeyframes = [...bgGraph.keyframes].sort((a, b) => a.time - b.time);
       
       // Use specified color or cycle through palette
-      const color = bgGraph.color || BACKGROUND_GRAPH_COLORS[graphIndex % BACKGROUND_GRAPH_COLORS.length];
+      const color = this.getBackgroundGraphColor(bgGraph, graphIndex);
       const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
       if (rgbaMatch) {
-        this.ctx.strokeStyle = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.5)`;
+        ctx.strokeStyle = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.5)`;
       } else {
         // Try hex to rgba conversion
         const hexMatch = color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
@@ -727,14 +804,14 @@ export class KeyframeTimeline extends LitElement {
           const r = parseInt(hexMatch[1], 16);
           const g = parseInt(hexMatch[2], 16);
           const b = parseInt(hexMatch[3], 16);
-          this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
         } else {
-          this.ctx.strokeStyle = color;
+          ctx.strokeStyle = color;
         }
       }
       
-      this.ctx.lineWidth = 1.5 * dpr;
-      this.ctx.setLineDash([3 * dpr, 3 * dpr]); // Dashed line for background
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.setLineDash([3 * dpr, 3 * dpr]); // Dashed line for background
       
       // Draw lines between keyframes
       for (let i = 0; i < sortedKeyframes.length - 1; i++) {
@@ -747,13 +824,13 @@ export class KeyframeTimeline extends LitElement {
         const y2 = topMargin + ((1 - this.normalizeValue(kf2.value)) * graphHeight);
         
         // Draw line between points
-        this.ctx.beginPath();
-        this.ctx.moveTo(x1, y1);
-        this.ctx.lineTo(x2, y2);
-        this.ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
       }
       
-      this.ctx.setLineDash([]); // Reset dash
+      ctx.setLineDash([]); // Reset dash
       
       // Draw small circle markers at each keyframe (smaller than main graph)
       sortedKeyframes.forEach(kf => {
@@ -2197,6 +2274,24 @@ export class KeyframeTimeline extends LitElement {
         ` : ''}
         
         <div style="position: relative;">
+          ${this.backgroundGraphs.length > 0 ? html`
+            <div class="graph-legend ${this.legendCollapsed ? 'collapsed' : ''}">
+              <div class="graph-legend-header" @click=${this.toggleLegend}>
+                <span class="graph-legend-toggle">▶</span>
+                <span>Legend</span>
+              </div>
+              ${!this.legendCollapsed ? html`
+                <div class="graph-legend-items">
+                  ${this.backgroundGraphs.map((bgGraph, graphIndex) => html`
+                    <div class="graph-legend-item" title=${bgGraph.label || `Entity ${graphIndex + 1}`}>
+                      <span class="graph-legend-swatch" style="background: ${this.getBackgroundGraphColor(bgGraph, graphIndex)};"></span>
+                      <span class="graph-legend-label">${bgGraph.label || `Entity ${graphIndex + 1}`}</span>
+                    </div>
+                  `)}
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
           <div class="timeline-canvas-wrapper ${this.collapsed ? '' : 'expanded'}" @click=${this.collapsed && this.allowCollapse ? this.toggleCollapse : null}>
             <div class="timeline-canvas ${this.collapsed ? 'collapsed' : ''} ${this.isDragging ? 'dragging' : ''}">
               <canvas 
