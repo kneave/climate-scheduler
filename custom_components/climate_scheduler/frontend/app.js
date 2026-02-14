@@ -1060,26 +1060,31 @@ async function editGroupSchedule(groupName, day = null) {
     const graphElement = editor.querySelector('#main-timeline');
     
     if (graphElement) {
-        // Create and insert settings panel after the graph container but before instructions
+        // Create and insert settings panel below timeline controls and node settings panel
         const graphContainer = graphElement.closest('.graph-container') || graphElement.parentElement;
-        const instructionsContainer = editor.querySelector('.instructions-container');
+        const nodeSettingsPanel = editor.querySelector('#node-settings-panel');
+        const insertionAnchor = nodeSettingsPanel || graphContainer;
         
-        if (graphContainer && instructionsContainer) {
+        if (insertionAnchor) {
+            let insertAfter = insertionAnchor;
+
             const settingsPanel = createSettingsPanel(groupData, editor);
             if (settingsPanel) {
-                instructionsContainer.before(settingsPanel);
+                insertAfter.after(settingsPanel);
+                insertAfter = settingsPanel;
             }
             
             // Check if any entities in the group are preset-only and show notice if needed
             const presetOnlyNotice = createPresetOnlyNotice(groupData.entities, groupName);
             if (presetOnlyNotice) {
-                instructionsContainer.before(presetOnlyNotice);
+                insertAfter.after(presetOnlyNotice);
+                insertAfter = presetOnlyNotice;
             }
             
-            // Insert group members table after instructions
+            // Insert group members table beneath settings/notice block
             const groupTable = createGroupMembersTable(groupData.entities);
             if (groupTable) {
-                instructionsContainer.after(groupTable);
+                insertAfter.after(groupTable);
             }
         }
     }
@@ -2528,20 +2533,6 @@ function createScheduleEditor() {
             <div id="climate-dialog-container"></div>
         </div>
         
-        <!-- Instructions Section (Collapsible) -->
-        <div class="instructions-container">
-            <div class="instructions-toggle">
-                <span class="toggle-icon">▶</span>
-                <span class="toggle-text">Instructions</span>
-            </div>
-            <div class="graph-instructions collapsed" style="display: none;">
-                <p>📍 <strong>Double-click or double-tap</strong> the line to add a new node</p>
-                <p>👆 <strong>Drag nodes</strong> vertically to change temperature or horizontally to move their time</p>
-                <p>⬌ <strong>Drag the horizontal segment</strong> between two nodes to shift that period while preserving its duration</p>
-                <p>📋 <strong>Copy / Paste</strong> buttons duplicate a schedule across days or entities</p>
-                <p>⚙️ <strong>Tap a node</strong> to open its settings panel for HVAC/fan/swing/preset values</p>
-            </div>
-        </div>
     `;
     return editor;
 }
@@ -2599,25 +2590,7 @@ function collapseAllEditors() {
 // Attach event listeners to editor elements (for dynamically created editors)
 function attachEditorEventListeners(editorElement) {
     
-    
-    // Instructions toggle
-    const instructionsToggle = editorElement.querySelector('.instructions-toggle');
-    const instructionsContent = editorElement.querySelector('.graph-instructions');
-    if (instructionsToggle && instructionsContent) {
-        instructionsToggle.onclick = () => {
-            const isCollapsed = instructionsContent.classList.contains('collapsed');
-            if (isCollapsed) {
-                instructionsContent.classList.remove('collapsed');
-                instructionsContent.style.display = 'block';
-                instructionsToggle.querySelector('.toggle-icon').style.transform = 'rotate(90deg)';
-            } else {
-                instructionsContent.classList.add('collapsed');
-                instructionsContent.style.display = 'none';
-                instructionsToggle.querySelector('.toggle-icon').style.transform = 'rotate(0deg)';
-            }
-        };
-    }
-    
+
     // Note: Undo buttons are now linked via timeline.setUndoButton() in editGroupSchedule
     
     // Ignore button (Unmonitor button for single-entity groups)
@@ -6065,6 +6038,26 @@ async function setupSettingsPanel() {
                 if (indicator) indicator.style.transform = 'rotate(-90deg)';
             }
         });
+    }
+
+    // Global instructions toggle
+    const instructionsToggle = getDocumentRoot().querySelector('#global-instructions-toggle');
+    const instructionsContent = getDocumentRoot().querySelector('#global-graph-instructions');
+    if (instructionsToggle && instructionsContent) {
+        instructionsToggle.onclick = () => {
+            const isCollapsed = instructionsContent.classList.contains('collapsed');
+            const icon = instructionsToggle.querySelector('.toggle-icon');
+
+            if (isCollapsed) {
+                instructionsContent.classList.remove('collapsed');
+                instructionsContent.style.display = 'block';
+                if (icon) icon.style.transform = 'rotate(90deg)';
+            } else {
+                instructionsContent.classList.add('collapsed');
+                instructionsContent.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        };
     }
     
     // Tooltip mode selector

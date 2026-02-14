@@ -337,6 +337,21 @@ class ClimateSchedulerPanel extends HTMLElement {
                         </div>
                     </div>
 
+                    <!-- Instructions Section (Collapsible) -->
+                    <div class="instructions-container">
+                        <div id="global-instructions-toggle" class="instructions-toggle">
+                            <span class="toggle-icon">▶</span>
+                            <span class="toggle-text">Instructions</span>
+                        </div>
+                        <div id="global-graph-instructions" class="graph-instructions collapsed" style="display: none;">
+                            <p>📍 <strong>Double-click or double-tap</strong> the line to add a new node</p>
+                            <p>👆 <strong>Drag nodes</strong> vertically to change temperature or horizontally to move their time</p>
+                            <p>⬌ <strong>Drag the horizontal segment</strong> between two nodes to shift that period while preserving its duration</p>
+                            <p>📋 <strong>Copy / Paste</strong> buttons duplicate a schedule across days or entities</p>
+                            <p>⚙️ <strong>Tap a node</strong> to open its settings panel for HVAC/fan/swing/preset values</p>
+                        </div>
+                    </div>
+
                     <!-- Settings Panel -->
                     <div id="settings-panel" class="settings-panel collapsed">
                         <div class="settings-header" id="settings-toggle">
