@@ -1249,7 +1249,6 @@ function createSettingsPanel(groupData, editor) {
             <button id="undo-btn" class="btn-secondary-outline schedule-btn" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
             <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
             <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
-            <button id="test-fire-event-btn" class="btn-secondary-outline schedule-btn" title="Test fire event with current active node">🧪 Test Event</button>
             <button id="clear-advance-history-btn" class="btn-secondary-outline schedule-btn" title="Clear advance history markers">Clear Advance History</button>`;
     
     // Only show unmonitor button for single-entity groups
@@ -2636,7 +2635,10 @@ function createScheduleEditor() {
                     </div>
                     <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
                 </div>
-                <button id="close-settings" class="btn-close-settings">✕</button>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="test-fire-event-btn" class="btn-secondary-outline" title="Test fire event with current active node" style="padding: 4px 10px; font-size: 0.8rem;">Test Event</button>
+                    <button id="close-settings" class="btn-close-settings">✕</button>
+                </div>
             </div>
             <div id="climate-dialog-container"></div>
         </div>
@@ -3222,16 +3224,26 @@ function attachEditorEventListeners(editorElement) {
         testFireBtn.onclick = async () => {
             const state = getNodeSettingsState();
             if (!state || !currentGroup) return;
-            const { keyframe: node } = state;
+            const { keyframe } = state;
+
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+            const scheduleNode = currentSchedule.find(n =>
+                n.time === timeStr ||
+                Math.abs(timeStringToDecimalHours(n.time) - keyframe.time) < 0.01
+            ) || {
+                time: timeStr,
+                temp: keyframe.value
+            };
+
+            const targetDay = currentDay || 'all_days';
             
             testFireBtn.disabled = true;
             try {
-                // Get current day
-                const now = new Date();
-                const currentDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now.getDay() === 0 ? 6 : now.getDay() - 1];
-                
-                await haAPI.testFireEvent(currentGroup, node, currentDay);
-                showToast(`Test event fired for node at ${node.time}`, 'success');
+                await haAPI.testFireEvent(currentGroup, scheduleNode, targetDay);
+                showToast(`Test event fired for node at ${scheduleNode.time}`, 'success');
             } catch (error) {
                 console.error('Failed to test fire event:', error);
                 showToast('Failed to fire test event: ' + error.message, 'error');
