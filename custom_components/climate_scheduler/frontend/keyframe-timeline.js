@@ -134,8 +134,9 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.justDeletedKeyframe = false; // Prevent dblclick from adding after delete
         this.holdStartX = 0;
         this.holdStartY = 0;
-        this.hoverX = null;
-        this.hoverY = null;
+        this.hoverRenderPending = false;
+        this.hoverX = 0;
+        this.hoverY = 0;
     }
     willUpdate(changedProperties) {
         // Property change tracking
@@ -147,6 +148,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             this.ctx = canvasEl.getContext('2d') || undefined;
             this.updateCanvasSize();
         }
+        this.tooltipEl = this.shadowRoot?.querySelector('.cursor-tooltip');
         this.wrapperEl = this.shadowRoot?.querySelector('.timeline-canvas-wrapper');
         this.checkScrollVisibility();
         // Listen for scroll events to update button visibility
@@ -318,7 +320,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     drawTimeline() {
         if (!this.ctx || !this.canvas)
             return;
-        const rect = this.canvas.getBoundingClientRect();
+        this.canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio;
         this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
         this.canvasWidth / this.slots;
@@ -667,20 +669,14 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 this.ctx.fillText(valueText, x, labelY);
             }
         });
-        // Draw tooltip if hovering and not dragging
-        if (this.hoverX !== null && this.hoverY !== null && !this.isDragging && !this.collapsed) {
-            this.drawTooltip(this.hoverX, this.hoverY, rect);
-        }
+        // Tooltip is rendered as a lightweight DOM overlay to avoid canvas redraw on hover.
     }
-    drawTooltip(x, y, rect) {
-        if (!this.ctx)
-            return;
-        const dpr = window.devicePixelRatio || 1;
+    buildHoverTooltip(x, y, rect) {
         const { leftMargin, yAxisWidth, rightMargin, topMargin, graphHeight, graphWidth } = this.getGraphDimensions(rect);
         // Check if in graph area
         if (x < leftMargin + yAxisWidth || x > rect.width - rightMargin ||
             y < topMargin || y > topMargin + graphHeight) {
-            return;
+            return null;
         }
         const adjustedX = x - leftMargin - yAxisWidth;
         const time = (adjustedX / graphWidth) * this.duration;
@@ -691,7 +687,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             if (tooltipValue !== null) {
                 const hours = Math.floor(time);
                 const minutes = Math.round((time - hours) * 60);
-                tooltipLines.push({ text: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} - ${tooltipValue.toFixed(1)}°` });
+                tooltipLines.push({
+                    text: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} - ${tooltipValue.toFixed(1)}°`,
+                    color: this.getThemeColor('--keyframe-color')
+                });
             }
         }
         else {
@@ -734,59 +733,105 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
             }
         }
         if (tooltipLines.length === 0)
+            return null;
+        return {
+            lines: tooltipLines
+        };
+    }
+    hideHoverTooltip() {
+        if (!this.tooltipEl)
             return;
-        // Draw tooltip with multiple lines
-        const fontSize = 13;
-        const lineHeight = 18 * dpr;
-        this.ctx.font = `${fontSize * dpr}px system-ui, -apple-system, sans-serif`;
-        // Calculate max width
-        let maxWidth = 0;
-        for (const line of tooltipLines) {
-            const textMetrics = this.ctx.measureText(line.text);
-            maxWidth = Math.max(maxWidth, textMetrics.width);
+        this.tooltipEl.hidden = true;
+    }
+    getOpaqueColor(color) {
+        if (!this.shadowRoot)
+            return color;
+        if (!this.colorProbeEl) {
+            this.colorProbeEl = document.createElement('span');
+            this.colorProbeEl.style.position = 'absolute';
+            this.colorProbeEl.style.visibility = 'hidden';
+            this.colorProbeEl.style.pointerEvents = 'none';
+            this.colorProbeEl.style.width = '0';
+            this.colorProbeEl.style.height = '0';
+            this.colorProbeEl.style.overflow = 'hidden';
+            this.shadowRoot.appendChild(this.colorProbeEl);
         }
-        const padding = 8 * dpr;
-        const tooltipWidth = maxWidth + padding * 2;
-        const tooltipHeight = (tooltipLines.length * lineHeight) + padding * 2;
-        // Position tooltip near cursor but avoid edges
-        let tooltipX = x * dpr;
-        let tooltipY = (y - 40) * dpr;
-        if (tooltipX + tooltipWidth > rect.width * dpr - 10 * dpr) {
-            tooltipX = rect.width * dpr - tooltipWidth - 10 * dpr;
+        this.colorProbeEl.style.color = color;
+        const resolved = getComputedStyle(this.colorProbeEl).color;
+        const rgbaMatch = resolved.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*\)/i);
+        if (rgbaMatch) {
+            return `rgb(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]})`;
         }
-        if (tooltipX < 10 * dpr) {
-            tooltipX = 10 * dpr;
+        return resolved || color;
+    }
+    renderHoverTooltip() {
+        if (!this.canvas || !this.tooltipEl || this.collapsed || this.isDragging || this.isPanning) {
+            this.hideHoverTooltip();
+            return;
         }
-        if (tooltipY < 10 * dpr) {
-            tooltipY = (y + 30) * dpr;
+        const rect = this.canvas.getBoundingClientRect();
+        const tooltip = this.buildHoverTooltip(this.hoverX, this.hoverY, rect);
+        if (!tooltip) {
+            this.hideHoverTooltip();
+            return;
         }
-        // Draw background
-        this.ctx.fillStyle = getComputedStyle(this).getPropertyValue('--canvas-label-bg') || 'rgba(0, 0, 0, 0.75)';
-        this.ctx.fillRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
-        // Draw border
-        this.ctx.strokeStyle = this.getThemeColor('--divider-color');
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
-        // Draw text lines
-        this.ctx.textAlign = 'left';
-        this.ctx.textBaseline = 'top';
-        for (let i = 0; i < tooltipLines.length; i++) {
-            const lineY = tooltipY + padding + (i * lineHeight);
-            const line = tooltipLines[i];
-            // Convert color to RGB format (remove any transparency)
-            let textColor = '#ffffff';
+        const wasHidden = this.tooltipEl.hidden;
+        const defaultTooltipTextColor = this.getThemeColor('--keyframe-color');
+        const tooltipTextColors = tooltip.lines.map(line => this.getOpaqueColor(line.color || defaultTooltipTextColor));
+        const backgroundGraphColors = this.backgroundGraphs.map((bgGraph, index) => ({
+            label: bgGraph.label || `Entity ${index + 1}`,
+            color: this.getBackgroundGraphColor(bgGraph, index)
+        }));
+        this.tooltipEl.replaceChildren();
+        tooltip.lines.forEach(line => {
+            const lineEl = document.createElement('div');
+            lineEl.className = 'cursor-tooltip-line';
+            lineEl.textContent = line.text;
             if (line.color) {
-                const hexMatch = line.color.match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
-                if (hexMatch) {
-                    textColor = `rgb(${parseInt(hexMatch[1], 16)}, ${parseInt(hexMatch[2], 16)}, ${parseInt(hexMatch[3], 16)})`;
-                }
-                else {
-                    textColor = line.color;
-                }
+                lineEl.style.color = this.getOpaqueColor(line.color);
             }
-            this.ctx.fillStyle = textColor;
-            this.ctx.fillText(line.text, tooltipX + padding, lineY);
+            this.tooltipEl.appendChild(lineEl);
+        });
+        this.tooltipEl.hidden = false;
+        if (wasHidden) {
+            console.log('[Tooltip Color Debug]', {
+                graphColors: {
+                    keyframeColor: this.getThemeColor('--keyframe-color'),
+                    backgroundGraphs: backgroundGraphColors
+                },
+                tooltip: {
+                    textLines: tooltip.lines.map(line => line.text),
+                    textColors: tooltipTextColors
+                }
+            });
         }
+        // Stable anchor: above-left by default; flip horizontally to the right when near left edge.
+        const cursorOffsetX = 32;
+        const cursorOffsetY = 10;
+        const margin = 10;
+        const tooltipWidth = this.tooltipEl.offsetWidth;
+        const tooltipHeight = this.tooltipEl.offsetHeight;
+        const maxX = Math.max(margin, rect.width - tooltipWidth - margin);
+        const maxY = Math.max(margin, rect.height - tooltipHeight - margin);
+        let tooltipX = this.hoverX - tooltipWidth - cursorOffsetX;
+        if (tooltipX < margin) {
+            tooltipX = this.hoverX + cursorOffsetX;
+        }
+        tooltipX = Math.max(margin, Math.min(tooltipX, maxX));
+        const tooltipY = Math.max(margin, Math.min(this.hoverY - tooltipHeight - cursorOffsetY, maxY));
+        this.tooltipEl.style.left = `${Math.round(tooltipX)}px`;
+        this.tooltipEl.style.top = `${Math.round(tooltipY)}px`;
+    }
+    queueHoverTooltipRender(x, y) {
+        this.hoverX = x;
+        this.hoverY = y;
+        if (this.hoverRenderPending)
+            return;
+        this.hoverRenderPending = true;
+        requestAnimationFrame(() => {
+            this.hoverRenderPending = false;
+            this.renderHoverTooltip();
+        });
     }
     getInterpolatedValue(time) {
         if (this.keyframes.length === 0)
@@ -992,11 +1037,10 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     handleCanvasMouseMove(e) {
         // Update hover position for tooltip (only for mouse, not touch)
         if (e instanceof MouseEvent && !this.isDragging && !this.isPanning && this.canvas) {
-            const rect = this.canvas.getBoundingClientRect();
-            this.wrapperEl?.scrollLeft || 0;
-            this.hoverX = e.clientX - rect.left;
-            this.hoverY = e.clientY - rect.top;
-            this.drawTimeline();
+            this.queueHoverTooltipRender(e.offsetX, e.offsetY);
+        }
+        else if (e instanceof TouchEvent) {
+            this.hideHoverTooltip();
         }
         // Handle panning first (takes priority when active)
         if (this.isPanning && this.wrapperEl) {
@@ -1162,6 +1206,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     }
     handleCanvasMouseUp(e) {
         this.clearHoldTimer();
+        this.hideHoverTooltip();
         // Handle segment dragging completion
         if (this.draggingSegment !== null && this.hasMoved) {
             this.dispatchEvent(new CustomEvent('segment-moved', {
@@ -1208,10 +1253,8 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
         this.isPanning = false; // Reset panning state
     }
     handleCanvasMouseLeave(e) {
-        // Clear hover state and redraw
-        this.hoverX = null;
-        this.hoverY = null;
-        this.drawTimeline();
+        // Clear hover tooltip overlay
+        this.hideHoverTooltip();
         // Also handle mouseup logic if needed
         this.handleCanvasMouseUp(e);
     }
@@ -1522,6 +1565,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
     toggleCollapse() {
         if (!this.allowCollapse)
             return; // Don't allow collapsing if disabled
+        this.hideHoverTooltip();
         this.collapsed = !this.collapsed;
         // Update canvas height after state change
         setTimeout(() => {
@@ -1782,6 +1826,7 @@ let KeyframeTimeline = class KeyframeTimeline extends i {
                 @touchend=${this.handleCanvasMouseUp}
                 @touchcancel=${this.handleCanvasMouseUp}
               ></canvas>
+              <div class="cursor-tooltip" hidden></div>
             </div>
             ${this.collapsed ? b `<div class="expand-hint">Click to expand</div>` : ''}
           </div>
@@ -2062,7 +2107,7 @@ KeyframeTimeline.styles = i$3 `
       z-index: 12;
       min-width: 160px;
       max-width: 240px;
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.5);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
       border-radius: 6px;
       color: var(--canvas-text-primary);
@@ -2119,6 +2164,26 @@ KeyframeTimeline.styles = i$3 `
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--canvas-text-secondary);
+    }
+
+    .cursor-tooltip {
+      position: absolute;
+      z-index: 20;
+      pointer-events: none;
+      background-color: rgba(var(--rgb-card-background-color, 224, 224, 224), 0.9);
+      background-image: none;
+      border: 1px solid var(--primary-color);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 13px;
+      line-height: 18px;
+      white-space: nowrap;
+    }
+
+    .cursor-tooltip-line {
+      color: var(--keyframe-color);
+      font-weight: 600;
+      opacity: 1;
     }
     
     .info {
