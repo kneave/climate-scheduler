@@ -110,7 +110,7 @@ const t=t=>(e,o)=>{ void 0!==o?o.addInitializer(()=>{customElements.define(t,e);
         }
     }
     catch (e) {
-        console.debug('[Climate Scheduler] Version check failed:', e);
+        console.warn('[Climate Scheduler] Version check failed:', e);
     }
 })();
 let ClimateSchedulerCard = class ClimateSchedulerCard extends i {

@@ -8,7 +8,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 // Version checking - detect if browser cache is stale
 (async function() {
   try {
-    const scriptUrl = document.currentScript?.src || new URL(import.meta.url).href;
+    const scriptUrl = (document.currentScript as HTMLScriptElement)?.src || new URL(import.meta.url).href;
     const loadedVersion = new URL(scriptUrl).searchParams.get('v');
     
     // Fetch the current server version
@@ -44,7 +44,7 @@ import { customElement, property, state } from 'lit/decorators.js';
       }
     }
   } catch (e) {
-    console.debug('[Climate Scheduler] Version check failed:', e);
+    console.warn('[Climate Scheduler] Version check failed:', e);
   }
 })();
 

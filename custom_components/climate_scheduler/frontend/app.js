@@ -615,13 +615,11 @@ function createGroupContainer(groupName, groupData) {
         
         // Block if there's a save in progress
         if (isSaveInProgress) {
-            console.log(`[Schedule] Ignoring click on group: ${groupName} (save in progress)`);
             return;
         }
         
         // Global lock: only process one group click at a time
         if (isProcessingGroupClick) {
-            console.log(`[Schedule] Ignoring click on group: ${groupName} (already processing another group)`);
             return;
         }
         
@@ -629,7 +627,6 @@ function createGroupContainer(groupName, groupData) {
         const now = Date.now();
         const lastClick = lastClickTime[groupName] || 0;
         if (now - lastClick < CLICK_DEBOUNCE_MS) {
-            console.log(`[Schedule] Ignoring duplicate click on group: ${groupName} (debounced)`);
             return;
         }
         lastClickTime[groupName] = now;
@@ -692,7 +689,6 @@ async function loadKeyframeTimeline() {
         });
         
         keyframeTimelineLoaded = true;
-        console.log('Loaded keyframe-timeline.js');
         return true;
     } catch (error) {
         console.error('Failed to load keyframe-timeline.js:', error);
@@ -1998,7 +1994,6 @@ function createGroupMembersTable(entityIds) {
     
     // Toggle functionality
     toggleHeader.onclick = async () => {
-        console.log('[Group Members Toggle] Clicked!');
         const isCollapsed = table.classList.contains('collapsed');
         if (isCollapsed) {
             // Fetch fresh entity states before expanding
@@ -2637,6 +2632,7 @@ function createScheduleEditor() {
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <button id="test-fire-event-btn" class="btn-secondary-outline" title="Test fire event with current active node" style="padding: 4px 10px; font-size: 0.8rem;">Test Event</button>
+                    <button id="delete-node" class="btn-danger-outline" title="Delete selected node" style="padding: 4px 10px; font-size: 0.8rem;">Delete Node</button>
                     <button id="close-settings" class="btn-close-settings">✕</button>
                 </div>
             </div>
@@ -2666,7 +2662,6 @@ async function loadClimateDialog() {
         });
         
         climateDialogLoaded = true;
-        console.log('Climate dialog component loaded');
     } catch (error) {
         console.error('Failed to load climate dialog:', error);
     }
@@ -3260,6 +3255,14 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (state) {
                 const { panel, nodeIndex, timeline } = state;
+
+                if (timeline.keyframes.length <= 1) {
+                    alert('Cannot delete the last node. A schedule must have at least one node.');
+                    return;
+                }
+
+                if (!confirm('Delete this node?')) return;
+
                 // Remove keyframe at index
                 timeline.keyframes = timeline.keyframes.filter((_, i) => i !== nodeIndex);
                 panel.style.display = 'none';
@@ -4187,19 +4190,8 @@ async function loadGroupHistoryData(entityIds) {
 
 // Save schedule (auto-save, no alerts)
 async function saveSchedule() {
-    console.debug('[SAVE] saveSchedule() called', {
-        timestamp: new Date().toISOString(),
-        isLoadingSchedule,
-        isSaveInProgress,
-        hasPendingTimeout: saveTimeout !== null,
-        currentGroup,
-        currentDay,
-        currentScheduleMode
-    });
-
     // Don't save if we're in the middle of loading a schedule
     if (isLoadingSchedule) {
-        console.debug('[SAVE] Skipped: isLoadingSchedule=true');
         return;
     }
     
@@ -4212,13 +4204,11 @@ async function saveSchedule() {
     
     // Clear any existing debounce timeout
     if (saveTimeout) {
-        console.debug('[SAVE] Clearing previous debounce timeout');
         clearTimeout(saveTimeout);
         saveTimeout = null;
     }
     
     // Debounce: wait for changes to settle before saving
-    console.debug(`[SAVE] Debouncing save for ${SAVE_DEBOUNCE_MS}ms`);
     saveTimeout = setTimeout(() => {
         saveTimeout = null;
         performSave();
@@ -4229,25 +4219,12 @@ async function saveSchedule() {
 async function performSave() {
     const saveStartTime = performance.now();
     
-    console.debug('[SAVE] performSave() executing', {
-        timestamp: new Date().toISOString(),
-        currentGroup,
-        currentDay,
-        currentScheduleMode
-    });
-    
     // Set save in progress flag
     isSaveInProgress = true;
     
     // Check if we're editing a group schedule
     if (currentGroup) {
         const nodes = getGraphNodes();
-        console.debug('[SAVE] Group mode detected', {
-            groupName: currentGroup,
-            nodeCount: nodes.length,
-            day: currentDay,
-            scheduleMode: currentScheduleMode
-        });
         
         try {
             const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
@@ -4259,18 +4236,7 @@ async function performSave() {
             
             // Save to group schedule with day and mode
             const setGroupScheduleStart = performance.now();
-            console.debug('[SAVE] Calling setGroupSchedule', {
-                groupName: currentGroup,
-                nodeCount: nodes.length,
-                day: currentDay,
-                scheduleMode: currentScheduleMode,
-                profile: targetProfile || '(active)',
-                timeSinceSaveStart: (setGroupScheduleStart - saveStartTime).toFixed(2) + 'ms'
-            });
             await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode, targetProfile || undefined);
-            console.debug('[SAVE] setGroupSchedule succeeded', {
-                duration: (performance.now() - setGroupScheduleStart).toFixed(2) + 'ms'
-            });
             
             // Update local cache immediately with the saved data
             if (allGroups[currentGroup]) {
@@ -4282,10 +4248,8 @@ async function performSave() {
             
             // Update enabled state
             if (enabled) {
-                console.debug('[SAVE] Calling enableGroup');
                 await haAPI.enableGroup(currentGroup);
             } else {
-                console.debug('[SAVE] Calling disableGroup');
                 await haAPI.disableGroup(currentGroup);
             }
             
@@ -4293,10 +4257,6 @@ async function performSave() {
             if (allGroups[currentGroup]) {
                 allGroups[currentGroup].enabled = enabled;
             }
-            
-            console.debug('[SAVE] Group save completed successfully', {
-                totalDuration: (performance.now() - saveStartTime).toFixed(2) + 'ms'
-            });
         } catch (error) {
             console.error('[SAVE] Failed to auto-save group schedule:', {
                 error,
@@ -4308,11 +4268,9 @@ async function performSave() {
             });
         } finally {
             isSaveInProgress = false;
-            console.debug('[SAVE] isSaveInProgress flag cleared');
             
             // If another save was requested while this one was in progress, trigger it now
             if (pendingSaveNeeded) {
-                console.debug('[SAVE] Pending save detected, triggering debounced save');
                 pendingSaveNeeded = false;
                 // Call saveSchedule (not performSave) to go through debouncing again
                 saveSchedule();
@@ -4323,7 +4281,6 @@ async function performSave() {
     
     // Note: Entity-only save path removed - all schedules (including single entities)
     // are now saved as groups via set_group_schedule above.
-    console.debug('[SAVE] No currentGroup set, nothing to save');
     isSaveInProgress = false;
 }
 
@@ -5815,22 +5772,8 @@ async function checkWorkdayIntegration(settings) {
         
         // If hass not ready yet, wait a bit and retry
         if (!hassObj || !hassObj.states) {
-            console.debug('[Climate Scheduler] Waiting for hass connection...');
             await new Promise(resolve => setTimeout(resolve, 1000));
             hassObj = haAPI?.hass;
-        }
-        
-        // Debug logging
-        console.debug('[Climate Scheduler] Checking for Workday integration');
-        console.debug('[Climate Scheduler] haAPI available:', !!haAPI);
-        console.debug('[Climate Scheduler] hass object available:', !!hassObj);
-        console.debug('[Climate Scheduler] hass.states available:', !!hassObj?.states);
-        console.debug('[Climate Scheduler] binary_sensor.workday_sensor:', hassObj?.states?.['binary_sensor.workday_sensor']);
-        
-        // List all binary_sensor.workday* entities for debugging
-        if (hassObj?.states) {
-            const workdayEntities = Object.keys(hassObj.states).filter(id => id.startsWith('binary_sensor.workday'));
-            console.debug('[Climate Scheduler] Found workday entities:', workdayEntities);
         }
         
         const hasWorkday = hassObj?.states?.['binary_sensor.workday_sensor'] !== undefined;
@@ -5974,7 +5917,6 @@ async function loadSettings() {
             const minInput = getDocumentRoot().querySelector('#min-temp');
             if (minInput) {
                 minInput.value = minTemp;
-                console.debug('Loaded min_temp:', minTemp, 'Input found:', !!minInput);
             } else {
                 console.warn('min-temp input not found in DOM during loadSettings');
             }
@@ -5988,7 +5930,6 @@ async function loadSettings() {
             const maxInput = getDocumentRoot().querySelector('#max-temp');
             if (maxInput) {
                 maxInput.value = maxTemp;
-                console.debug('Loaded max_temp:', maxTemp, 'Input found:', !!maxInput);
             } else {
                 console.warn('max-temp input not found in DOM during loadSettings');
             }
@@ -6013,7 +5954,7 @@ async function loadSettings() {
                 graph.maxValue = maxTempSetting;
             }
         } catch (err) {
-            console.debug('Failed to apply min/max to graphs:', err);
+            console.warn('Failed to apply min/max to graphs:', err);
         }
     } catch (error) {
         console.error('Failed to load settings:', error);
@@ -6069,7 +6010,7 @@ async function saveSettings() {
                 graph.maxValue = maxTempSetting;
             }
         } catch (err) {
-            console.debug('Failed to apply min/max to graphs after save:', err);
+            console.warn('Failed to apply min/max to graphs after save:', err);
         }
         // Settings saved
         return true;
@@ -6164,16 +6105,13 @@ async function setupSettingsPanel() {
     if (tooltipModeSelect) {
         tooltipModeSelect.addEventListener('change', (e) => {
             tooltipMode = e.target.value;
-            console.log('Changing tooltipMode to:', tooltipMode);
             
             // Update all canvas timeline instances
             if (defaultScheduleGraph) {
                 defaultScheduleGraph.tooltipMode = tooltipMode;
-                console.log('Updated defaultScheduleGraph.tooltipMode to:', defaultScheduleGraph.tooltipMode);
             }
             if (graph) {
                 graph.tooltipMode = tooltipMode;
-                console.log('Updated graph.tooltipMode to:', graph.tooltipMode);
             }
             
             // Auto-save the setting

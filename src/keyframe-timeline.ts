@@ -1202,14 +1202,6 @@ export class KeyframeTimeline extends LitElement {
       return;
     }
 
-    const wasHidden = this.tooltipEl.hidden;
-    const defaultTooltipTextColor = this.getThemeColor('--keyframe-color');
-    const tooltipTextColors = tooltip.lines.map(line => this.getOpaqueColor(line.color || defaultTooltipTextColor));
-    const backgroundGraphColors = this.backgroundGraphs.map((bgGraph, index) => ({
-      label: bgGraph.label || `Entity ${index + 1}`,
-      color: this.getBackgroundGraphColor(bgGraph, index)
-    }));
-
     this.tooltipEl.replaceChildren();
     tooltip.lines.forEach(line => {
       const lineEl = document.createElement('div');
@@ -1222,19 +1214,6 @@ export class KeyframeTimeline extends LitElement {
     });
 
     this.tooltipEl.hidden = false;
-
-    if (wasHidden) {
-      console.log('[Tooltip Color Debug]', {
-        graphColors: {
-          keyframeColor: this.getThemeColor('--keyframe-color'),
-          backgroundGraphs: backgroundGraphColors
-        },
-        tooltip: {
-          textLines: tooltip.lines.map(line => line.text),
-          textColors: tooltipTextColors
-        }
-      });
-    }
 
     // Stable anchor: above-left by default; flip horizontally to the right when near left edge.
     const cursorOffsetX = 32;
@@ -1297,7 +1276,6 @@ export class KeyframeTimeline extends LitElement {
     const rect = this.canvas.getBoundingClientRect();
     const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
     const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
-    const scrollOffset = this.wrapperEl?.scrollLeft || 0;
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     
@@ -1343,91 +1321,6 @@ export class KeyframeTimeline extends LitElement {
       const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
       const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
       return distance < 20;
-    });
-    
-    // Debug logging for click detection
-    // Calculate rendering positions using the same logic as drawTimeline (device pixels)
-    const dpr = window.devicePixelRatio;
-    const renderLabelHeight = 30 * dpr;
-    const renderLeftMargin = 35 * dpr;
-    const renderYAxisWidth = 35 * dpr;
-    const renderRightMargin = 35 * dpr;
-    const renderTopMargin = 45 * dpr;
-    const renderBottomMargin = 25 * dpr;
-    const renderGraphHeight = this.canvasHeight - renderLabelHeight - renderTopMargin - renderBottomMargin;
-    const renderGraphWidth = this.canvasWidth - renderLeftMargin - renderYAxisWidth - renderRightMargin;
-    
-    console.log('[Click Handler Debug]', {
-      eventType: e instanceof MouseEvent ? 'mouse' : 'touch',
-      clientCoords: { 
-        clientX: e instanceof MouseEvent ? e.clientX : e.touches[0].clientX,
-        clientY: e instanceof MouseEvent ? e.clientY : e.touches[0].clientY 
-      },
-      rect: {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height
-      },
-      scrollOffset,
-      adjustedCoords: { x, y },
-      graphDimensions: {
-        leftMargin,
-        yAxisWidth,
-        rightMargin,
-        topMargin,
-        bottomMargin,
-        graphWidth,
-        graphHeight
-      },
-      renderingDimensions: {
-        leftMargin: renderLeftMargin,
-        yAxisWidth: renderYAxisWidth,
-        rightMargin: renderRightMargin,
-        topMargin: renderTopMargin,
-        bottomMargin: renderBottomMargin,
-        graphWidth: renderGraphWidth,
-        graphHeight: renderGraphHeight,
-        note: 'These are in device pixels (includes DPR multiplier)'
-      },
-      canvasSize: {
-        canvasWidth: this.canvas?.width,
-        canvasHeight: this.canvas?.height,
-        dpr: window.devicePixelRatio
-      },
-      clickedIndex,
-      clickedNode: clickedIndex >= 0 ? {
-        index: clickedIndex,
-        keyframe: this.keyframes[clickedIndex],
-        calculatedPosition: {
-          kfX: leftMargin + yAxisWidth + ((this.keyframes[clickedIndex].time / this.duration) * graphWidth),
-          kfY: topMargin + ((1 - this.normalizeValue(this.keyframes[clickedIndex].value)) * graphHeight)
-        },
-        distance: Math.sqrt(
-          Math.pow(x - (leftMargin + yAxisWidth + ((this.keyframes[clickedIndex].time / this.duration) * graphWidth)), 2) + 
-          Math.pow(y - (topMargin + ((1 - this.normalizeValue(this.keyframes[clickedIndex].value)) * graphHeight)), 2)
-        )
-      } : null,
-      allNodeDistances: this.keyframes.map((kf, idx) => {
-        const kfX = leftMargin + yAxisWidth + ((kf.time / this.duration) * graphWidth);
-        const kfY = topMargin + ((1 - this.normalizeValue(kf.value)) * graphHeight);
-        const distance = Math.sqrt(Math.pow(x - kfX, 2) + Math.pow(y - kfY, 2));
-        
-        // Calculate where rendering actually draws it (in device pixels, then convert to CSS)
-        const renderX = (renderLeftMargin + renderYAxisWidth + ((kf.time / this.duration) * renderGraphWidth)) / dpr;
-        const renderY = (renderTopMargin + ((1 - this.normalizeValue(kf.value)) * renderGraphHeight)) / dpr;
-        
-        return {
-          index: idx,
-          time: kf.time,
-          value: kf.value,
-          hitDetectionPosition: { kfX, kfY },
-          renderPosition: { x: renderX, y: renderY },
-          positionMismatch: Math.sqrt(Math.pow(renderX - kfX, 2) + Math.pow(renderY - kfY, 2)),
-          distance,
-          withinHitArea: distance < 20
-        };
-      })
     });
     
     if (clickedIndex >= 0) {

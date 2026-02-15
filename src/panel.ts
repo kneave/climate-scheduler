@@ -42,7 +42,7 @@
       }
     }
   } catch (e) {
-    console.debug('[Climate Scheduler] Version check failed:', e);
+        console.warn('[Climate Scheduler] Version check failed:', e);
   }
 })();
 
@@ -85,8 +85,6 @@ const loadScripts = (): Promise<void> => {
     const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
     const version = getVersion();
     
-    console.log('Loading Climate Scheduler scripts from:', basePath);
-    
     return Promise.all([
         loadScript(`${basePath}/utils.js?v=${version}`),
         loadScript(`${basePath}/ha-api.js?v=${version}`)
@@ -94,7 +92,6 @@ const loadScripts = (): Promise<void> => {
         return loadScript(`${basePath}/app.js?v=${version}`);
     }).then(() => {
         scriptsLoaded = true;
-        console.log('Climate Scheduler scripts loaded successfully');
     }).catch(error => {
         console.error('Failed to load Climate Scheduler scripts:', error);
         throw error;
