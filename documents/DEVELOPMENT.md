@@ -18,6 +18,20 @@ Climate Scheduler uses a **modern custom panel** architecture (as of v1.4.0+):
 
 ## Quick Start Development
 
+## AI Workflow (Copilot)
+
+For reliable low-token sessions, start each code task with this context order:
+- `documents/CONTEXT_SNAPSHOT.md`
+- `documents/ARCHITECTURE_MAP.md`
+- `documents/CONTRACTS.md`
+- Relevant hotspot docs (`documents/HOTSPOTS_APP_JS.md`, `documents/HOTSPOTS_COORDINATOR.md`) and `documents/adr/README.md`
+
+Editing and verification rules:
+- Edit `src/*.ts` for compiled frontend components; do not hand-edit compiled JS outputs when TS source exists.
+- `custom_components/climate_scheduler/frontend/app.js` is runtime source and may be edited directly.
+- After scheduling UI changes, verify node select/move/delete in active and profile timelines, plus save/debounce and mode/day/profile transitions.
+- If contracts change, update `documents/CONTEXT_SNAPSHOT.md`, `documents/CONTRACTS.md`, relevant hotspot docs, and ADRs as needed.
+
 ### Method 1: Live Development on HA Server (Recommended)
 
 #### Using File Share/Network Drive:
