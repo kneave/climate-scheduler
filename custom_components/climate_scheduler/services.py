@@ -565,6 +565,20 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                 }
             },
         },
+
+        "cleanup_unmonitored_storage": {
+            "name": "Cleanup unmonitored storage",
+            "description": "Remove stale schedules/profiles/entity references for unmonitored or missing entities from storage",
+            "fields": {
+                "delete": {
+                    "description": "When true, execute deletion; when false, return a preview only",
+                    "required": False,
+                    "default": False,
+                    "example": True,
+                    "selector": {"boolean": {}},
+                }
+            },
+        },
         
         "factory_reset": {
             "name": "Factory Reset",
@@ -644,6 +658,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "get_profiles": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "create_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
+        "cleanup_unmonitored_storage": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
         "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
         "reregister_card": vol.Schema({
             vol.Optional("resource_url"): cv.string,
@@ -1492,6 +1507,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         confirm_delete_all = call.data.get("confirm_delete_all", False)
         result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
         return result
+
+    async def handle_cleanup_unmonitored_storage(call: ServiceCall) -> dict:
+        """Handle cleanup_unmonitored_storage service call."""
+        delete = call.data.get("delete", False)
+        result = await storage.async_cleanup_unmonitored_storage(delete=delete)
+
+        if delete:
+            coordinator.last_node_states.clear()
+            await coordinator.async_request_refresh()
+
+        return result
     
     async def handle_factory_reset(call: ServiceCall) -> None:
         """Handle factory_reset service call."""
@@ -1896,6 +1922,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, service_schemas.get("set_active_profile"))
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, service_schemas.get("get_profiles"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, service_schemas.get("cleanup_derivative_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_unmonitored_storage", handle_cleanup_unmonitored_storage, service_schemas.get("cleanup_unmonitored_storage"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "diagnostics", handle_diagnostics, service_schemas.get("diagnostics"), supports_response=SupportsResponse.ONLY)

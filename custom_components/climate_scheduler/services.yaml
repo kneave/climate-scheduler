@@ -466,6 +466,21 @@ cleanup_derivative_sensors:
       selector:
         boolean: {}
 
+cleanup_unmonitored_storage:
+  name: Cleanup unmonitored storage
+  description: >-
+    Remove stale storage references for unmonitored or missing entities,
+    including obsolete groups, invalid profiles, stale entity references,
+    and orphaned advance history entries.
+  fields:
+    delete:
+      description: Execute deletion; set false to preview only
+      required: false
+      default: false
+      example: true
+      selector:
+        boolean: {}
+
 factory_reset:
   name: Factory reset
   description: Reset all stored data

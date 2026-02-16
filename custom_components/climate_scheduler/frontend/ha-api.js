@@ -581,6 +581,18 @@ class HomeAssistantAPI {
             throw error;
         }
     }
+
+    async cleanupUnmonitoredStorage(deleteEntries = false) {
+        try {
+            const result = await this.callService('climate_scheduler', 'cleanup_unmonitored_storage', {
+                delete: deleteEntries
+            }, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to cleanup unmonitored storage:', error);
+            throw error;
+        }
+    }
     
     // Profile management methods
     async createProfile(scheduleId, profileName) {

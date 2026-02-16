@@ -575,6 +575,7 @@ class ClimateSchedulerPanel extends HTMLElement {
                                 <button id="run-diagnostics-btn" class="btn-secondary">Run Diagnostics</button>
                                 <button id="cleanup-derivative-sensors-btn" class="btn-secondary">Cleanup Derivative Sensors</button>
                                 <button id="cleanup-orphaned-climate-btn" class="btn-secondary">Cleanup Orphaned Entities</button>
+                                <button id="cleanup-storage-btn" class="btn-secondary">Cleanup Unmonitored Storage</button>
                                 <button id="reset-defaults" class="btn-secondary">Reset to Defaults</button>
                             </div>
                         </div>

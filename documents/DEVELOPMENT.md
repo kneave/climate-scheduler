@@ -79,15 +79,15 @@ Open the development preview in your browser:
 
 ```powershell
 # Start a simple HTTP server
-cd c:\Users\keegan\Documents\GitHub\heating-control
+cd c:\Users\keegan\Documents\GitHub\climate-scheduler
 python -m http.server 8080
 
 # Or use PowerShell built-in web server (PS 5.1+)
-# Open dev-preview.html directly in browser
-Start-Process "dev-preview.html"
+# Open the development test page directly in browser
+Start-Process "dev\climate-dialog-test.html"
 ```
 
-Then open: `http://localhost:8080/dev-preview.html`
+Then open: `http://localhost:8080/dev/climate-dialog-test.html`
 
 This lets you test the graph UI without connecting to Home Assistant.
 
@@ -124,7 +124,7 @@ Use VS Code Remote SSH extension to edit files directly on the HA server:
 ### Hot Reload Frontend Changes
 
 **Custom panel supports instant reload:**
-1. Make changes to `app.js`, `graph.js`, `ha-api.js`, or `panel.js`
+1. Make changes to `app.js`, `ha-api.js`, `panel.js`, or a compiled frontend module (`src/*.ts` → `frontend/*.js`)
 2. Deploy: `.\deploy-to-production.ps1`
 3. Click "Reload Integration (Dev)" button in the menu
 4. Changes load immediately - no browser refresh needed!
@@ -177,19 +177,25 @@ logger:
 ```
 custom_components/climate_scheduler/
 ├── __init__.py              # Integration setup, panel registration, services
+├── climate.py               # Climate entity integration
+├── config_flow.py           # Config flow and options
 ├── const.py                 # Constants
 ├── coordinator.py           # Data polling coordinator  
 ├── manifest.json            # Integration metadata
+├── sensor.py                # Scheduler-related sensors
 ├── services.yaml            # Service definitions
 ├── storage.py               # JSON storage management
-├── version.py               # Version string
+├── switch.py                # Control switches
 └── frontend/
     ├── panel.js             # Custom panel entry point (Web Component)
     ├── app.js               # Main application logic
-    ├── graph.js             # Interactive temperature graph
+    ├── keyframe-timeline.js # Timeline graph component
+    ├── climate-dialog.js    # Climate mode/dialog UI
+    ├── climate-scheduler-card.js # Card wrapper component
     ├── ha-api.js            # Home Assistant API wrapper
+    ├── utils.js             # Frontend utility helpers
     ├── styles.css           # All styling
-    └── index.html           # (Legacy - not used in custom panel mode)
+    └── .version             # Frontend build/version marker
 ```
 
 ## Migration Notes

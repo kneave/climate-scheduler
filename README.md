@@ -183,7 +183,7 @@ For issues, feature requests, or questions:
 
 ## License
 
-MIT License - see [LICENSE](documents/LICENSE) file for details
+MIT License - see [LICENSE](LICENSE) file for details
 
 ## Development & AI Attribution
 

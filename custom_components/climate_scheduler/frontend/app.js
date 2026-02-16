@@ -41,6 +41,7 @@ let keyframeTimelineLoaded = false; // Track if keyframe-timeline.js is loaded
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
+const cleanupAutoDownloadReports = localStorage.getItem('cleanupAutoDownloadReports') === 'true'; // Opt-in: auto-download cleanup preview/result JSON files
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
 let currentSchedule = []; // Currently loaded schedule nodes with all properties (time, temp, hvac_mode, etc.)
@@ -6481,6 +6482,115 @@ async function setupSettingsPanel() {
                 showToast('Failed to cleanup orphaned entities', 'error');
                 cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
                 cleanupClimateBtn.disabled = false;
+            }
+        });
+    }
+
+    const cleanupStorageBtn = getDocumentRoot().querySelector('#cleanup-storage-btn');
+    if (cleanupStorageBtn) {
+        cleanupStorageBtn.addEventListener('click', async () => {
+            try {
+                cleanupStorageBtn.textContent = '🔍 Dry run...';
+                cleanupStorageBtn.disabled = true;
+
+                const preview = await haAPI.cleanupUnmonitoredStorage(true);
+                const wouldRemoveGroups = preview?.would_remove_groups || [];
+                const wouldRemoveEntityRefs = preview?.would_remove_entity_references || [];
+                const wouldRemoveProfiles = preview?.would_remove_profiles || [];
+                const wouldRemoveAdvanceHistory = preview?.would_remove_advance_history || [];
+
+                const totalPlanned =
+                    wouldRemoveGroups.length +
+                    wouldRemoveEntityRefs.length +
+                    wouldRemoveProfiles.length +
+                    wouldRemoveAdvanceHistory.length;
+
+                if (!preview?.would_change || totalPlanned === 0) {
+                    showToast('Dry run complete: no stale storage entries to remove.', 'success', 5000);
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                    return;
+                }
+
+                if (cleanupAutoDownloadReports) {
+                    const previewTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const previewFilename = `climate-scheduler-cleanup-preview-${previewTimestamp}.json`;
+                    const previewBlob = new Blob([JSON.stringify(preview, null, 2)], { type: 'application/json' });
+                    const previewUrl = URL.createObjectURL(previewBlob);
+                    const previewDownloadLink = document.createElement('a');
+                    previewDownloadLink.href = previewUrl;
+                    previewDownloadLink.download = previewFilename;
+                    previewDownloadLink.style.display = 'none';
+                    document.body.appendChild(previewDownloadLink);
+                    previewDownloadLink.click();
+                    document.body.removeChild(previewDownloadLink);
+                    setTimeout(() => URL.revokeObjectURL(previewUrl), 100);
+                    showToast(`Dry-run preview saved to ${previewFilename}`, 'info', 5000);
+                }
+
+                const summaryParts = [];
+                if (wouldRemoveGroups.length > 0) summaryParts.push(`${wouldRemoveGroups.length} groups`);
+                if (wouldRemoveEntityRefs.length > 0) summaryParts.push(`${wouldRemoveEntityRefs.length} entity references`);
+                if (wouldRemoveProfiles.length > 0) summaryParts.push(`${wouldRemoveProfiles.length} profiles`);
+                if (wouldRemoveAdvanceHistory.length > 0) summaryParts.push(`${wouldRemoveAdvanceHistory.length} advance-history entries`);
+
+                const groupPreview = wouldRemoveGroups
+                    .slice(0, 5)
+                    .map(item => item?.group)
+                    .filter(Boolean)
+                    .join(', ');
+
+                const confirmMessage =
+                    `Dry run found changes:\n\n` +
+                    `Will remove: ${summaryParts.join(', ')}.\n` +
+                    (groupPreview ? `\nGroups: ${groupPreview}${wouldRemoveGroups.length > 5 ? ', ...' : ''}\n` : '\n') +
+                    `\nProceed with cleanup?`;
+
+                const confirmed = confirm(confirmMessage);
+                if (!confirmed) {
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                    return;
+                }
+
+                cleanupStorageBtn.textContent = '🧹 Cleaning storage...';
+                const result = await haAPI.cleanupUnmonitoredStorage(false);
+
+                if (cleanupAutoDownloadReports) {
+                    const resultTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const resultFilename = `climate-scheduler-cleanup-result-${resultTimestamp}.json`;
+                    const resultBlob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+                    const resultUrl = URL.createObjectURL(resultBlob);
+                    const resultDownloadLink = document.createElement('a');
+                    resultDownloadLink.href = resultUrl;
+                    resultDownloadLink.download = resultFilename;
+                    resultDownloadLink.style.display = 'none';
+                    document.body.appendChild(resultDownloadLink);
+                    resultDownloadLink.click();
+                    document.body.removeChild(resultDownloadLink);
+                    setTimeout(() => URL.revokeObjectURL(resultUrl), 100);
+                    showToast(`Cleanup result saved to ${resultFilename}`, 'info', 5000);
+                }
+
+                if (result?.message) {
+                    showToast(result.message, 'success', 5000);
+                } else {
+                    showToast('Storage cleanup complete', 'success');
+                }
+
+                await loadGroups();
+                await renderEntityList();
+
+                cleanupStorageBtn.textContent = '✓ Cleanup Complete!';
+                setTimeout(() => {
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to cleanup storage:', error);
+                showToast('Failed to cleanup storage', 'error');
+                cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                cleanupStorageBtn.disabled = false;
             }
         });
     }

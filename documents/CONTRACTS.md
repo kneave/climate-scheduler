@@ -69,6 +69,14 @@ Naming:
   - schedule_id, node, optional day
   - emits event only; does not apply climate changes
 
+`schedule_id` target type matrix (selected high-use services):
+- entity-only: set_schedule, get_schedule, clear_schedule, set_ignored, cancel_advance, get_advance_status, clear_advance_history
+- group-only: set_group_schedule, enable_group, disable_group, create_profile, delete_profile, rename_profile, set_active_profile, get_profiles
+- entity-or-group: enable_schedule, disable_schedule, advance_schedule, test_fire_event
+
+Note:
+- Runtime storage is group-backed (including single-entity groups), but service input compatibility is intentionally mixed.
+
 ## Event Contracts
 
 HA bus event:
@@ -94,5 +102,5 @@ storage async_load migrations:
 
 ## Last Updated
 
-- Date: 2026-02-15
+- Date: 2026-02-16
 - Updated by: Copilot (GPT-5.3-Codex)

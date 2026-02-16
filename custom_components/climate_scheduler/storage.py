@@ -737,6 +737,226 @@ class ScheduleStorage:
             "message": f"Deleted {len(deleted_sensors)} orphaned derivative sensors"
         }
 
+    async def async_cleanup_unmonitored_storage(self, delete: bool = False) -> Dict[str, Any]:
+        """Cleanup stale storage references for unmonitored or missing entities.
+
+        Removes:
+        - Groups marked as ignored (unmonitored)
+        - Groups with no valid climate entities
+        - Invalid/missing entity references inside groups
+        - Invalid profile structures and broken active profile pointers
+        - Orphaned advance history entries
+        """
+        groups = self._data.get("groups", {})
+        if not isinstance(groups, dict):
+            groups = {}
+
+        climate_entity_ids = set(self.hass.states.async_entity_ids("climate"))
+
+        changed = False
+        kept_groups: Dict[str, Any] = {}
+        kept_entities: set[str] = set()
+
+        removed_groups: list[Dict[str, Any]] = []
+        removed_entity_refs: list[Dict[str, Any]] = []
+        repaired_groups: list[str] = []
+        removed_profiles: list[Dict[str, Any]] = []
+        repaired_active_profiles: list[Dict[str, str]] = []
+        removed_advance_history: list[str] = []
+
+        for group_name, raw_group_data in groups.items():
+            if not isinstance(raw_group_data, dict):
+                removed_groups.append({"group": group_name, "reason": "invalid_group_data"})
+                changed = True
+                continue
+
+            group_data = copy.deepcopy(raw_group_data)
+
+            if group_data.get("ignored", False):
+                removed_groups.append({"group": group_name, "reason": "unmonitored"})
+                changed = True
+                continue
+
+            original_entities = group_data.get("entities", [])
+            if not isinstance(original_entities, list):
+                original_entities = []
+
+            normalized_entities: list[str] = []
+            seen_entities: set[str] = set()
+            for entity_id in original_entities:
+                if not isinstance(entity_id, str) or not entity_id:
+                    removed_entity_refs.append({
+                        "group": group_name,
+                        "entity_id": entity_id,
+                        "reason": "invalid_entity_reference",
+                    })
+                    changed = True
+                    continue
+
+                if entity_id in seen_entities:
+                    removed_entity_refs.append({
+                        "group": group_name,
+                        "entity_id": entity_id,
+                        "reason": "duplicate_entity_reference",
+                    })
+                    changed = True
+                    continue
+
+                seen_entities.add(entity_id)
+
+                if entity_id not in climate_entity_ids:
+                    removed_entity_refs.append({
+                        "group": group_name,
+                        "entity_id": entity_id,
+                        "reason": "entity_not_found",
+                    })
+                    changed = True
+                    continue
+
+                normalized_entities.append(entity_id)
+
+            if not normalized_entities:
+                removed_groups.append({"group": group_name, "reason": "no_monitored_entities"})
+                changed = True
+                continue
+
+            if normalized_entities != original_entities:
+                group_data["entities"] = normalized_entities
+                changed = True
+                repaired_groups.append(group_name)
+
+            profiles = group_data.get("profiles", {})
+            if not isinstance(profiles, dict):
+                profiles = {}
+                changed = True
+
+            valid_profiles: Dict[str, Any] = {}
+            for profile_name, profile_data in profiles.items():
+                if not isinstance(profile_data, dict):
+                    removed_profiles.append({
+                        "group": group_name,
+                        "profile": profile_name,
+                        "reason": "invalid_profile_data",
+                    })
+                    changed = True
+                    continue
+
+                profile_schedules = profile_data.get("schedules")
+                if not isinstance(profile_schedules, dict):
+                    removed_profiles.append({
+                        "group": group_name,
+                        "profile": profile_name,
+                        "reason": "invalid_profile_schedules",
+                    })
+                    changed = True
+                    continue
+
+                valid_profiles[profile_name] = {
+                    "schedule_mode": profile_data.get("schedule_mode", group_data.get("schedule_mode", "all_days")),
+                    "schedules": copy.deepcopy(profile_schedules),
+                }
+
+            if not valid_profiles:
+                valid_profiles["Default"] = {
+                    "schedule_mode": group_data.get("schedule_mode", "all_days"),
+                    "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []})),
+                }
+                changed = True
+
+            group_data["profiles"] = valid_profiles
+
+            active_profile = group_data.get("active_profile")
+            if active_profile not in valid_profiles:
+                new_active_profile = "Default" if "Default" in valid_profiles else next(iter(valid_profiles))
+                repaired_active_profiles.append({
+                    "group": group_name,
+                    "old": str(active_profile),
+                    "new": new_active_profile,
+                })
+                group_data["active_profile"] = new_active_profile
+                changed = True
+
+            active_profile_data = group_data["profiles"][group_data["active_profile"]]
+            group_data["schedule_mode"] = active_profile_data.get("schedule_mode", "all_days")
+            group_data["schedules"] = copy.deepcopy(active_profile_data.get("schedules", {"all_days": []}))
+
+            should_be_single = len(normalized_entities) == 1
+            if group_data.get("_is_single_entity_group", False) != should_be_single:
+                group_data["_is_single_entity_group"] = should_be_single
+                changed = True
+                if group_name not in repaired_groups:
+                    repaired_groups.append(group_name)
+
+            kept_groups[group_name] = group_data
+            kept_entities.update(normalized_entities)
+
+        current_groups = self._data.get("groups", {})
+        if current_groups != kept_groups:
+            changed = True
+
+        advance_history_raw = self._data.get("advance_history", {})
+        advance_history: Dict[str, Any] = copy.deepcopy(advance_history_raw) if isinstance(advance_history_raw, dict) else {}
+        if not isinstance(advance_history_raw, dict):
+            changed = True
+
+        for entity_id in list(advance_history.keys()):
+            if entity_id not in kept_entities:
+                removed_advance_history.append(entity_id)
+                del advance_history[entity_id]
+                changed = True
+
+        if "entities" in self._data and self._data.get("entities"):
+            changed = True
+
+        if not delete:
+            message = (
+                f"Preview: would remove {len(removed_groups)} groups, "
+                f"{len(removed_entity_refs)} stale entity references, "
+                f"{len(removed_profiles)} invalid profiles, and "
+                f"{len(removed_advance_history)} orphaned advance history entries."
+            )
+
+            return {
+                "delete": False,
+                "would_change": changed,
+                "would_groups_remaining": len(kept_groups),
+                "would_remove_groups": removed_groups,
+                "would_remove_entity_references": removed_entity_refs,
+                "would_remove_profiles": removed_profiles,
+                "would_repair_groups": repaired_groups,
+                "would_repair_active_profiles": repaired_active_profiles,
+                "would_remove_advance_history": removed_advance_history,
+                "message": message,
+            }
+
+        self._data["groups"] = kept_groups
+        self._data["advance_history"] = advance_history
+        if "entities" in self._data:
+            del self._data["entities"]
+
+        if changed:
+            await self.async_save()
+
+        message = (
+            f"Removed {len(removed_groups)} groups, "
+            f"{len(removed_entity_refs)} stale entity references, "
+            f"{len(removed_profiles)} invalid profiles, and "
+            f"{len(removed_advance_history)} orphaned advance history entries."
+        )
+
+        return {
+            "delete": True,
+            "changed": changed,
+            "groups_remaining": len(kept_groups),
+            "removed_groups": removed_groups,
+            "removed_entity_references": removed_entity_refs,
+            "removed_profiles": removed_profiles,
+            "repaired_groups": repaired_groups,
+            "repaired_active_profiles": repaired_active_profiles,
+            "removed_advance_history": removed_advance_history,
+            "message": message,
+        }
+
     async def async_is_enabled(self, entity_id: str) -> bool:
         """Check if scheduling is enabled for an entity."""
         # Check if entity is in any group
