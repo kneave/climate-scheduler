@@ -2751,7 +2751,7 @@ function attachEditorEventListeners(editorElement) {
     }
     
     // Advance schedule button
-    const advanceBtn = editorElement.querySelector('#advance-schedule-btn');
+    const advanceBtn = editorElement.querySelector('#main-advance-schedule-btn, #advance-schedule-btn');
     if (advanceBtn) {
         // Function to update button state
         const updateAdvanceButton = async () => {
@@ -2892,7 +2892,7 @@ function attachEditorEventListeners(editorElement) {
     }
 
     // Save button
-    const saveBtn = editorElement.querySelector('#save-schedule-btn');
+    const saveBtn = editorElement.querySelector('#main-save-schedule-btn, #save-schedule-btn');
     if (saveBtn) {
         saveBtn.onclick = async () => {
             saveBtn.disabled = true;
@@ -3462,14 +3462,14 @@ function attachEditorEventListeners(editorElement) {
     }
     
     // Graph quick action buttons
-    const graphCopyBtn = editorElement.querySelector('#graph-copy-btn');
+    const graphCopyBtn = editorElement.querySelector('#main-graph-copy-btn, #graph-copy-btn');
     if (graphCopyBtn) {
         graphCopyBtn.onclick = () => {
             copySchedule();
         };
     }
     
-    const graphPasteBtn = editorElement.querySelector('#graph-paste-btn');
+    const graphPasteBtn = editorElement.querySelector('#main-graph-paste-btn, #graph-paste-btn');
     if (graphPasteBtn) {
         graphPasteBtn.onclick = () => {
             pasteSchedule();
@@ -3512,7 +3512,7 @@ function copySchedule() {
         updatePasteButtonState();
         
         // Visual feedback
-        const copyBtn = getDocumentRoot().querySelector('#copy-schedule-btn');
+        const copyBtn = getDocumentRoot().querySelector('#main-graph-copy-btn, #profile-graph-copy-btn, #default-graph-copy-btn, #copy-schedule-btn, #graph-copy-btn');
         if (copyBtn) {
             const originalText = copyBtn.textContent;
             copyBtn.textContent = 'Copied!';
@@ -3542,7 +3542,7 @@ async function pasteSchedule() {
     await saveSchedule();
     
     // Visual feedback
-    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
+    const pasteBtn = getDocumentRoot().querySelector('#main-graph-paste-btn, #profile-graph-paste-btn, #default-graph-paste-btn, #paste-schedule-btn, #graph-paste-btn');
     if (pasteBtn) {
         const originalText = pasteBtn.textContent;
         pasteBtn.textContent = 'Pasted!';
