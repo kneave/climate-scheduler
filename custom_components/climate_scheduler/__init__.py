@@ -106,6 +106,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             "factory_reset",
             "reregister_card",
             "diagnostics",
+            "create_groups_from_areas",
         )
         missing = [s for s in expected_services if not hass.services.has_service(DOMAIN, s)]
         if not missing:
@@ -388,7 +389,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "save_settings","reload_integration","advance_schedule","advance_group",
             "cancel_advance","get_advance_status","clear_advance_history","test_fire_event","create_profile",
             "delete_profile","rename_profile","set_active_profile","get_profiles",
-            "cleanup_derivative_sensors","factory_reset"
+            "cleanup_derivative_sensors","factory_reset","create_groups_from_areas"
         ]:
             try:
                 hass.services.async_remove(DOMAIN, svc)

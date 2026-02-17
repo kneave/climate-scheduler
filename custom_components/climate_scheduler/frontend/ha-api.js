@@ -406,6 +406,40 @@ class HomeAssistantAPI {
             return { groups: {} };
         }
     }
+
+    async getAreas() {
+        try {
+            return await this.sendRequest({ type: 'config/area_registry/list' });
+        } catch (error) {
+            console.error('Failed to get areas:', error);
+            return [];
+        }
+    }
+
+    async getEntityRegistry() {
+        try {
+            return await this.sendRequest({ type: 'config/entity_registry/list' });
+        } catch (error) {
+            console.error('Failed to get entity registry:', error);
+            return [];
+        }
+    }
+
+    async getDeviceRegistry() {
+        try {
+            return await this.sendRequest({ type: 'config/device_registry/list' });
+        } catch (error) {
+            console.error('Failed to get device registry:', error);
+            return [];
+        }
+    }
+
+    async createGroupsFromAreas(areaIds) {
+        const result = await this.callService('climate_scheduler', 'create_groups_from_areas', {
+            area_ids: areaIds
+        }, true);
+        return result?.response ?? result ?? {};
+    }
     
     async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
         const callStartTime = performance.now();
