@@ -2263,12 +2263,6 @@ function showMoveToGroupModal(currentGroupName, entityId) {
             return;
         }
         
-        // Skip disabled groups
-        const isEnabled = groupData.enabled !== false;
-        if (!isEnabled) {
-            return;
-        }
-        
         // For single-entity groups, use the entity's friendly name only if group name matches entity ID
         const isSingleEntity = groupData.entities && groupData.entities.length === 1;
         let displayName = groupName;
@@ -2967,11 +2961,21 @@ function attachEditorEventListeners(editorElement) {
 
         return { panel, nodeIndex, timeline, keyframe };
     };
+
+    const saveNodeSettingsUndoState = (timeline) => {
+        if (timeline && typeof timeline.saveUndoState === 'function') {
+            timeline.saveUndoState();
+        }
+    };
     
-    const updateNodeFromInputs = () => {
+    const updateNodeFromInputs = (captureUndo = false) => {
         const state = getNodeSettingsState();
         if (!state) return;
         const { panel, nodeIndex, timeline, keyframe } = state;
+
+        if (captureUndo) {
+            saveNodeSettingsUndoState(timeline);
+        }
         
         // Find the corresponding node in currentSchedule
         const oldHours = Math.floor(keyframe.time);
@@ -3051,13 +3055,13 @@ function attachEditorEventListeners(editorElement) {
     };
     
     if (timeInput) {
-        timeInput.addEventListener('change', updateNodeFromInputs);
+        timeInput.addEventListener('change', () => updateNodeFromInputs(true));
     }
     
     if (tempInput) {
-        tempInput.addEventListener('input', updateNodeFromInputs);  // Immediate update while typing
-        tempInput.addEventListener('change', updateNodeFromInputs);
-        tempInput.addEventListener('blur', updateNodeFromInputs);
+        tempInput.addEventListener('input', () => updateNodeFromInputs(false));  // Immediate update while typing
+        tempInput.addEventListener('change', () => updateNodeFromInputs(true));
+        tempInput.addEventListener('blur', () => updateNodeFromInputs(false));
     }
     
     if (timeUpBtn) {
@@ -3065,6 +3069,8 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (!state) return;
             const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Get old time string for finding scheduleNode
             const oldHours = Math.floor(keyframe.time);
@@ -3106,6 +3112,8 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (!state) return;
             const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Get old time string for finding scheduleNode
             const oldHours = Math.floor(keyframe.time);
@@ -3147,6 +3155,8 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (!state) return;
             const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
@@ -3183,6 +3193,8 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (!state) return;
             const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
@@ -3264,6 +3276,8 @@ function attachEditorEventListeners(editorElement) {
 
                 if (!confirm('Delete this node?')) return;
 
+                saveNodeSettingsUndoState(timeline);
+
                 // Remove keyframe at index
                 timeline.keyframes = timeline.keyframes.filter((_, i) => i !== nodeIndex);
                 panel.style.display = 'none';
@@ -3283,6 +3297,8 @@ function attachEditorEventListeners(editorElement) {
             const state = getNodeSettingsState();
             if (!state) return;
             const { timeline, keyframe: node } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             if (tempNoChange.checked) {
                 // Set to no change
@@ -3325,6 +3341,8 @@ function attachEditorEventListeners(editorElement) {
         
         const scheduleNode = currentSchedule.find(n => n.time === timeStr);
         if (!scheduleNode) return;
+
+        saveNodeSettingsUndoState(timeline);
         
         // Update or delete properties based on dropdown values
         if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
