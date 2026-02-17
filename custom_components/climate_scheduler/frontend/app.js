@@ -1681,6 +1681,104 @@ function showAddToGroupModal(entityId) {
     modal.style.display = 'flex';
 }
 
+// Populate area modal with HA areas containing climate entities
+async function populateAreaModal() {
+    const container = getDocumentRoot().querySelector('#area-list-container');
+    if (!container) return;
+
+    container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Loading areas...</p>';
+
+    try {
+        const [areas, entityEntries, deviceEntries] = await Promise.all([
+            haAPI.getAreas(),
+            haAPI.getEntityRegistry(),
+            haAPI.getDeviceRegistry()
+        ]);
+
+        // Build device-to-area lookup
+        const deviceAreaMap = {};
+        for (const device of deviceEntries) {
+            if (device.area_id) {
+                deviceAreaMap[device.id] = device.area_id;
+            }
+        }
+
+        // Build area-to-climate-entities lookup
+        const areaClimateEntities = {};
+        for (const entry of entityEntries) {
+            if (entry.entity_id.startsWith('climate.') &&
+                entry.platform !== 'climate_scheduler') {
+
+                let entityAreaId = entry.area_id;
+                if (!entityAreaId && entry.device_id && deviceAreaMap[entry.device_id]) {
+                    entityAreaId = deviceAreaMap[entry.device_id];
+                }
+
+                if (entityAreaId) {
+                    if (!areaClimateEntities[entityAreaId]) {
+                        areaClimateEntities[entityAreaId] = [];
+                    }
+                    areaClimateEntities[entityAreaId].push(entry.entity_id);
+                }
+            }
+        }
+
+        // Filter to areas with climate entities
+        const areasWithClimate = areas.filter(area =>
+            areaClimateEntities[area.area_id] && areaClimateEntities[area.area_id].length > 0
+        );
+
+        if (areasWithClimate.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">No areas with climate entities found.</p>';
+            return;
+        }
+
+        container.innerHTML = '';
+        areasWithClimate.sort((a, b) => a.name.localeCompare(b.name));
+
+        for (const area of areasWithClimate) {
+            const entities = areaClimateEntities[area.area_id];
+            const groupExists = allGroups[area.name] !== undefined;
+
+            const label = document.createElement('label');
+            label.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border); cursor: pointer;';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = area.area_id;
+            checkbox.dataset.areaName = area.name;
+            checkbox.className = 'area-checkbox';
+            checkbox.style.marginTop = '3px';
+
+            if (groupExists) {
+                checkbox.disabled = true;
+                label.style.opacity = '0.6';
+                label.style.cursor = 'default';
+            }
+
+            const entityNames = entities.map(eid => {
+                const found = climateEntities.find(e => e.entity_id === eid);
+                return found?.attributes?.friendly_name || eid;
+            }).join(', ');
+
+            const textDiv = document.createElement('div');
+            textDiv.innerHTML = `
+                <strong>${area.name}</strong>
+                ${groupExists ? '<span style="color: var(--warning, #ff9800); font-size: 0.85rem;"> (group exists)</span>' : ''}
+                <br>
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">${entities.length} climate entit${entities.length === 1 ? 'y' : 'ies'}: ${entityNames}</span>
+            `;
+
+            label.appendChild(checkbox);
+            label.appendChild(textDiv);
+            container.appendChild(label);
+        }
+    } catch (error) {
+        console.error('Failed to load areas:', error);
+        container.innerHTML = '<p style="color: var(--error, #f44336); text-align: center;">Failed to load areas</p>';
+    }
+}
+
 // Confirm delete group
 function confirmDeleteGroup(groupName) {
     if (!confirm(`Delete group "${groupName}"? All entities will be moved back to the entity list.`)) return;
@@ -4049,6 +4147,101 @@ function setupEventListeners() {
         });
     }
     
+    // Create from area button
+    const createFromAreaBtn = getDocumentRoot().querySelector('#create-from-area-btn');
+    if (createFromAreaBtn) {
+        createFromAreaBtn.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#create-from-area-modal');
+            if (modal) {
+                modal.style.display = 'flex';
+                populateAreaModal();
+            }
+        });
+    }
+
+    // Create from area modal - cancel
+    const createFromAreaCancel = getDocumentRoot().querySelector('#create-from-area-cancel');
+    if (createFromAreaCancel) {
+        createFromAreaCancel.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#create-from-area-modal');
+            if (modal) modal.style.display = 'none';
+        });
+    }
+
+    // Create from area modal - select all / select none
+    const areaSelectAll = getDocumentRoot().querySelector('#area-select-all');
+    if (areaSelectAll) {
+        areaSelectAll.addEventListener('click', () => {
+            const checkboxes = getDocumentRoot().querySelectorAll('.area-checkbox:not(:disabled)');
+            checkboxes.forEach(cb => cb.checked = true);
+        });
+    }
+
+    const areaSelectNone = getDocumentRoot().querySelector('#area-select-none');
+    if (areaSelectNone) {
+        areaSelectNone.addEventListener('click', () => {
+            const checkboxes = getDocumentRoot().querySelectorAll('.area-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+        });
+    }
+
+    // Create from area modal - confirm
+    const createFromAreaConfirm = getDocumentRoot().querySelector('#create-from-area-confirm');
+    if (createFromAreaConfirm) {
+        createFromAreaConfirm.addEventListener('click', async () => {
+            const checkboxes = getDocumentRoot().querySelectorAll('.area-checkbox:checked');
+            const selectedAreaIds = Array.from(checkboxes).map(cb => cb.value);
+
+            if (selectedAreaIds.length === 0) {
+                showToast('Please select at least one area', 'warning');
+                return;
+            }
+
+            try {
+                createFromAreaConfirm.disabled = true;
+                createFromAreaConfirm.textContent = 'Creating...';
+
+                const result = await haAPI.createGroupsFromAreas(selectedAreaIds);
+
+                const modal = getDocumentRoot().querySelector('#create-from-area-modal');
+                if (modal) modal.style.display = 'none';
+
+                const created = result.created || [];
+                const skipped = result.skipped || [];
+                const errors = result.errors || [];
+
+                if (created.length > 0) {
+                    const names = created.map(c => c.group_name).join(', ');
+                    showToast(`Created ${created.length} group(s): ${names}`, 'success');
+                }
+                if (skipped.length > 0) {
+                    showToast(`Skipped ${skipped.length} area(s) (already exist or no entities)`, 'warning');
+                }
+                if (errors.length > 0) {
+                    showToast(`${errors.length} error(s) occurred`, 'error');
+                }
+
+                await loadGroups();
+            } catch (error) {
+                console.error('Failed to create groups from areas:', error);
+                showToast('Failed to create groups from areas', 'error');
+            } finally {
+                createFromAreaConfirm.disabled = false;
+                createFromAreaConfirm.textContent = 'Create Groups';
+            }
+        });
+    }
+
+    // Close create-from-area modal on outside click
+    const createFromAreaModal = getDocumentRoot().querySelector('#create-from-area-modal');
+    if (createFromAreaModal) {
+        createFromAreaModal.addEventListener('click', (e) => {
+            if (e.target.id === 'create-from-area-modal') {
+                createFromAreaModal.style.display = 'none';
+            }
+        });
+    }
+
     // Add to group modal - cancel
     const addToGroupCancel = getDocumentRoot().querySelector('#add-to-group-cancel');
     if (addToGroupCancel) {

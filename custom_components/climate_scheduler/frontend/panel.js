@@ -225,6 +225,9 @@ class ClimateSchedulerPanel extends HTMLElement {
                             <button id="create-group-btn" class="btn-primary" style="margin-top: 10px; width: 100%;">
                                 + Create New Group
                             </button>
+                            <button id="create-from-area-btn" class="btn-secondary" style="margin-top: 6px; width: 100%;">
+                                + Create from Area
+                            </button>
                         </div>
                         
                         <div class="ignored-section">
@@ -272,6 +275,30 @@ class ClimateSchedulerPanel extends HTMLElement {
                             <div class="modal-actions">
                                 <button id="create-group-cancel" class="btn-secondary">Cancel</button>
                                 <button id="create-group-confirm" class="btn-primary">Create Group</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="create-from-area-modal" class="modal" style="display: none;">
+                        <div class="modal-content" style="max-width: 500px;">
+                            <div class="modal-header">
+                                <h3>Create Groups from Areas</h3>
+                            </div>
+                            <div class="modal-body">
+                                <p style="margin-bottom: 12px; color: var(--text-secondary);">
+                                    Select areas to create groups from. Each area will become a group containing its climate entities.
+                                </p>
+                                <div id="area-list-container" style="max-height: 300px; overflow-y: auto;">
+                                    <p style="color: var(--text-secondary); text-align: center;">Loading areas...</p>
+                                </div>
+                                <div id="area-select-actions" style="margin-top: 8px; display: flex; gap: 8px;">
+                                    <button id="area-select-all" class="btn-secondary" style="font-size: 0.85rem; padding: 4px 12px;">Select All</button>
+                                    <button id="area-select-none" class="btn-secondary" style="font-size: 0.85rem; padding: 4px 12px;">Select None</button>
+                                </div>
+                            </div>
+                            <div class="modal-actions">
+                                <button id="create-from-area-cancel" class="btn-secondary">Cancel</button>
+                                <button id="create-from-area-confirm" class="btn-primary">Create Groups</button>
                             </div>
                         </div>
                     </div>

@@ -583,6 +583,19 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
             "name": "Run Diagnostics",
             "description": "Run comprehensive diagnostics to troubleshoot card visibility and integration issues. Returns version info, card registration status, and accessibility checks.",
         },
+
+        "create_groups_from_areas": {
+            "name": "Create groups from areas",
+            "description": "Auto-create thermostat groups from Home Assistant areas containing climate entities",
+            "fields": {
+                "area_ids": {
+                    "description": "List of area IDs to create groups from",
+                    "required": True,
+                    "example": '["living_room", "bedroom"]',
+                    "selector": {"text": {}},
+                }
+            },
+        },
     }
 
 
@@ -649,6 +662,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             vol.Optional("resource_type", default="module"): cv.string,
         }),
         "diagnostics": vol.Schema({}),
+        "create_groups_from_areas": vol.Schema({
+            vol.Required("area_ids"): vol.All(cv.ensure_list, [cv.string]),
+        }),
     }
 
     async def handle_recreate_all_sensors(call: ServiceCall) -> dict:
@@ -1766,6 +1782,67 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         
         return result
     
+    async def handle_create_groups_from_areas(call: ServiceCall) -> dict:
+        """Handle create_groups_from_areas service call."""
+        area_ids = call.data["area_ids"]
+
+        from homeassistant.helpers import (
+            entity_registry as er,
+            device_registry as dr,
+            area_registry as ar,
+        )
+        entity_reg = er.async_get(hass)
+        device_reg = dr.async_get(hass)
+        area_reg = ar.async_get(hass)
+
+        results = {"created": [], "skipped": [], "errors": []}
+
+        for area_id in area_ids:
+            area_entry = area_reg.async_get_area(area_id)
+            if area_entry is None:
+                results["errors"].append({"area_id": area_id, "reason": f"Area '{area_id}' not found"})
+                continue
+
+            area_name = area_entry.name
+
+            existing_group = await storage.async_get_group(area_name)
+            if existing_group is not None:
+                results["skipped"].append({"area_id": area_id, "area_name": area_name, "reason": "Group already exists"})
+                continue
+
+            # Find climate entities in this area
+            devices_in_area = dr.async_entries_for_area(device_reg, area_id)
+            device_ids_in_area = {d.id for d in devices_in_area}
+
+            climate_entity_ids = []
+            for entity_entry in entity_reg.entities.values():
+                if entity_entry.domain != "climate":
+                    continue
+                if entity_entry.platform == DOMAIN:
+                    continue
+                if entity_entry.area_id == area_id:
+                    climate_entity_ids.append(entity_entry.entity_id)
+                elif entity_entry.device_id and entity_entry.device_id in device_ids_in_area and entity_entry.area_id is None:
+                    climate_entity_ids.append(entity_entry.entity_id)
+
+            if not climate_entity_ids:
+                results["skipped"].append({"area_id": area_id, "area_name": area_name, "reason": "No climate entities"})
+                continue
+
+            try:
+                await storage.async_create_group(area_name)
+                for entity_id in climate_entity_ids:
+                    await storage.async_add_entity_to_group(area_name, entity_id)
+                results["created"].append({
+                    "area_id": area_id, "area_name": area_name,
+                    "group_name": area_name, "entities": climate_entity_ids,
+                })
+                _LOGGER.info("Created group '%s' from area '%s' with %d entities: %s", area_name, area_id, len(climate_entity_ids), climate_entity_ids)
+            except Exception as err:
+                results["errors"].append({"area_id": area_id, "area_name": area_name, "reason": str(err)})
+
+        return results
+
     # Register all services (schemas come from async_get_services() dynamically)
     hass.services.async_register(DOMAIN, "recreate_all_sensors", handle_recreate_all_sensors, service_schemas.get("recreate_all_sensors"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_malformed_sensors", handle_cleanup_malformed_sensors, service_schemas.get("cleanup_malformed_sensors"), supports_response=SupportsResponse.ONLY)
@@ -1808,5 +1885,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "diagnostics", handle_diagnostics, service_schemas.get("diagnostics"), supports_response=SupportsResponse.ONLY)
-    
+    hass.services.async_register(DOMAIN, "create_groups_from_areas", handle_create_groups_from_areas, service_schemas.get("create_groups_from_areas"), supports_response=SupportsResponse.ONLY)
+
     _LOGGER.debug("[BACKEND] All Climate Scheduler services registered successfully (including set_group_schedule)")
