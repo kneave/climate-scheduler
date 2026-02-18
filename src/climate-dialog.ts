@@ -45,6 +45,7 @@ export interface ClimateState {
     swing_horizontal_mode?: string;
     swing_horizontal_modes?: string[];
     aux_heat?: string;
+    noChange?: boolean;
   };
 }
 
@@ -391,6 +392,7 @@ export class ClimateControlDialog extends LitElement {
 
     return html`
       ${this._renderModeRow()}
+      ${this._renderNoTemperatureChangeToggle()}
       ${this._renderTargetTemperature()}
       ${this._renderTargetTemperatureRange()}
       ${this._renderTargetHumidity()}
@@ -422,9 +424,10 @@ export class ClimateControlDialog extends LitElement {
         <div class="section-title">HVAC Mode</div>
         <select 
           class="mode-select"
-          .value=${this.stateObj.state}
+          .value=${this.stateObj.state || ''}
           @change=${this._handleHvacModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.hvac_modes.map(mode => html`
             <option value="${mode}" ?selected=${this.stateObj!.state === mode}>
               ${this._capitalize(mode)}
@@ -440,6 +443,7 @@ export class ClimateControlDialog extends LitElement {
       return '';
     }
 
+    const isNoTempChange = this._isNoTemperatureChangeEnabled();
     const { min_temp, max_temp, temperature } = this.stateObj.attributes;
     const range = max_temp - min_temp;
     const tempPercent = ((temperature! - min_temp) / range) * 100;
@@ -480,6 +484,7 @@ export class ClimateControlDialog extends LitElement {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${temperature}"
               @input=${this._handleTempSlider}
               style="top: 0; --track-fill: ${trackFill}%;"
@@ -495,6 +500,7 @@ export class ClimateControlDialog extends LitElement {
       return '';
     }
 
+    const isNoTempChange = this._isNoTemperatureChangeEnabled();
     const { min_temp, max_temp, target_temp_low, target_temp_high } = this.stateObj.attributes;
     const range = max_temp - min_temp;
     const lowPercent = ((target_temp_low! - min_temp) / range) * 100;
@@ -527,6 +533,7 @@ export class ClimateControlDialog extends LitElement {
                 min="${min_temp}"
                 max="${max_temp}"
                 step="0.5"
+                ?disabled=${isNoTempChange}
                 .value="${target_temp_low}"
                 @input=${this._handleTempLowSlider}
                 style="top: 0; --track-fill: ${lowPercent}%;"
@@ -556,6 +563,7 @@ export class ClimateControlDialog extends LitElement {
                 min="${min_temp}"
                 max="${max_temp}"
                 step="0.5"
+                ?disabled=${isNoTempChange}
                 .value="${target_temp_high}"
                 @input=${this._handleTempHighSlider}
                 style="top: 0; --track-fill: ${100 - highPercent}%;"
@@ -593,6 +601,7 @@ export class ClimateControlDialog extends LitElement {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${target_temp_low}"
               @input=${this._handleTempLowSlider}
               style="top: 0; --track-fill: ${lowPercent}%;"
@@ -603,6 +612,7 @@ export class ClimateControlDialog extends LitElement {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${target_temp_high}"
               @input=${this._handleTempHighSlider}
               style="top: 0; --track-fill: ${100 - highPercent}%;"
@@ -691,6 +701,7 @@ export class ClimateControlDialog extends LitElement {
           .value=${this.stateObj.attributes.fan_mode || ''}
           @change=${this._handleFanModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.fan_modes!.map(mode => html`
             <option value="${mode}" ?selected=${this.stateObj!.attributes.fan_mode === mode}>
               ${this._capitalize(mode)}
@@ -712,6 +723,7 @@ export class ClimateControlDialog extends LitElement {
           .value=${this.stateObj.attributes.preset_mode || ''}
           @change=${this._handlePresetModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.preset_modes!.map(mode => html`
             <option value="${mode}" ?selected=${this.stateObj!.attributes.preset_mode === mode}>
               ${this._capitalize(mode)}
@@ -733,6 +745,7 @@ export class ClimateControlDialog extends LitElement {
           .value=${this.stateObj.attributes.swing_mode || ''}
           @change=${this._handleSwingModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.swing_modes!.map(mode => html`
             <option value="${mode}" ?selected=${this.stateObj!.attributes.swing_mode === mode}>
               ${this._capitalize(mode)}
@@ -754,6 +767,7 @@ export class ClimateControlDialog extends LitElement {
           .value=${this.stateObj.attributes.swing_horizontal_mode || ''}
           @change=${this._handleSwingHorizontalModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.swing_horizontal_modes!.map(mode => html`
             <option value="${mode}" ?selected=${this.stateObj!.attributes.swing_horizontal_mode === mode}>
               ${this._capitalize(mode)}
@@ -779,6 +793,38 @@ export class ClimateControlDialog extends LitElement {
               type="checkbox" 
               .checked=${this.stateObj.attributes.aux_heat === 'on'}
               @change=${this._handleAuxHeatToggle}
+            />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  private _isNoTemperatureChangeEnabled() {
+    return Boolean(this.stateObj?.attributes.noChange);
+  }
+
+  private _renderNoTemperatureChangeToggle() {
+    if (!this.stateObj) return '';
+
+    const supportsTemperature =
+      supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE) ||
+      supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE_RANGE);
+
+    if (!supportsTemperature) {
+      return '';
+    }
+
+    return html`
+      <div class="section">
+        <div class="toggle-row">
+          <span class="toggle-label">No Temperature Change</span>
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              .checked=${this._isNoTemperatureChangeEnabled()}
+              @change=${this._handleNoTemperatureChangeToggle}
             />
             <span class="toggle-slider"></span>
           </label>
@@ -912,6 +958,26 @@ export class ClimateControlDialog extends LitElement {
   private _handleAuxHeatToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
     this.dispatchEvent(new CustomEvent('aux-heat-changed', {
+      detail: { enabled: checked },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private _handleNoTemperatureChangeToggle(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+
+    if (this.stateObj) {
+      this.stateObj = {
+        ...this.stateObj,
+        attributes: {
+          ...this.stateObj.attributes,
+          noChange: checked
+        }
+      };
+    }
+
+    this.dispatchEvent(new CustomEvent('no-temp-change-changed', {
       detail: { enabled: checked },
       bubbles: true,
       composed: true

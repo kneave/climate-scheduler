@@ -31,6 +31,46 @@ function convertScheduleNodes(nodes, fromUnit, toUnit) {
         temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * multiplier) / multiplier
     }));
 }
+
+function resolveNoChangeLockedTemp(nodes, targetNode) {
+    if (!Array.isArray(nodes) || nodes.length === 0 || !targetNode) {
+        return null;
+    }
+
+    const toNumericTemp = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const ownTemp = toNumericTemp(targetNode.temp);
+
+    // Single-node schedules lock to the node's own value.
+    if (nodes.length === 1) {
+        return ownTemp;
+    }
+
+    const sortedNodes = [...nodes].sort((a, b) => {
+        const [aHours, aMinutes] = (a.time || '00:00').split(':').map(Number);
+        const [bHours, bMinutes] = (b.time || '00:00').split(':').map(Number);
+        const aDecimal = aHours + (aMinutes / 60);
+        const bDecimal = bHours + (bMinutes / 60);
+        return aDecimal - bDecimal;
+    });
+
+    let targetIndex = sortedNodes.findIndex((node) => node === targetNode);
+    if (targetIndex === -1 && targetNode.time) {
+        targetIndex = sortedNodes.findIndex((node) => node.time === targetNode.time);
+    }
+
+    if (targetIndex === -1) {
+        return ownTemp;
+    }
+
+    const previousIndex = (targetIndex - 1 + sortedNodes.length) % sortedNodes.length;
+    const previousTemp = toNumericTemp(sortedNodes[previousIndex]?.temp);
+
+    return previousTemp ?? ownTemp;
+}
 let allGroups = {}; // Store all groups data
 let allEntities = {}; // Store all entities data with their schedules
 let currentGroup = null; // Currently selected group
@@ -3002,6 +3042,14 @@ function attachEditorEventListeners(editorElement) {
             // Set noChange flag in schedule node
             if (scheduleNode) {
                 scheduleNode.noChange = true;
+                const lockedTemp = resolveNoChangeLockedTemp(currentSchedule, scheduleNode);
+                if (lockedTemp !== null) {
+                    scheduleNode.temp = lockedTemp;
+                    keyframe.value = lockedTemp;
+                    if (tempInput) {
+                        tempInput.value = String(lockedTemp);
+                    }
+                }
             }
         } else {
             if (scheduleNode) {
@@ -5379,7 +5427,7 @@ async function handleNodeSettings(event) {
     // Create climate state object
     const climateState = {
         entity_id: displayName,
-        state: scheduleNode.hvac_mode || 'heat',
+        state: scheduleNode.hvac_mode ?? '',
         attributes: {
             supported_features: entity.attributes.supported_features,
             hvac_modes: entity.attributes.hvac_modes || ['heat', 'cool', 'heat_cool', 'off'],
@@ -5388,13 +5436,14 @@ async function handleNodeSettings(event) {
             target_temp_high: scheduleNode.target_temp_high,
             min_temp: entity.attributes.min_temp,
             max_temp: entity.attributes.max_temp,
-            fan_mode: scheduleNode.fan_mode,
+            noChange: Boolean(scheduleNode.noChange),
+            fan_mode: scheduleNode.fan_mode ?? '',
             fan_modes: entity.attributes.fan_modes,
-            preset_mode: scheduleNode.preset_mode,
+            preset_mode: scheduleNode.preset_mode ?? '',
             preset_modes: entity.attributes.preset_modes,
-            swing_mode: scheduleNode.swing_mode,
+            swing_mode: scheduleNode.swing_mode ?? '',
             swing_modes: entity.attributes.swing_modes,
-            swing_horizontal_mode: scheduleNode.swing_horizontal_mode,
+            swing_horizontal_mode: scheduleNode.swing_horizontal_mode ?? '',
             swing_horizontal_modes: entity.attributes.swing_horizontal_modes,
             target_humidity: scheduleNode.target_humidity,
             min_humidity: entity.attributes.min_humidity,
@@ -5415,8 +5464,13 @@ async function handleNodeSettings(event) {
     
     // Add event listeners for all the custom events
     dialogEl.addEventListener('hvac-mode-changed', (e) => {
-        scheduleNode.hvac_mode = e.detail.mode;
-        keyframe.hvacMode = e.detail.mode;
+        if (e.detail.mode) {
+            scheduleNode.hvac_mode = e.detail.mode;
+            keyframe.hvacMode = e.detail.mode;
+        } else {
+            delete scheduleNode.hvac_mode;
+            delete keyframe.hvacMode;
+        }
         // Trigger Lit reactivity by reassigning the array
         timelineRef.keyframes = [...timelineRef.keyframes];
         saveSchedule();
@@ -5424,7 +5478,9 @@ async function handleNodeSettings(event) {
     
     dialogEl.addEventListener('temperature-changed', (e) => {
         scheduleNode.temp = e.detail.temperature;
+        scheduleNode.noChange = false;
         keyframe.value = e.detail.temperature;
+        keyframe.noChange = false;
         // Trigger Lit reactivity by reassigning the array
         timelineRef.keyframes = [...timelineRef.keyframes];
         saveSchedule();
@@ -5432,11 +5488,32 @@ async function handleNodeSettings(event) {
     
     dialogEl.addEventListener('target-temp-low-changed', (e) => {
         scheduleNode.target_temp_low = e.detail.temperature;
+        scheduleNode.noChange = false;
+        keyframe.noChange = false;
         saveSchedule();
     });
     
     dialogEl.addEventListener('target-temp-high-changed', (e) => {
         scheduleNode.target_temp_high = e.detail.temperature;
+        scheduleNode.noChange = false;
+        keyframe.noChange = false;
+        saveSchedule();
+    });
+
+    dialogEl.addEventListener('no-temp-change-changed', (e) => {
+        const noTempChangeEnabled = Boolean(e.detail.enabled);
+        scheduleNode.noChange = noTempChangeEnabled;
+        keyframe.noChange = noTempChangeEnabled;
+
+        if (noTempChangeEnabled) {
+            const lockedTemp = resolveNoChangeLockedTemp(currentSchedule, scheduleNode);
+            if (lockedTemp !== null) {
+                scheduleNode.temp = lockedTemp;
+                keyframe.value = lockedTemp;
+            }
+        }
+
+        timelineRef.keyframes = [...timelineRef.keyframes];
         saveSchedule();
     });
     
@@ -5446,22 +5523,38 @@ async function handleNodeSettings(event) {
     });
     
     dialogEl.addEventListener('fan-mode-changed', (e) => {
-        scheduleNode.fan_mode = e.detail.mode;
+        if (e.detail.mode) {
+            scheduleNode.fan_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.fan_mode;
+        }
         saveSchedule();
     });
     
     dialogEl.addEventListener('preset-mode-changed', (e) => {
-        scheduleNode.preset_mode = e.detail.mode;
+        if (e.detail.mode) {
+            scheduleNode.preset_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.preset_mode;
+        }
         saveSchedule();
     });
     
     dialogEl.addEventListener('swing-mode-changed', (e) => {
-        scheduleNode.swing_mode = e.detail.mode;
+        if (e.detail.mode) {
+            scheduleNode.swing_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.swing_mode;
+        }
         saveSchedule();
     });
     
     dialogEl.addEventListener('swing-horizontal-mode-changed', (e) => {
-        scheduleNode.swing_horizontal_mode = e.detail.mode;
+        if (e.detail.mode) {
+            scheduleNode.swing_horizontal_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.swing_horizontal_mode;
+        }
         saveSchedule();
     });
     

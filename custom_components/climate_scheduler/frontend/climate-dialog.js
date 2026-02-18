@@ -102,6 +102,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
         }
         return b `
       ${this._renderModeRow()}
+      ${this._renderNoTemperatureChangeToggle()}
       ${this._renderTargetTemperature()}
       ${this._renderTargetTemperatureRange()}
       ${this._renderTargetHumidity()}
@@ -129,9 +130,10 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
         <div class="section-title">HVAC Mode</div>
         <select 
           class="mode-select"
-          .value=${this.stateObj.state}
+          .value=${this.stateObj.state || ''}
           @change=${this._handleHvacModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.hvac_modes.map(mode => b `
             <option value="${mode}" ?selected=${this.stateObj.state === mode}>
               ${this._capitalize(mode)}
@@ -145,6 +147,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
         if (!this.stateObj || !supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE)) {
             return '';
         }
+        const isNoTempChange = this._isNoTemperatureChangeEnabled();
         const { min_temp, max_temp, temperature } = this.stateObj.attributes;
         const range = max_temp - min_temp;
         const tempPercent = ((temperature - min_temp) / range) * 100;
@@ -183,6 +186,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${temperature}"
               @input=${this._handleTempSlider}
               style="top: 0; --track-fill: ${trackFill}%;"
@@ -196,6 +200,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
         if (!this.stateObj || !supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)) {
             return '';
         }
+        const isNoTempChange = this._isNoTemperatureChangeEnabled();
         const { min_temp, max_temp, target_temp_low, target_temp_high } = this.stateObj.attributes;
         const range = max_temp - min_temp;
         const lowPercent = ((target_temp_low - min_temp) / range) * 100;
@@ -225,6 +230,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 min="${min_temp}"
                 max="${max_temp}"
                 step="0.5"
+                ?disabled=${isNoTempChange}
                 .value="${target_temp_low}"
                 @input=${this._handleTempLowSlider}
                 style="top: 0; --track-fill: ${lowPercent}%;"
@@ -253,6 +259,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 min="${min_temp}"
                 max="${max_temp}"
                 step="0.5"
+                ?disabled=${isNoTempChange}
                 .value="${target_temp_high}"
                 @input=${this._handleTempHighSlider}
                 style="top: 0; --track-fill: ${100 - highPercent}%;"
@@ -289,6 +296,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${target_temp_low}"
               @input=${this._handleTempLowSlider}
               style="top: 0; --track-fill: ${lowPercent}%;"
@@ -299,6 +307,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               min="${min_temp}"
               max="${max_temp}"
               step="0.5"
+              ?disabled=${isNoTempChange}
               .value="${target_temp_high}"
               @input=${this._handleTempHighSlider}
               style="top: 0; --track-fill: ${100 - highPercent}%;"
@@ -379,6 +388,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
           .value=${this.stateObj.attributes.fan_mode || ''}
           @change=${this._handleFanModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.fan_modes.map(mode => b `
             <option value="${mode}" ?selected=${this.stateObj.attributes.fan_mode === mode}>
               ${this._capitalize(mode)}
@@ -399,6 +409,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
           .value=${this.stateObj.attributes.preset_mode || ''}
           @change=${this._handlePresetModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.preset_modes.map(mode => b `
             <option value="${mode}" ?selected=${this.stateObj.attributes.preset_mode === mode}>
               ${this._capitalize(mode)}
@@ -419,6 +430,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
           .value=${this.stateObj.attributes.swing_mode || ''}
           @change=${this._handleSwingModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.swing_modes.map(mode => b `
             <option value="${mode}" ?selected=${this.stateObj.attributes.swing_mode === mode}>
               ${this._capitalize(mode)}
@@ -439,6 +451,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
           .value=${this.stateObj.attributes.swing_horizontal_mode || ''}
           @change=${this._handleSwingHorizontalModeChange}
         >
+          <option value="">-- No Change --</option>
           ${this.stateObj.attributes.swing_horizontal_modes.map(mode => b `
             <option value="${mode}" ?selected=${this.stateObj.attributes.swing_horizontal_mode === mode}>
               ${this._capitalize(mode)}
@@ -462,6 +475,33 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               type="checkbox" 
               .checked=${this.stateObj.attributes.aux_heat === 'on'}
               @change=${this._handleAuxHeatToggle}
+            />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+    }
+    _isNoTemperatureChangeEnabled() {
+        return Boolean(this.stateObj?.attributes.noChange);
+    }
+    _renderNoTemperatureChangeToggle() {
+        if (!this.stateObj)
+            return '';
+        const supportsTemperature = supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE) ||
+            supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE_RANGE);
+        if (!supportsTemperature) {
+            return '';
+        }
+        return b `
+      <div class="section">
+        <div class="toggle-row">
+          <span class="toggle-label">No Temperature Change</span>
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              .checked=${this._isNoTemperatureChangeEnabled()}
+              @change=${this._handleNoTemperatureChangeToggle}
             />
             <span class="toggle-slider"></span>
           </label>
@@ -585,6 +625,23 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
     _handleAuxHeatToggle(e) {
         const checked = e.target.checked;
         this.dispatchEvent(new CustomEvent('aux-heat-changed', {
+            detail: { enabled: checked },
+            bubbles: true,
+            composed: true
+        }));
+    }
+    _handleNoTemperatureChangeToggle(e) {
+        const checked = e.target.checked;
+        if (this.stateObj) {
+            this.stateObj = {
+                ...this.stateObj,
+                attributes: {
+                    ...this.stateObj.attributes,
+                    noChange: checked
+                }
+            };
+        }
+        this.dispatchEvent(new CustomEvent('no-temp-change-changed', {
             detail: { enabled: checked },
             bubbles: true,
             composed: true

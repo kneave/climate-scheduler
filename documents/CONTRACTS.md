@@ -28,6 +28,8 @@ Invariants:
 - 24:00 is normalized to 23:59 in storage validation.
 - UI keeps at least one node (delete guard in node settings).
 - noChange means skip temperature apply but allow mode application.
+- Frontend mode selectors expose `-- No Change --` as empty string; save path removes mode field when empty.
+- Mode no-change is represented by omitted node fields (`hvac_mode`, `fan_mode`, `swing_mode`, `preset_mode`) rather than a sentinel string.
 
 ## Schedule Contract
 
@@ -102,5 +104,5 @@ storage async_load migrations:
 
 ## Last Updated
 
-- Date: 2026-02-16
+- Date: 2026-02-18
 - Updated by: Copilot (GPT-5.3-Codex)
