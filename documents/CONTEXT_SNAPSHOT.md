@@ -23,7 +23,10 @@ Purpose: compact handoff for future Copilot sessions.
 - Node actions are timeline-context aware.
 - Delete uses trash icon; close uses X.
 - Save pipeline is debounced and guarded by in-progress flags.
+- While schedule loading is active, save requests are queued and flushed after load completes.
+- Node-selection context switches in main timeline must not overwrite in-memory `currentSchedule` edits.
 - Climate dialog dual-range sliders rely on `pointer-events: none` at input level and must explicitly enable thumb interaction for both WebKit and Firefox (`::-webkit-slider-thumb` and `::-moz-range-thumb`).
+- Climate dialog slider steps are settings-driven: temperature uses `temperature_step` (default `0.5`) and humidity uses `humidity_step` (default `1`).
 
 ## High-Risk Areas
 

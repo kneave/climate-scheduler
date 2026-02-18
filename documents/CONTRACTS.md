@@ -28,8 +28,14 @@ Invariants:
 - 24:00 is normalized to 23:59 in storage validation.
 - UI keeps at least one node (delete guard in node settings).
 - noChange means skip temperature apply but allow mode application.
+- Frontend no-temperature-change toggle locks node temperature to previous-node value with wrap-around; single-node schedules retain their own value.
 - Frontend mode selectors expose `-- No Change --` as empty string; save path removes mode field when empty.
 - Mode no-change is represented by omitted node fields (`hvac_mode`, `fan_mode`, `swing_mode`, `preset_mode`) rather than a sentinel string.
+
+Frontend dialog-state contract (runtime → climate dialog):
+- `stateObj.attributes.temperature_step` (optional number; defaults to `0.5` in dialog)
+- `stateObj.attributes.humidity_step` (optional number; defaults to `1` in dialog)
+- These are UI precision controls only and do not alter backend node schema.
 
 ## Schedule Contract
 
@@ -97,6 +103,12 @@ HA bus event:
 - For `hvac_mode: off`, coordinator turns off first, then attempts temperature apply.
 - For non-`off` HVAC modes, coordinator sets HVAC mode first, then temperature.
 - Fan/swing/preset are still applied only when specified and supported.
+
+## Save Pipeline Contract (frontend runtime)
+
+- Save requests are debounced and serialized via `isSaveInProgress`.
+- If save is requested while schedule is loading, frontend sets `pendingSaveNeeded` and re-runs save after loading completes.
+- Missing schedule-enabled UI element must not block schedule persistence.
 
 Frontend timeline events:
 - keyframe-selected: { index, keyframe }

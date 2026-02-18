@@ -34,9 +34,11 @@ Target: custom_components/climate_scheduler/frontend/app.js
 - Node action applies to wrong timeline context.
 - Non-active profile edits leak into active profile.
 - Pending save dropped while save in progress.
+- Pending save dropped while schedule is loading (`isLoadingSchedule`) and never flushed.
 - `currentSchedule` overwritten from cached group data during node selection, dropping unsaved edits.
 - Node settings panel location/context mismatch after selection.
 - Listener duplication after re-render/editor rebuild.
+- Dialog settings drift where temperature/humidity slider step in settings is not propagated into climate dialog state.
 
 ## Safe Edit Sequence
 
@@ -52,7 +54,9 @@ Target: custom_components/climate_scheduler/frontend/app.js
 - Select/move/delete node in profile timeline.
 - Edit existing node settings (mode/temp/noChange), then select another node and confirm edits persist/save.
 - Confirm save persists and panel state is stable.
+- Trigger an edit while schedule is loading; confirm save runs after load completes.
 - Confirm mode/day/profile switch does not corrupt current schedule.
+- Change temperature and humidity slider-step settings, open node dialog, and confirm slider increments match configured step.
 
 ## Last Updated
 

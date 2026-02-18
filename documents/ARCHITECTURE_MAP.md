@@ -46,13 +46,20 @@ Purpose: minimal index for where to change code safely.
   - custom_components/climate_scheduler/coordinator.py
 - Node settings behavior:
   - custom_components/climate_scheduler/frontend/app.js
+  - src/climate-dialog.ts
 - Save/debounce behavior:
   - custom_components/climate_scheduler/frontend/app.js (saveSchedule, performSave)
+- Save queue during loading:
+  - custom_components/climate_scheduler/frontend/app.js (`isLoadingSchedule`, `pendingSaveNeeded` flush path)
 - Tooltip behavior:
   - src/keyframe-timeline.ts
   - custom_components/climate_scheduler/frontend/app.js (mode selector)
 - Climate dialog dual-range slider browser compatibility:
   - src/climate-dialog.ts (thumb pointer-events for `::-webkit-slider-thumb` and `::-moz-range-thumb`)
+- Climate dialog slider step precision:
+  - src/climate-dialog.ts (`_getTemperatureStep`, `_getHumidityStep`)
+  - src/panel.ts (settings UI for temperature/humidity slider step)
+  - custom_components/climate_scheduler/frontend/app.js (settings propagation into dialog state)
 - Day/mode mapping:
   - custom_components/climate_scheduler/storage.py
   - custom_components/climate_scheduler/frontend/app.js
