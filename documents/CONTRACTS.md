@@ -88,7 +88,15 @@ HA bus event:
   - coordinator scheduled transition (trigger_type=scheduled)
   - services test_fire_event (trigger_type=test)
 - Current payload includes entities, group_name, node, day, trigger_type
+- For manual advance wrap-around (next node occurs on next day), `day` reflects the target node day.
 - Deprecated compatibility field still present in some paths: entity_id
+
+## Coordinator Apply Order
+
+- Coordinator applies HVAC/off mode before temperature.
+- For `hvac_mode: off`, coordinator turns off first, then attempts temperature apply.
+- For non-`off` HVAC modes, coordinator sets HVAC mode first, then temperature.
+- Fan/swing/preset are still applied only when specified and supported.
 
 Frontend timeline events:
 - keyframe-selected: { index, keyframe }

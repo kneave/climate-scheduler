@@ -238,9 +238,45 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 "success": False,
                 "error": "Schedule has no nodes"
             }
-        
-        # Get the next node
-        next_node = self.storage.get_next_node(nodes, current_time)
+
+        # Get the next node with day-aware wrap-around.
+        schedule_mode = schedule_data.get("schedule_mode", "all_days")
+        current_minutes = current_time.hour * 60 + current_time.minute
+        def _time_to_minutes(time_str: str) -> int:
+            hours, minutes = map(int, time_str.split(":"))
+            return hours * 60 + minutes
+
+        sorted_nodes = sorted(nodes, key=lambda n: _time_to_minutes(n["time"]))
+
+        next_node = None
+        next_node_day = current_day
+
+        # Try to find the next node later today first.
+        for node in sorted_nodes:
+            node_minutes = _time_to_minutes(node["time"])
+            if node_minutes > current_minutes:
+                next_node = node
+                break
+
+        # If none later today, wrap to tomorrow's first node where relevant.
+        if next_node is None:
+            days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+            current_day_index = days_of_week.index(current_day)
+            next_day = days_of_week[(current_day_index + 1) % 7]
+
+            # In schedule modes with day-specific schedules, prefer tomorrow's first node.
+            if schedule_mode in ["individual", "5/2"]:
+                next_day_schedule = await self.storage.async_get_group_schedule(group_name, next_day)
+                next_day_nodes = next_day_schedule.get("nodes", []) if next_day_schedule else []
+                if next_day_nodes:
+                    next_node = sorted(next_day_nodes, key=lambda n: _time_to_minutes(n["time"]))[0]
+                    next_node_day = next_day
+
+            # Fallback: wrap to today's first node if tomorrow schedule is empty/missing.
+            if next_node is None:
+                next_node = sorted_nodes[0]
+                next_node_day = next_day
+
         if not next_node:
             return {
                 "success": False,
@@ -307,6 +343,10 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         fan_modes = state.attributes.get("fan_modes", [])
         swing_modes = state.attributes.get("swing_modes", [])
         preset_modes = state.attributes.get("preset_modes", [])
+
+        # Check if this is a preset-only entity
+        current_temperature = state.attributes.get("current_temperature")
+        is_preset_only = current_temperature is None
         
         # Apply the next node settings
         target_hvac_mode = next_node.get("hvac_mode")
@@ -330,33 +370,6 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         blocking=True,
                     )
         else:
-            # Check if this is a preset-only entity
-            current_temperature = state.attributes.get("current_temperature")
-            is_preset_only = current_temperature is None
-            
-            # Set temperature (only if not NO_CHANGE and entity supports temperature)
-            if clamped_temp is not None and not is_preset_only:
-                _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
-                try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_temperature",
-                        {
-                            "entity_id": entity_id,
-                            ATTR_TEMPERATURE: clamped_temp,
-                        },
-                        blocking=True,
-                    )
-                except Exception as exc:
-                    return {
-                        "success": False,
-                        "error": f"Failed to set temperature: {str(exc)}"
-                    }
-            elif clamped_temp is not None and is_preset_only:
-                _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
-            else:
-                _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
-            
             # Apply HVAC mode
             if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
                 await self.hass.services.async_call(
@@ -365,6 +378,32 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     {"entity_id": entity_id, "hvac_mode": next_node["hvac_mode"]},
                     blocking=True,
                 )
+
+        # Set temperature after applying HVAC/off mode
+        if clamped_temp is not None and not is_preset_only:
+            _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": entity_id,
+                        ATTR_TEMPERATURE: clamped_temp,
+                    },
+                    blocking=True,
+                )
+            except Exception as exc:
+                if target_hvac_mode == "off":
+                    _LOGGER.warning(f"Failed to set temperature after turning off {entity_id}: {exc}")
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set temperature: {str(exc)}"
+                    }
+        elif clamped_temp is not None and is_preset_only:
+            _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+        else:
+            _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
             
             # Apply fan mode
             if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
@@ -415,7 +454,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "B": next_node.get("B"),
                     "C": next_node.get("C"),
                 },
-                "day": current_day,
+                "day": next_node_day,
                 "trigger_type": "manual_advance",
             }
         )
@@ -424,6 +463,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         return {
             "success": True,
             "next_node": next_node,
+            "next_node_day": next_node_day,
             "applied_temp": clamped_temp
         }
     
@@ -914,33 +954,12 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 swing_modes = state.attributes.get("swing_modes", [])
                 preset_modes = state.attributes.get("preset_modes", [])
                 
-                # Check if we're turning off - set temperature first so it persists when manually turned back on
+                # Check if we're turning off - apply mode first
                 target_hvac_mode = active_node.get("hvac_mode")
                 _LOGGER.info(f"{entity_id} target_hvac_mode: {target_hvac_mode}, supported modes: {hvac_modes}")
                 if target_hvac_mode == "off":
                     _LOGGER.info(f"Turning off {entity_id}")
-                    
-                    # Set temperature BEFORE turning off so it persists when device is manually turned back on
-                    if temp_to_apply is not None and not is_preset_only:
-                        _LOGGER.info(f"Setting temperature to {temp_to_apply}°C before turning off {entity_id}")
-                        try:
-                            await self.hass.services.async_call(
-                                "climate",
-                                "set_temperature",
-                                {
-                                    "entity_id": entity_id,
-                                    ATTR_TEMPERATURE: temp_to_apply,
-                                },
-                                blocking=True,
-                            )
-                        except Exception as exc:
-                            _LOGGER.warning(f"Failed to set temperature before turning off {entity_id}: {exc}")
-                            # Continue with turn_off even if temperature setting failed
-                    elif temp_to_apply is not None and is_preset_only:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
-                    else:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
-                    
+
                     # Try using turn_off service first (more reliable for some integrations)
                     try:
                         await self.hass.services.async_call(
@@ -965,42 +984,6 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                                 blocking=True,
                             )
                 else:
-                    # Update to new node temperature (already clamped in signature)
-                    # Only set temperature if we have a temperature to apply and entity supports temperature
-                    if temp_to_apply is not None and not is_preset_only:
-                        _LOGGER.info(
-                            f"Updating {entity_id} to new node: temp={temp_to_apply}°C"
-                        )
-
-                        # Build service data
-                        service_data = {
-                            "entity_id": entity_id,
-                            ATTR_TEMPERATURE: temp_to_apply,
-                        }
-
-                        # Call climate service to set temperature (handle per-entity errors)
-                        try:
-                            await self.hass.services.async_call(
-                                "climate",
-                                "set_temperature",
-                                service_data,
-                                blocking=True,
-                            )
-                        except Exception as exc:
-                            _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
-                            results[entity_id] = {
-                                "updated": False,
-                                "target_temp": target_temp,
-                                "applied_temp": None,
-                                "error": str(exc),
-                            }
-                            # Skip further actions for this entity
-                            continue
-                    elif temp_to_apply is not None and is_preset_only:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
-                    else:
-                        _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
-                    
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
                         _LOGGER.info(f"Setting HVAC mode to {active_node['hvac_mode']}")
@@ -1015,6 +998,42 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         )
                     elif "hvac_mode" in active_node and active_node["hvac_mode"] != "off":
                         _LOGGER.debug(f"HVAC mode {active_node['hvac_mode']} not supported by {entity_id}")
+
+                # Apply temperature after HVAC/off mode
+                if temp_to_apply is not None and not is_preset_only:
+                    _LOGGER.info(
+                        f"Updating {entity_id} to new node: temp={temp_to_apply}°C"
+                    )
+
+                    service_data = {
+                        "entity_id": entity_id,
+                        ATTR_TEMPERATURE: temp_to_apply,
+                    }
+
+                    try:
+                        await self.hass.services.async_call(
+                            "climate",
+                            "set_temperature",
+                            service_data,
+                            blocking=True,
+                        )
+                    except Exception as exc:
+                        if target_hvac_mode == "off":
+                            _LOGGER.warning(f"Failed to set temperature after turning off {entity_id}: {exc}")
+                        else:
+                            _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
+                            results[entity_id] = {
+                                "updated": False,
+                                "target_temp": target_temp,
+                                "applied_temp": None,
+                                "error": str(exc),
+                            }
+                            # Skip further actions for this entity
+                            continue
+                elif temp_to_apply is not None and is_preset_only:
+                    _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+                else:
+                    _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
                 
                 # Apply fan mode if specified in node and supported by entity
                 if "fan_mode" in active_node and fan_modes and active_node["fan_mode"] in fan_modes:
