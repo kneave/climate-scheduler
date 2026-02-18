@@ -81,6 +81,7 @@ let keyframeTimelineLoaded = false; // Track if keyframe-timeline.js is loaded
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
+let humidityStep = parseFloat(localStorage.getItem('humidityStep')) || 1; // Step for humidity slider in node settings dialog
 const cleanupAutoDownloadReports = localStorage.getItem('cleanupAutoDownloadReports') === 'true'; // Opt-in: auto-download cleanup preview/result JSON files
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
@@ -5470,6 +5471,8 @@ async function handleNodeSettings(event) {
             target_temp_high: scheduleNode.target_temp_high,
             min_temp: entity.attributes.min_temp,
             max_temp: entity.attributes.max_temp,
+            temperature_step: inputTempStep,
+            humidity_step: humidityStep,
             noChange: Boolean(scheduleNode.noChange),
             fan_mode: scheduleNode.fan_mode ?? '',
             fan_modes: entity.attributes.fan_modes,
@@ -6370,6 +6373,17 @@ async function setupSettingsPanel() {
             const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
             if (tempUpBtn) tempUpBtn.title = `+${inputTempStep}°`;
             if (tempDownBtn) tempDownBtn.title = `-${inputTempStep}°`;
+        });
+    }
+
+    // Humidity slider step setting
+    const humidityStepSelect = getDocumentRoot().querySelector('#humidity-step');
+    if (humidityStepSelect) {
+        humidityStepSelect.value = humidityStep.toString();
+        humidityStepSelect.addEventListener('change', (e) => {
+            humidityStep = parseFloat(e.target.value);
+            localStorage.setItem('humidityStep', humidityStep);
+            showToast(`Humidity slider step set to ${humidityStep}%`, 'success');
         });
     }
     

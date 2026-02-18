@@ -148,6 +148,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             return '';
         }
         const isNoTempChange = this._isNoTemperatureChangeEnabled();
+        const temperatureStep = this._getTemperatureStep();
         const { min_temp, max_temp, temperature } = this.stateObj.attributes;
         const range = max_temp - min_temp;
         const tempPercent = ((temperature - min_temp) / range) * 100;
@@ -185,7 +186,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               class="dual-range-input ${inputClass}"
               min="${min_temp}"
               max="${max_temp}"
-              step="0.5"
+              step="${temperatureStep}"
               ?disabled=${isNoTempChange}
               .value="${temperature}"
               @input=${this._handleTempSlider}
@@ -201,6 +202,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             return '';
         }
         const isNoTempChange = this._isNoTemperatureChangeEnabled();
+        const temperatureStep = this._getTemperatureStep();
         const { min_temp, max_temp, target_temp_low, target_temp_high } = this.stateObj.attributes;
         const range = max_temp - min_temp;
         const lowPercent = ((target_temp_low - min_temp) / range) * 100;
@@ -229,7 +231,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 class="dual-range-input heating"
                 min="${min_temp}"
                 max="${max_temp}"
-                step="0.5"
+                step="${temperatureStep}"
                 ?disabled=${isNoTempChange}
                 .value="${target_temp_low}"
                 @input=${this._handleTempLowSlider}
@@ -258,7 +260,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 class="dual-range-input cooling"
                 min="${min_temp}"
                 max="${max_temp}"
-                step="0.5"
+                step="${temperatureStep}"
                 ?disabled=${isNoTempChange}
                 .value="${target_temp_high}"
                 @input=${this._handleTempHighSlider}
@@ -295,7 +297,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               class="dual-range-input ${!isOffOrAuto ? 'heating' : ''}"
               min="${min_temp}"
               max="${max_temp}"
-              step="0.5"
+              step="${temperatureStep}"
               ?disabled=${isNoTempChange}
               .value="${target_temp_low}"
               @input=${this._handleTempLowSlider}
@@ -306,7 +308,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               class="dual-range-input ${!isOffOrAuto ? 'cooling' : ''}"
               min="${min_temp}"
               max="${max_temp}"
-              step="0.5"
+              step="${temperatureStep}"
               ?disabled=${isNoTempChange}
               .value="${target_temp_high}"
               @input=${this._handleTempHighSlider}
@@ -321,6 +323,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
         if (!this.stateObj || !supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_HUMIDITY)) {
             return '';
         }
+        const humidityStep = this._getHumidityStep();
         const { min_humidity, max_humidity, target_humidity } = this.stateObj.attributes;
         const range = max_humidity - min_humidity;
         const humidityPercent = ((target_humidity - min_humidity) / range) * 100;
@@ -340,7 +343,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               class="dual-range-input"
               min="${min_humidity}"
               max="${max_humidity}"
-              step="1"
+              step="${humidityStep}"
               .value="${target_humidity}"
               @input=${this._handleHumiditySlider}
               style="top: 0; --track-fill: ${humidityPercent}%;"
@@ -484,6 +487,20 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
     }
     _isNoTemperatureChangeEnabled() {
         return Boolean(this.stateObj?.attributes.noChange);
+    }
+    _getTemperatureStep() {
+        const configuredStep = this.stateObj?.attributes.temperature_step;
+        if (typeof configuredStep === 'number' && Number.isFinite(configuredStep) && configuredStep > 0) {
+            return configuredStep;
+        }
+        return 0.5;
+    }
+    _getHumidityStep() {
+        const configuredStep = this.stateObj?.attributes.humidity_step;
+        if (typeof configuredStep === 'number' && Number.isFinite(configuredStep) && configuredStep > 0) {
+            return configuredStep;
+        }
+        return 1;
     }
     _renderNoTemperatureChangeToggle() {
         if (!this.stateObj)

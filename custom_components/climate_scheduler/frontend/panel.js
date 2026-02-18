@@ -462,6 +462,15 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                 </select>
                                                 <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Step size for temperature input fields and up/down buttons</p>
                                             </div>
+                                            <div class="setting-item" style="flex:1; min-width:280px;">
+                                                <label for="humidity-step">Humidity Slider Step:</label>
+                                                <select id="humidity-step" style="padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;">
+                                                    <option value="1">1%</option>
+                                                    <option value="2">2%</option>
+                                                    <option value="5">5%</option>
+                                                </select>
+                                                <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Step size for humidity slider in node settings dialog</p>
+                                            </div>
                                         </div>
                                     </div>
                                     
