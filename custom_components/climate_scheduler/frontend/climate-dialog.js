@@ -714,6 +714,7 @@ ClimateControlDialog.styles = i$3 `
     }
 
     .dual-range-input::-moz-range-thumb {
+      pointer-events: all;
       border: none;
       width: 20px !important;
       height: 20px !important;

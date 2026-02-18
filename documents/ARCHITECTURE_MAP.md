@@ -51,6 +51,8 @@ Purpose: minimal index for where to change code safely.
 - Tooltip behavior:
   - src/keyframe-timeline.ts
   - custom_components/climate_scheduler/frontend/app.js (mode selector)
+- Climate dialog dual-range slider browser compatibility:
+  - src/climate-dialog.ts (thumb pointer-events for `::-webkit-slider-thumb` and `::-moz-range-thumb`)
 - Day/mode mapping:
   - custom_components/climate_scheduler/storage.py
   - custom_components/climate_scheduler/frontend/app.js
@@ -75,5 +77,5 @@ Purpose: minimal index for where to change code safely.
 
 ## Last Updated
 
-- Date: 2026-02-15
+- Date: 2026-02-18
 - Updated by: Copilot (GPT-5.3-Codex)

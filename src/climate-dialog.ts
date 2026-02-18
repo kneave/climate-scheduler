@@ -176,6 +176,7 @@ export class ClimateControlDialog extends LitElement {
     }
 
     .dual-range-input::-moz-range-thumb {
+      pointer-events: all;
       border: none;
       width: 20px !important;
       height: 20px !important;

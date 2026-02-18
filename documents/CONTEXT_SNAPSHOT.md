@@ -23,6 +23,7 @@ Purpose: compact handoff for future Copilot sessions.
 - Node actions are timeline-context aware.
 - Delete uses trash icon; close uses X.
 - Save pipeline is debounced and guarded by in-progress flags.
+- Climate dialog dual-range sliders rely on `pointer-events: none` at input level and must explicitly enable thumb interaction for both WebKit and Firefox (`::-webkit-slider-thumb` and `::-moz-range-thumb`).
 
 ## High-Risk Areas
 
@@ -56,5 +57,5 @@ Purpose: compact handoff for future Copilot sessions.
 
 ## Last Updated
 
-- Date: 2026-02-15
+- Date: 2026-02-18
 - Updated by: Copilot (GPT-5.3-Codex)
