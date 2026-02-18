@@ -92,6 +92,13 @@ let saveTimeout = null; // Timeout for debouncing save operations
 const SAVE_DEBOUNCE_MS = 300; // Wait 300ms after last change before saving
 let serverTimeZone = null; // Store the Home Assistant server timezone
 
+function flushPendingSaveIfNeeded() {
+    if (!isLoadingSchedule && !isSaveInProgress && pendingSaveNeeded) {
+        pendingSaveNeeded = false;
+        saveSchedule();
+    }
+}
+
 // Debug logging function
 function debugLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
@@ -899,6 +906,7 @@ function getScheduleNodesForDay(schedules, dayKey) {
 }
 
 function setMainEditingContext(editorRoot = null) {
+    const wasEditingProfile = editingProfile !== null;
     editingProfile = null;
 
     const activeProfile = (currentGroup && allGroups[currentGroup])
@@ -911,7 +919,11 @@ function setMainEditingContext(editorRoot = null) {
         graph = mainTimeline;
     }
 
-    if (currentGroup && allGroups[currentGroup] && allGroups[currentGroup].schedules) {
+    // Regression guard:
+    // Do NOT reload currentSchedule from group cache during normal node selection.
+    // That can overwrite in-memory edits before the debounced save runs, causing
+    // "new nodes save, existing-node edits do not" behavior.
+    if (wasEditingProfile && currentGroup && allGroups[currentGroup] && allGroups[currentGroup].schedules) {
         const schedules = allGroups[currentGroup].schedules;
         const nodesForDay = getScheduleNodesForDay(schedules, currentDay);
         currentSchedule = nodesForDay.map(n => ({ ...n }));
@@ -1030,7 +1042,11 @@ async function editGroupSchedule(groupName, day = null) {
     
     // Find the group container
     const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${groupName}"]`);
-    if (!groupContainer) return;
+    if (!groupContainer) {
+        isLoadingSchedule = false;
+        flushPendingSaveIfNeeded();
+        return;
+    }
     
     // Mark as expanded
     groupContainer.classList.add('expanded');
@@ -1049,6 +1065,8 @@ async function editGroupSchedule(groupName, day = null) {
     const canvasLoaded = await loadKeyframeTimeline();
     if (!canvasLoaded) {
         console.error('Failed to load keyframe-timeline component');
+        isLoadingSchedule = false;
+        flushPendingSaveIfNeeded();
         return;
     }
     
@@ -1255,6 +1273,7 @@ async function editGroupSchedule(groupName, day = null) {
     // Clear loading flag now that setup is complete
         //
     isLoadingSchedule = false;
+    flushPendingSaveIfNeeded();
 }
 
 // Create settings panel with controls and mode selector
@@ -4039,6 +4058,7 @@ async function switchScheduleMode(newMode) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
+            flushPendingSaveIfNeeded();
         //
         }, 100);
         
@@ -4096,6 +4116,7 @@ async function switchDay(day) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
+            flushPendingSaveIfNeeded();
         }, 100);
         
         // Clear editing profile and hide indicator when returning to active profile
@@ -4259,6 +4280,7 @@ async function loadGroupHistoryData(entityIds) {
 async function saveSchedule() {
     // Don't save if we're in the middle of loading a schedule
     if (isLoadingSchedule) {
+        pendingSaveNeeded = true;
         return;
     }
     
@@ -4291,10 +4313,12 @@ async function performSave() {
     
     // Check if we're editing a group schedule
     if (currentGroup) {
-        const nodes = getGraphNodes();
-        
         try {
-            const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
+            const nodes = getGraphNodes();
+            const enabledToggle = getDocumentRoot().querySelector('#schedule-enabled');
+            const enabled = enabledToggle
+                ? enabledToggle.checked
+                : (allGroups[currentGroup]?.enabled !== false);
             
             // Check if we're editing a non-active profile
             const groupData = allGroups[currentGroup];
@@ -4313,11 +4337,20 @@ async function performSave() {
                 allGroups[currentGroup].schedules[currentDay] = JSON.parse(JSON.stringify(nodes));
             }
             
-            // Update enabled state
-            if (enabled) {
-                await haAPI.enableGroup(currentGroup);
-            } else {
-                await haAPI.disableGroup(currentGroup);
+            // Update enabled state (do not fail schedule save if this secondary call fails)
+            try {
+                if (enabled) {
+                    await haAPI.enableGroup(currentGroup);
+                } else {
+                    await haAPI.disableGroup(currentGroup);
+                }
+            } catch (enableError) {
+                console.error('[SAVE] Schedule saved but failed to update enabled state:', {
+                    error: enableError,
+                    groupName: currentGroup,
+                    enabled
+                });
+                showToast('Schedule saved, but failed to update enabled state.', 'warning');
             }
             
             // Update local state
@@ -4333,6 +4366,7 @@ async function performSave() {
                 groupName: currentGroup,
                 timeSinceSaveStart: (performance.now() - saveStartTime).toFixed(2) + 'ms'
             });
+            showToast('Failed to save schedule. Check browser console for details.', 'error');
         } finally {
             isSaveInProgress = false;
             

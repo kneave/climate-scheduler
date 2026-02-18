@@ -34,6 +34,7 @@ Target: custom_components/climate_scheduler/frontend/app.js
 - Node action applies to wrong timeline context.
 - Non-active profile edits leak into active profile.
 - Pending save dropped while save in progress.
+- `currentSchedule` overwritten from cached group data during node selection, dropping unsaved edits.
 - Node settings panel location/context mismatch after selection.
 - Listener duplication after re-render/editor rebuild.
 
@@ -49,10 +50,11 @@ Target: custom_components/climate_scheduler/frontend/app.js
 
 - Select/move/delete node in active timeline.
 - Select/move/delete node in profile timeline.
+- Edit existing node settings (mode/temp/noChange), then select another node and confirm edits persist/save.
 - Confirm save persists and panel state is stable.
 - Confirm mode/day/profile switch does not corrupt current schedule.
 
 ## Last Updated
 
-- Date: 2026-02-15
+- Date: 2026-02-18
 - Updated by: Copilot (GPT-5.3-Codex)
