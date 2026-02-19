@@ -57,8 +57,9 @@ Target: custom_components/climate_scheduler/frontend/app.js
 - Trigger an edit while schedule is loading; confirm save runs after load completes.
 - Confirm mode/day/profile switch does not corrupt current schedule.
 - Change temperature and humidity slider-step settings, open node dialog, and confirm slider increments match configured step.
+- Drag timeline nodes and adjust node-settings temperature controls repeatedly; confirm saved/displayed values are step-normalized (no float tails like `18.40000000002`).
 
 ## Last Updated
 
-- Date: 2026-02-18
+- Date: 2026-02-19
 - Updated by: Copilot (GPT-5.3-Codex)

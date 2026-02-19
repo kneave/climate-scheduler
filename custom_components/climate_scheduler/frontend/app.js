@@ -25,11 +25,44 @@ let storedTemperatureUnit = null; // Unit that schedules were saved in
 
 function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
-    const multiplier = 1 / graphSnapStep;
     return nodes.map(node => ({
         ...node,
-        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * multiplier) / multiplier
+        temp: normalizeTemperature(convertTemperature(node.temp, fromUnit, toUnit), graphSnapStep)
     }));
+}
+
+function getStepPrecision(step) {
+    if (!Number.isFinite(step) || step <= 0) {
+        return 3;
+    }
+
+    const stepString = step.toString().toLowerCase();
+    if (stepString.includes('e-')) {
+        const exponent = Number(stepString.split('e-')[1]);
+        return Number.isFinite(exponent) ? exponent : 3;
+    }
+
+    const decimalPart = stepString.split('.')[1];
+    return decimalPart ? decimalPart.length : 0;
+}
+
+function roundToPrecision(value, precision) {
+    const safePrecision = Math.max(0, Math.min(precision, 10));
+    const factor = 10 ** safePrecision;
+    return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function normalizeTemperature(value, step = null) {
+    if (!Number.isFinite(value)) {
+        return value;
+    }
+
+    if (Number.isFinite(step) && step > 0) {
+        const snapped = Math.round(value / step) * step;
+        return roundToPrecision(snapped, getStepPrecision(step));
+    }
+
+    return roundToPrecision(value, 4);
 }
 
 function resolveNoChangeLockedTemp(nodes, targetNode) {
@@ -755,7 +788,7 @@ function scheduleNodesToKeyframes(nodes) {
             const decimalHours = hours + (minutes / 60);
             return {
                 time: decimalHours,
-                value: node.temp
+                value: normalizeTemperature(node.temp)
             };
         })
         .sort((a, b) => a.time - b.time); // Sort by time
@@ -780,7 +813,7 @@ function keyframesToScheduleNodes(keyframes) {
             // Keep existing node with updated temp
             return {
                 ...existingNode,
-                temp: kf.value
+                temp: normalizeTemperature(kf.value, graphSnapStep)
             };
         }
         
@@ -819,7 +852,7 @@ function keyframesToScheduleNodes(keyframes) {
         
         return {
             time: timeStr,
-            temp: kf.value,
+            temp: normalizeTemperature(kf.value, graphSnapStep),
             hvac_mode: hvac_mode
         };
     });
@@ -3078,9 +3111,11 @@ function attachEditorEventListeners(editorElement) {
             if (tempInput && tempInput.value) {
                 const temp = parseFloat(tempInput.value);
                 if (!isNaN(temp)) {
-                    keyframe.value = temp;
+                    const normalizedTemp = normalizeTemperature(temp, inputTempStep);
+                    keyframe.value = normalizedTemp;
+                    tempInput.value = String(normalizedTemp);
                     if (scheduleNode) {
-                        scheduleNode.temp = temp;
+                        scheduleNode.temp = normalizedTemp;
                     }
                 }
             }
@@ -3231,8 +3266,7 @@ function attachEditorEventListeners(editorElement) {
             if (tempNoChange && tempNoChange.checked) return;
             
             // Increment based on inputTempStep setting
-            const multiplier = 1 / inputTempStep;
-            keyframe.value = Math.round((keyframe.value + inputTempStep) * multiplier) / multiplier;
+            keyframe.value = normalizeTemperature(keyframe.value + inputTempStep, inputTempStep);
             
             // Update corresponding scheduleNode.temp
             const hours = Math.floor(keyframe.time);
@@ -3243,7 +3277,7 @@ function attachEditorEventListeners(editorElement) {
                 scheduleNode.temp = keyframe.value;
             }
             
-            tempInput.value = keyframe.value;
+            tempInput.value = String(keyframe.value);
             
             // Update UI immediately
             timeline.render();
@@ -3269,8 +3303,7 @@ function attachEditorEventListeners(editorElement) {
             if (tempNoChange && tempNoChange.checked) return;
             
             // Decrement based on inputTempStep setting
-            const multiplier = 1 / inputTempStep;
-            keyframe.value = Math.round((keyframe.value - inputTempStep) * multiplier) / multiplier;
+            keyframe.value = normalizeTemperature(keyframe.value - inputTempStep, inputTempStep);
             
             // Update corresponding scheduleNode.temp
             const hours = Math.floor(keyframe.time);
@@ -3281,7 +3314,7 @@ function attachEditorEventListeners(editorElement) {
                 scheduleNode.temp = keyframe.value;
             }
             
-            tempInput.value = keyframe.value;
+            tempInput.value = String(keyframe.value);
             
             // Update UI immediately
             timeline.render();
@@ -5514,9 +5547,10 @@ async function handleNodeSettings(event) {
     });
     
     dialogEl.addEventListener('temperature-changed', (e) => {
-        scheduleNode.temp = e.detail.temperature;
+        const normalizedTemp = normalizeTemperature(e.detail.temperature);
+        scheduleNode.temp = normalizedTemp;
         scheduleNode.noChange = false;
-        keyframe.value = e.detail.temperature;
+        keyframe.value = normalizedTemp;
         keyframe.noChange = false;
         // Trigger Lit reactivity by reassigning the array
         timelineRef.keyframes = [...timelineRef.keyframes];
@@ -5524,14 +5558,14 @@ async function handleNodeSettings(event) {
     });
     
     dialogEl.addEventListener('target-temp-low-changed', (e) => {
-        scheduleNode.target_temp_low = e.detail.temperature;
+        scheduleNode.target_temp_low = normalizeTemperature(e.detail.temperature);
         scheduleNode.noChange = false;
         keyframe.noChange = false;
         saveSchedule();
     });
     
     dialogEl.addEventListener('target-temp-high-changed', (e) => {
-        scheduleNode.target_temp_high = e.detail.temperature;
+        scheduleNode.target_temp_high = normalizeTemperature(e.detail.temperature);
         scheduleNode.noChange = false;
         keyframe.noChange = false;
         saveSchedule();

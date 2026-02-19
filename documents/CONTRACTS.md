@@ -36,6 +36,7 @@ Frontend dialog-state contract (runtime → climate dialog):
 - `stateObj.attributes.temperature_step` (optional number; defaults to `0.5` in dialog)
 - `stateObj.attributes.humidity_step` (optional number; defaults to `1` in dialog)
 - These are UI precision controls only and do not alter backend node schema.
+- Frontend timeline and slider edit paths must be step-normalized before persistence (no float tails like `18.40000000002`).
 
 ## Schedule Contract
 
@@ -124,5 +125,5 @@ storage async_load migrations:
 
 ## Last Updated
 
-- Date: 2026-02-18
+- Date: 2026-02-19
 - Updated by: Copilot (GPT-5.3-Codex)

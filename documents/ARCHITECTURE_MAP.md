@@ -60,6 +60,10 @@ Purpose: minimal index for where to change code safely.
   - src/climate-dialog.ts (`_getTemperatureStep`, `_getHumidityStep`)
   - src/panel.ts (settings UI for temperature/humidity slider step)
   - custom_components/climate_scheduler/frontend/app.js (settings propagation into dialog state)
+- Temperature precision normalization (step-normalized, no float tails like `18.40000000002`):
+  - src/keyframe-timeline.ts (graph drag snap/round path)
+  - src/climate-dialog.ts (slider event normalization)
+  - custom_components/climate_scheduler/frontend/app.js (node/settings save normalization)
 - Day/mode mapping:
   - custom_components/climate_scheduler/storage.py
   - custom_components/climate_scheduler/frontend/app.js
@@ -84,5 +88,5 @@ Purpose: minimal index for where to change code safely.
 
 ## Last Updated
 
-- Date: 2026-02-18
+- Date: 2026-02-19
 - Updated by: Copilot (GPT-5.3-Codex)

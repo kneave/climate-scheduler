@@ -624,9 +624,35 @@ export class KeyframeTimeline extends LitElement {
   private snapValueToGrid(value: number): number {
     // Snap value to grid if snapValue is set
     if (this.snapValue > 0) {
-      return Math.round(value / this.snapValue) * this.snapValue;
+      const snapped = Math.round(value / this.snapValue) * this.snapValue;
+      return this.roundToStepPrecision(snapped, this.snapValue);
     }
-    return value;
+    return this.roundToPrecision(value, 4);
+  }
+
+  private roundToStepPrecision(value: number, step: number): number {
+    return this.roundToPrecision(value, this.getStepPrecision(step));
+  }
+
+  private roundToPrecision(value: number, precision: number): number {
+    const safePrecision = Math.max(0, Math.min(precision, 10));
+    const factor = 10 ** safePrecision;
+    return Math.round((value + Number.EPSILON) * factor) / factor;
+  }
+
+  private getStepPrecision(step: number): number {
+    if (!Number.isFinite(step) || step <= 0) {
+      return 3;
+    }
+
+    const stepString = step.toString().toLowerCase();
+    if (stepString.includes('e-')) {
+      const exponent = Number(stepString.split('e-')[1]);
+      return Number.isFinite(exponent) ? exponent : 3;
+    }
+
+    const decimalPart = stepString.split('.')[1];
+    return decimalPart ? decimalPart.length : 0;
   }
 
   private getGraphDimensions(rect: DOMRect) {

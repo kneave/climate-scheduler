@@ -49,6 +49,7 @@ Purpose: compact handoff for future Copilot sessions.
 - Profile save path does not mutate active profile unintentionally.
 - all_days / 5/2 / individual transitions resolve correctly.
 - advance/cancel and test event payloads behave as expected.
+- Timeline drag and node-settings/climate-dialog temperature slider edits stay step-normalized (no float tails like `18.40000000002`).
 
 ## Related Docs
 
@@ -60,5 +61,5 @@ Purpose: compact handoff for future Copilot sessions.
 
 ## Last Updated
 
-- Date: 2026-02-18
+- Date: 2026-02-19
 - Updated by: Copilot (GPT-5.3-Codex)

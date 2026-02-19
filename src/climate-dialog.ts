@@ -826,6 +826,28 @@ export class ClimateControlDialog extends LitElement {
     return 1;
   }
 
+  private _normalizeToStep(value: number, step: number): number {
+    const snapped = step > 0 ? Math.round(value / step) * step : value;
+    const precision = this._getStepPrecision(step);
+    const factor = 10 ** precision;
+    return Math.round((snapped + Number.EPSILON) * factor) / factor;
+  }
+
+  private _getStepPrecision(step: number): number {
+    if (!Number.isFinite(step) || step <= 0) {
+      return 3;
+    }
+
+    const stepString = step.toString().toLowerCase();
+    if (stepString.includes('e-')) {
+      const exponent = Number(stepString.split('e-')[1]);
+      return Number.isFinite(exponent) ? exponent : 3;
+    }
+
+    const decimalPart = stepString.split('.')[1];
+    return decimalPart ? decimalPart.length : 0;
+  }
+
   private _renderNoTemperatureChangeToggle() {
     if (!this.stateObj) return '';
 
@@ -865,7 +887,8 @@ export class ClimateControlDialog extends LitElement {
   }
 
   private _handleTempSlider(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
+    const rawValue = parseFloat((e.target as HTMLInputElement).value);
+    const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
     // Update stateObj to trigger re-render with new track fill
     if (this.stateObj) {
       this.stateObj = {
@@ -884,7 +907,8 @@ export class ClimateControlDialog extends LitElement {
   }
 
   private _handleTempLowSlider(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
+    const rawValue = parseFloat((e.target as HTMLInputElement).value);
+    const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
     // Update stateObj to trigger re-render with new track fill
     if (this.stateObj) {
       this.stateObj = {
@@ -903,7 +927,8 @@ export class ClimateControlDialog extends LitElement {
   }
 
   private _handleTempHighSlider(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
+    const rawValue = parseFloat((e.target as HTMLInputElement).value);
+    const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
     // Update stateObj to trigger re-render with new track fill
     if (this.stateObj) {
       this.stateObj = {
@@ -922,7 +947,8 @@ export class ClimateControlDialog extends LitElement {
   }
 
   private _handleHumiditySlider(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
+    const rawValue = parseFloat((e.target as HTMLInputElement).value);
+    const value = this._normalizeToStep(rawValue, this._getHumidityStep());
     // Update stateObj to trigger re-render with new track fill
     if (this.stateObj) {
       this.stateObj = {
