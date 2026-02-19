@@ -879,6 +879,14 @@ export class ClimateControlDialog extends LitElement {
   // Event handlers that dispatch custom events for parent to handle
   private _handleHvacModeChange(e: Event) {
     const value = (e.target as HTMLSelectElement).value;
+
+    if (this.stateObj) {
+      this.stateObj = {
+        ...this.stateObj,
+        state: value
+      };
+    }
+
     this.dispatchEvent(new CustomEvent('hvac-mode-changed', {
       detail: { mode: value },
       bubbles: true,

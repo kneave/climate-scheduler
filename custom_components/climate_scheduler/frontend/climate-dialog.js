@@ -547,6 +547,12 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
     // Event handlers that dispatch custom events for parent to handle
     _handleHvacModeChange(e) {
         const value = e.target.value;
+        if (this.stateObj) {
+            this.stateObj = {
+                ...this.stateObj,
+                state: value
+            };
+        }
         this.dispatchEvent(new CustomEvent('hvac-mode-changed', {
             detail: { mode: value },
             bubbles: true,
