@@ -65,6 +65,7 @@ Core fields:
 - schedule_mode
 - schedules
 - active_profile
+- active_profile_global (runtime/global-profile pointer)
 - _is_single_entity_group (internal)
 
 Global storage field:
