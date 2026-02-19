@@ -945,6 +945,55 @@ function placeNodeSettingsPanelAfter(anchorElement) {
     anchorElement.after(panel);
 }
 
+function getAddedKeyframeIndex(timeline, event) {
+    const keyframes = timeline?.keyframes || [];
+    if (keyframes.length === 0) return -1;
+
+    const addedTime = Number(event?.detail?.time);
+    const addedValue = Number(event?.detail?.value);
+
+    if (Number.isFinite(addedTime)) {
+        const timeTolerance = 0.0001;
+        const valueTolerance = 0.0001;
+
+        const byTimeAndValue = keyframes.findIndex(kf =>
+            Math.abs(kf.time - addedTime) < timeTolerance &&
+            (!Number.isFinite(addedValue) || Math.abs((kf.value || 0) - addedValue) < valueTolerance)
+        );
+        if (byTimeAndValue !== -1) return byTimeAndValue;
+
+        const byTime = keyframes.findIndex(kf => Math.abs(kf.time - addedTime) < timeTolerance);
+        if (byTime !== -1) return byTime;
+    }
+
+    return keyframes.length - 1;
+}
+
+function refreshOpenNodeSettingsForAddedKeyframe({ editor, timeline, event, beforeShow, anchorElement }) {
+    if (!editor || !timeline) return;
+
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    if (nodeSettingsTimeline && nodeSettingsTimeline !== timeline) return;
+
+    const keyframeIndex = getAddedKeyframeIndex(timeline, event);
+    if (keyframeIndex < 0) return;
+
+    const keyframe = timeline.keyframes?.[keyframeIndex];
+    if (!keyframe) return;
+
+    if (typeof beforeShow === 'function') {
+        beforeShow();
+    }
+
+    if (anchorElement) {
+        placeNodeSettingsPanelAfter(anchorElement);
+    }
+
+    showNodeSettingsPanel(editor, keyframeIndex, keyframe, timeline);
+}
+
 // Show node settings panel for a clicked keyframe
 function showNodeSettingsPanel(editor, keyframeIndex, keyframe, sourceTimeline = graph) {
     nodeSettingsTimeline = sourceTimeline || nodeSettingsTimeline;
@@ -1120,6 +1169,16 @@ async function editGroupSchedule(groupName, day = null) {
         timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
         timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
         timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
+
+        timeline.addEventListener('keyframe-added', (e) => {
+            refreshOpenNodeSettingsForAddedKeyframe({
+                editor,
+                timeline,
+                event: e,
+                beforeShow: () => setMainEditingContext(editor),
+                anchorElement: editor.querySelector('.graph-container')
+            });
+        });
         
         // Show node settings panel when keyframe is clicked
         timeline.addEventListener('keyframe-clicked', (e) => {
@@ -1800,6 +1859,16 @@ async function setupProfileHandlers(container, groupData) {
                         timeline.addEventListener('keyframe-deleted', saveProfileChanges);
                         timeline.addEventListener('keyframes-cleared', saveProfileChanges);
                         timeline.addEventListener('keyframe-restored', saveProfileChanges);
+
+                        timeline.addEventListener('keyframe-added', (e) => {
+                            refreshOpenNodeSettingsForAddedKeyframe({
+                                editor: editorRoot,
+                                timeline,
+                                event: e,
+                                beforeShow: () => setProfileEditingContext(),
+                                anchorElement: editorContainer
+                            });
+                        });
                     }
                 }
             } catch (error) {
