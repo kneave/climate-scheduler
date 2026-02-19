@@ -52,6 +52,8 @@ Frontend dialog-state contract (runtime → climate dialog):
 Invariants:
 - non-active profile save must not switch active_profile.
 - group-level current schedule mirrors active profile.
+- creating a new profile seeds a single `all_days` schedule from configured settings default schedule.
+- enabling monitoring for an entity/group with empty schedules seeds a single `all_days` schedule from configured settings default schedule.
 
 ## Group Contract
 

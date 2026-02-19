@@ -315,6 +315,26 @@ class ScheduleStorage:
         await self._store.async_save(self._data)
         _LOGGER.debug(f"Saved schedule data: {self._data}")
 
+    def _get_default_schedule_template(self) -> List[Dict[str, Any]]:
+        """Return configured default schedule template with validation fallback."""
+        settings = self._data.get("settings", {})
+        configured = settings.get("defaultSchedule") or settings.get("default_schedule")
+
+        if isinstance(configured, list) and configured:
+            valid_nodes: List[Dict[str, Any]] = []
+            for node in configured:
+                if validate_node(node):
+                    valid_nodes.append(copy.deepcopy(node))
+
+            if valid_nodes:
+                return valid_nodes
+
+        return copy.deepcopy(DEFAULT_SCHEDULE)
+
+    def _build_schedules_from_template(self, default_schedule: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Build schedule dictionary from the single default schedule template."""
+        return {"all_days": copy.deepcopy(default_schedule)}
+
     async def async_get_settings(self) -> Dict[str, Any]:
         """Return current global settings."""
         return self._data.get("settings", {})
@@ -557,12 +577,41 @@ class ScheduleStorage:
         
         # Update the group if the entity is in one
         if entity_group_name:
-            self._data["groups"][entity_group_name]["ignored"] = ignored
+            group_data = self._data["groups"][entity_group_name]
+            group_data["ignored"] = ignored
             # If ignored, disable the group; if not ignored, enable it
             if ignored:
-                self._data["groups"][entity_group_name]["enabled"] = False
+                group_data["enabled"] = False
             else:
-                self._data["groups"][entity_group_name]["enabled"] = True
+                group_data["enabled"] = True
+
+                schedules = group_data.get("schedules", {})
+                has_any_nodes = (
+                    isinstance(schedules, dict)
+                    and any(isinstance(nodes, list) and len(nodes) > 0 for nodes in schedules.values())
+                )
+
+                if not has_any_nodes:
+                    default_schedule = self._get_default_schedule_template()
+                    group_data["schedule_mode"] = "all_days"
+                    group_data["schedules"] = self._build_schedules_from_template(default_schedule)
+
+                    profiles = group_data.get("profiles", {})
+                    if not isinstance(profiles, dict):
+                        profiles = {}
+                    if "Default" not in profiles or not isinstance(profiles.get("Default"), dict):
+                        profiles["Default"] = {}
+
+                    default_profile = profiles["Default"]
+                    default_profile["schedule_mode"] = "all_days"
+                    default_profile["schedules"] = copy.deepcopy(group_data["schedules"])
+                    group_data["profiles"] = profiles
+                    group_data["active_profile"] = group_data.get("active_profile") or "Default"
+
+                    _LOGGER.info(
+                        f"Applied configured default schedule to group '{entity_group_name}' while enabling monitoring"
+                    )
+
             _LOGGER.info(f"Set group '{entity_group_name}' ignored={ignored}, enabled={not ignored} for entity {entity_id}")
         else:
             # Entity is not in any group, create a single-entity group
@@ -595,16 +644,17 @@ class ScheduleStorage:
                 _LOGGER.info(f"Created single-entity group '{single_group_name}' for {entity_id} with ignored=True")
             else:
                 # Create with default schedule and ignored=False
+                default_schedule = self._get_default_schedule_template()
                 self._data["groups"][single_group_name] = {
                     "entities": [entity_id],
                     "enabled": True,
                     "ignored": False,
                     "schedule_mode": "all_days",
-                    "schedules": {"all_days": DEFAULT_SCHEDULE.copy()},
+                    "schedules": {"all_days": copy.deepcopy(default_schedule)},
                     "profiles": {
                         "Default": {
                             "schedule_mode": "all_days",
-                            "schedules": {"all_days": DEFAULT_SCHEDULE.copy()}
+                            "schedules": {"all_days": copy.deepcopy(default_schedule)}
                         }
                     },
                     "active_profile": "Default",
@@ -1429,13 +1479,13 @@ class ScheduleStorage:
         if profile_name in target_data["profiles"]:
             raise ValueError(f"Profile '{profile_name}' already exists")
 
-        # Create new profile with current active schedule as template
-        current_mode = target_data.get("schedule_mode", "all_days")
-        current_schedules = copy.deepcopy(target_data.get("schedules", {"all_days": []}))
+        # Create new profile with configured default schedule template
+        default_schedule = self._get_default_schedule_template()
+        profile_schedules = self._build_schedules_from_template(default_schedule)
 
         target_data["profiles"][profile_name] = {
-            "schedule_mode": current_mode,
-            "schedules": current_schedules
+            "schedule_mode": "all_days",
+            "schedules": profile_schedules
         }
 
         await self.async_save()
