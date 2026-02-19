@@ -1879,14 +1879,30 @@ export class KeyframeTimeline extends LitElement {
   }
   
   // Save current state to undo stack
+  private emitUndoStackChanged(action: 'push' | 'pop' | 'trim', size: number, removedCount = 0) {
+    this.dispatchEvent(new CustomEvent('undo-stack-changed', {
+      detail: {
+        action,
+        size,
+        removedCount,
+        keyframeCount: this.keyframes.length
+      },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   private saveUndoState() {
     // Deep copy current keyframes
     const stateCopy = this.keyframes.map(kf => ({ ...kf }));
     this.undoStack = [...this.undoStack, stateCopy];
+    this.emitUndoStackChanged('push', this.undoStack.length);
     
     // Limit undo stack to 50 entries
     if (this.undoStack.length > 50) {
+      const removedCount = this.undoStack.length - 50;
       this.undoStack = this.undoStack.slice(-50);
+      this.emitUndoStackChanged('trim', this.undoStack.length, removedCount);
     }
     
     this.updateUndoButtonState();
@@ -1900,6 +1916,7 @@ export class KeyframeTimeline extends LitElement {
     // Pop last state from undo stack
     const previousState = this.undoStack[this.undoStack.length - 1];
     this.undoStack = this.undoStack.slice(0, -1);
+    this.emitUndoStackChanged('pop', this.undoStack.length, 1);
     
     // Restore previous state
     this.keyframes = previousState.map(kf => ({ ...kf }));

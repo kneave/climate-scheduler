@@ -51,6 +51,7 @@ Purpose: compact handoff for future Copilot sessions.
 - all_days / 5/2 / individual transitions resolve correctly.
 - advance/cancel and test event payloads behave as expected.
 - Timeline drag and node-settings/climate-dialog temperature slider edits stay step-normalized (no float tails like `18.40000000002`).
+- Climate dialog undo restores non-temperature node settings (HVAC/fan/swing/preset/range/humidity), not temperature only.
 
 ## Related Docs
 

@@ -58,6 +58,7 @@ Target: custom_components/climate_scheduler/frontend/app.js
 - Confirm mode/day/profile switch does not corrupt current schedule.
 - Change temperature and humidity slider-step settings, open node dialog, and confirm slider increments match configured step.
 - Drag timeline nodes and adjust node-settings temperature controls repeatedly; confirm saved/displayed values are step-normalized (no float tails like `18.40000000002`).
+- In climate dialog, change HVAC/fan/swing/preset/range/humidity settings and verify undo restores those non-temperature settings as well as temperature.
 
 ## Last Updated
 

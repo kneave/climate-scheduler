@@ -190,6 +190,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               ?disabled=${isNoTempChange}
               .value="${temperature}"
               @input=${this._handleTempSlider}
+              @change=${this._handleTempSliderChange}
               style="top: 0; --track-fill: ${trackFill}%;"
             />
           </div>
@@ -235,6 +236,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 ?disabled=${isNoTempChange}
                 .value="${target_temp_low}"
                 @input=${this._handleTempLowSlider}
+                @change=${this._handleTempLowSliderChange}
                 style="top: 0; --track-fill: ${lowPercent}%;"
               />
             </div>
@@ -264,6 +266,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
                 ?disabled=${isNoTempChange}
                 .value="${target_temp_high}"
                 @input=${this._handleTempHighSlider}
+                @change=${this._handleTempHighSliderChange}
                 style="top: 0; --track-fill: ${100 - highPercent}%;"
               />
             </div>
@@ -301,6 +304,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               ?disabled=${isNoTempChange}
               .value="${target_temp_low}"
               @input=${this._handleTempLowSlider}
+              @change=${this._handleTempLowSliderChange}
               style="top: 0; --track-fill: ${lowPercent}%;"
             />
             <input 
@@ -312,6 +316,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               ?disabled=${isNoTempChange}
               .value="${target_temp_high}"
               @input=${this._handleTempHighSlider}
+              @change=${this._handleTempHighSliderChange}
               style="top: 0; --track-fill: ${100 - highPercent}%;"
             />
           </div>
@@ -346,6 +351,7 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
               step="${humidityStep}"
               .value="${target_humidity}"
               @input=${this._handleHumiditySlider}
+              @change=${this._handleHumiditySliderChange}
               style="top: 0; --track-fill: ${humidityPercent}%;"
             />
           </div>
@@ -578,6 +584,15 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             composed: true
         }));
     }
+    _handleTempSliderChange(e) {
+        const rawValue = parseFloat(e.target.value);
+        const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
+        this.dispatchEvent(new CustomEvent('temperature-change-committed', {
+            detail: { temperature: value },
+            bubbles: true,
+            composed: true
+        }));
+    }
     _handleTempLowSlider(e) {
         const rawValue = parseFloat(e.target.value);
         const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
@@ -592,6 +607,15 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             };
         }
         this.dispatchEvent(new CustomEvent('target-temp-low-changed', {
+            detail: { temperature: value },
+            bubbles: true,
+            composed: true
+        }));
+    }
+    _handleTempLowSliderChange(e) {
+        const rawValue = parseFloat(e.target.value);
+        const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
+        this.dispatchEvent(new CustomEvent('target-temp-low-committed', {
             detail: { temperature: value },
             bubbles: true,
             composed: true
@@ -616,6 +640,15 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             composed: true
         }));
     }
+    _handleTempHighSliderChange(e) {
+        const rawValue = parseFloat(e.target.value);
+        const value = this._normalizeToStep(rawValue, this._getTemperatureStep());
+        this.dispatchEvent(new CustomEvent('target-temp-high-committed', {
+            detail: { temperature: value },
+            bubbles: true,
+            composed: true
+        }));
+    }
     _handleHumiditySlider(e) {
         const rawValue = parseFloat(e.target.value);
         const value = this._normalizeToStep(rawValue, this._getHumidityStep());
@@ -630,6 +663,15 @@ let ClimateControlDialog = class ClimateControlDialog extends i {
             };
         }
         this.dispatchEvent(new CustomEvent('humidity-changed', {
+            detail: { humidity: value },
+            bubbles: true,
+            composed: true
+        }));
+    }
+    _handleHumiditySliderChange(e) {
+        const rawValue = parseFloat(e.target.value);
+        const value = this._normalizeToStep(rawValue, this._getHumidityStep());
+        this.dispatchEvent(new CustomEvent('humidity-committed', {
             detail: { humidity: value },
             bubbles: true,
             composed: true

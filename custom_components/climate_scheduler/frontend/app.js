@@ -136,7 +136,18 @@ function flushPendingSaveIfNeeded() {
 // Debug logging function
 function debugLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
-        //
+
+    const shouldMirrorToConsole = typeof message === 'string' && (message.includes('[Undo]') || message.includes('[Dialog]'));
+    if (shouldMirrorToConsole) {
+        const consoleMessage = `[Climate Scheduler ${timestamp}] ${message}`;
+        if (type === 'error') {
+            console.error(consoleMessage);
+        } else if (type === 'warning') {
+            console.warn(consoleMessage);
+        } else {
+            console.info(consoleMessage);
+        }
+    }
     
     if (debugPanelEnabled) {
         const debugContent = getDocumentRoot().querySelector('#debug-content');
@@ -782,17 +793,43 @@ async function loadKeyframeTimeline() {
 // Convert schedule nodes {time: "HH:MM", temp: number} to keyframes {time: decimal_hours, value: number}
 function scheduleNodesToKeyframes(nodes) {
     const keyframes = nodes
-        .filter(node => !node.noChange && node.temp !== null && node.temp !== undefined)
+        .filter(node => node.temp !== null && node.temp !== undefined)
         .map(node => {
             const [hours, minutes] = node.time.split(':').map(Number);
             const decimalHours = hours + (minutes / 60);
             return {
                 time: decimalHours,
-                value: normalizeTemperature(node.temp)
+                value: normalizeTemperature(node.temp),
+                noChange: Boolean(node.noChange),
+                hvac_mode: node.hvac_mode ?? null,
+                fan_mode: node.fan_mode ?? null,
+                swing_mode: node.swing_mode ?? null,
+                swing_horizontal_mode: node.swing_horizontal_mode ?? null,
+                preset_mode: node.preset_mode ?? null,
+                target_temp_low: Number.isFinite(node.target_temp_low) ? node.target_temp_low : null,
+                target_temp_high: Number.isFinite(node.target_temp_high) ? node.target_temp_high : null,
+                target_humidity: Number.isFinite(node.target_humidity) ? node.target_humidity : null,
+                aux_heat: node.aux_heat ?? null
             };
         })
         .sort((a, b) => a.time - b.time); // Sort by time
     return keyframes;
+}
+
+function applyOptionalStringField(target, key, value) {
+    if (typeof value === 'string' && value.trim() !== '') {
+        target[key] = value;
+        return;
+    }
+    delete target[key];
+}
+
+function applyOptionalNumberField(target, key, value) {
+    if (Number.isFinite(value)) {
+        target[key] = value;
+        return;
+    }
+    delete target[key];
 }
 
 // Convert keyframes {time: decimal_hours, value: number} to schedule nodes {time: "HH:MM", temp: number}
@@ -809,20 +846,29 @@ function keyframesToScheduleNodes(keyframes) {
         
         // Find existing node in currentSchedule to preserve properties
         const existingNode = currentSchedule.find(n => n.time === timeStr);
-        if (existingNode) {
-            // Keep existing node with updated temp
-            return {
-                ...existingNode,
-                temp: normalizeTemperature(kf.value, graphSnapStep)
-            };
+        const scheduleNode = existingNode
+            ? { ...existingNode, time: timeStr, temp: normalizeTemperature(kf.value, graphSnapStep) }
+            : { time: timeStr, temp: normalizeTemperature(kf.value, graphSnapStep) };
+
+        // Mirror keyframe metadata back to schedule node so undo restores non-temp fields.
+        applyOptionalStringField(scheduleNode, 'hvac_mode', kf.hvac_mode);
+        applyOptionalStringField(scheduleNode, 'fan_mode', kf.fan_mode);
+        applyOptionalStringField(scheduleNode, 'swing_mode', kf.swing_mode);
+        applyOptionalStringField(scheduleNode, 'swing_horizontal_mode', kf.swing_horizontal_mode);
+        applyOptionalStringField(scheduleNode, 'preset_mode', kf.preset_mode);
+        applyOptionalStringField(scheduleNode, 'aux_heat', kf.aux_heat);
+
+        applyOptionalNumberField(scheduleNode, 'target_temp_low', kf.target_temp_low);
+        applyOptionalNumberField(scheduleNode, 'target_temp_high', kf.target_temp_high);
+        applyOptionalNumberField(scheduleNode, 'target_humidity', kf.target_humidity);
+
+        if (kf.noChange === true) {
+            scheduleNode.noChange = true;
+        } else {
+            delete scheduleNode.noChange;
         }
-        
-        // New nodes default non-temperature settings to "no change"
-        // by omitting mode-related fields until the user explicitly sets them.
-        return {
-            time: timeStr,
-            temp: normalizeTemperature(kf.value, graphSnapStep)
-        };
+
+        return scheduleNode;
     });
 }
 
@@ -994,6 +1040,55 @@ function refreshOpenNodeSettingsForAddedKeyframe({ editor, timeline, event, befo
     showNodeSettingsPanel(editor, keyframeIndex, keyframe, timeline);
 }
 
+function refreshOpenNodeSettingsAfterUndo({ editor, timeline, beforeShow, anchorElement }) {
+    if (!editor || !timeline) return;
+
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    if (nodeSettingsTimeline && nodeSettingsTimeline !== timeline) return;
+
+    const keyframes = timeline.keyframes || [];
+    if (keyframes.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const panelIndex = Number.parseInt(panel.dataset.nodeIndex, 10);
+    const keyframeIndex = Number.isFinite(panelIndex)
+        ? Math.max(0, Math.min(panelIndex, keyframes.length - 1))
+        : 0;
+    const keyframe = keyframes[keyframeIndex];
+    if (!keyframe) return;
+
+    if (typeof beforeShow === 'function') {
+        beforeShow();
+    }
+
+    if (anchorElement) {
+        placeNodeSettingsPanelAfter(anchorElement);
+    }
+
+    debugLog(`[Dialog][Undo] refreshing panel after restore index=${keyframeIndex}`);
+    showNodeSettingsPanel(editor, keyframeIndex, keyframe, timeline);
+}
+
+function attachUndoStackDebugLogging(timeline, label) {
+    if (!timeline || timeline.__undoDebugLoggingAttached) return;
+
+    timeline.addEventListener('undo-stack-changed', (event) => {
+        const detail = event.detail || {};
+        const action = detail.action || 'unknown';
+        const size = Number.isFinite(detail.size) ? detail.size : 'n/a';
+        const removedCount = Number.isFinite(detail.removedCount) ? detail.removedCount : 0;
+        const keyframeCount = Number.isFinite(detail.keyframeCount) ? detail.keyframeCount : 'n/a';
+
+        debugLog(`[Undo][${label}] action=${action} size=${size} removed=${removedCount} keyframes=${keyframeCount}`);
+    });
+
+    timeline.__undoDebugLoggingAttached = true;
+}
+
 // Show node settings panel for a clicked keyframe
 function showNodeSettingsPanel(editor, keyframeIndex, keyframe, sourceTimeline = graph) {
     nodeSettingsTimeline = sourceTimeline || nodeSettingsTimeline;
@@ -1162,6 +1257,7 @@ async function editGroupSchedule(groupName, day = null) {
         
         // Store reference
         graph = timeline;
+        attachUndoStackDebugLogging(timeline, 'main');
         
         // Attach event listeners for keyframe changes
         timeline.addEventListener('keyframe-moved', handleKeyframeTimelineChange);
@@ -1175,6 +1271,15 @@ async function editGroupSchedule(groupName, day = null) {
                 editor,
                 timeline,
                 event: e,
+                beforeShow: () => setMainEditingContext(editor),
+                anchorElement: editor.querySelector('.graph-container')
+            });
+        });
+
+        timeline.addEventListener('keyframe-restored', () => {
+            refreshOpenNodeSettingsAfterUndo({
+                editor,
+                timeline,
                 beforeShow: () => setMainEditingContext(editor),
                 anchorElement: editor.querySelector('.graph-container')
             });
@@ -1843,6 +1948,7 @@ async function setupProfileHandlers(container, groupData) {
                         // Set the keyframes AFTER appending to DOM
                         timeline.keyframes = scheduleNodesToKeyframes(profileCurrentSchedule);
                         setProfileEditingContext();
+                        attachUndoStackDebugLogging(timeline, `profile:${selectedProfile}`);
                         
                         // Add event listeners to save changes directly to the selected profile
                         const saveProfileChanges = async () => {
@@ -1865,6 +1971,15 @@ async function setupProfileHandlers(container, groupData) {
                                 editor: editorRoot,
                                 timeline,
                                 event: e,
+                                beforeShow: () => setProfileEditingContext(),
+                                anchorElement: editorContainer
+                            });
+                        });
+
+                        timeline.addEventListener('keyframe-restored', () => {
+                            refreshOpenNodeSettingsAfterUndo({
+                                editor: editorRoot,
+                                timeline,
                                 beforeShow: () => setProfileEditingContext(),
                                 anchorElement: editorContainer
                             });
@@ -5568,22 +5683,62 @@ async function handleNodeSettings(event) {
     const dialogEl = document.createElement('climate-control-dialog');
     dialogEl.stateObj = climateState;
     dialogEl.dataset.nodeIndex = nodeIndex;
+
+    let dialogUndoCaptured = false;
+    const dialogNodeLabel = `${node.time} (index ${nodeIndex})`;
+    debugLog(`[Dialog][State] open node=${dialogNodeLabel} undoCaptured=${dialogUndoCaptured} rev=undo-debug-v2`);
+    const logDialogChange = (name, payload) => {
+        try {
+            debugLog(`[Dialog][Change] ${name} node=${dialogNodeLabel} payload=${JSON.stringify(payload)}`);
+        } catch (error) {
+            debugLog(`[Dialog][Change] ${name} node=${dialogNodeLabel} payload=<unserializable>`, 'warning');
+        }
+    };
+
+    const captureDialogUndoState = ({ force = false, source = 'unknown' } = {}) => {
+        if (dialogUndoCaptured && !force) {
+            debugLog(`[Dialog][Undo] skip node=${dialogNodeLabel} reason=already-captured source=${source}`);
+            return;
+        }
+        if (dialogUndoCaptured && force) {
+            debugLog(`[Dialog][Undo] reset-before-capture node=${dialogNodeLabel} source=${source}`);
+            dialogUndoCaptured = false;
+        }
+        const undoSizeBefore = Array.isArray(timelineRef.undoStack) ? timelineRef.undoStack.length : 'n/a';
+        if (typeof timelineRef.saveUndoState === 'function') {
+            timelineRef.saveUndoState();
+            const undoSizeAfter = Array.isArray(timelineRef.undoStack) ? timelineRef.undoStack.length : 'n/a';
+            debugLog(`[Dialog][Undo] captured node=${dialogNodeLabel} stack=${undoSizeBefore}->${undoSizeAfter} source=${source}`);
+        } else {
+            debugLog(`[Dialog][Undo] saveUndoState unavailable for node=${dialogNodeLabel}`, 'warning');
+        }
+        dialogUndoCaptured = true;
+    };
+    const markDialogInteractionCommitted = () => {
+        debugLog(`[Dialog][Commit] node=${dialogNodeLabel}`);
+        dialogUndoCaptured = false;
+    };
     
     // Add event listeners for all the custom events
     dialogEl.addEventListener('hvac-mode-changed', (e) => {
+        logDialogChange('hvac-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'hvac-mode-changed' });
         if (e.detail.mode) {
             scheduleNode.hvac_mode = e.detail.mode;
-            keyframe.hvacMode = e.detail.mode;
+            keyframe.hvac_mode = e.detail.mode;
         } else {
             delete scheduleNode.hvac_mode;
-            delete keyframe.hvacMode;
+            keyframe.hvac_mode = null;
         }
         // Trigger Lit reactivity by reassigning the array
         timelineRef.keyframes = [...timelineRef.keyframes];
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('temperature-changed', (e) => {
+        logDialogChange('temperature-changed', e.detail);
+        captureDialogUndoState({ source: 'temperature-changed' });
         const normalizedTemp = normalizeTemperature(e.detail.temperature);
         scheduleNode.temp = normalizedTemp;
         scheduleNode.noChange = false;
@@ -5591,24 +5746,31 @@ async function handleNodeSettings(event) {
         keyframe.noChange = false;
         // Trigger Lit reactivity by reassigning the array
         timelineRef.keyframes = [...timelineRef.keyframes];
-        saveSchedule();
     });
     
     dialogEl.addEventListener('target-temp-low-changed', (e) => {
-        scheduleNode.target_temp_low = normalizeTemperature(e.detail.temperature);
+        logDialogChange('target-temp-low-changed', e.detail);
+        captureDialogUndoState({ source: 'target-temp-low-changed' });
+        const value = normalizeTemperature(e.detail.temperature);
+        scheduleNode.target_temp_low = value;
+        keyframe.target_temp_low = value;
         scheduleNode.noChange = false;
         keyframe.noChange = false;
-        saveSchedule();
     });
     
     dialogEl.addEventListener('target-temp-high-changed', (e) => {
-        scheduleNode.target_temp_high = normalizeTemperature(e.detail.temperature);
+        logDialogChange('target-temp-high-changed', e.detail);
+        captureDialogUndoState({ source: 'target-temp-high-changed' });
+        const value = normalizeTemperature(e.detail.temperature);
+        scheduleNode.target_temp_high = value;
+        keyframe.target_temp_high = value;
         scheduleNode.noChange = false;
         keyframe.noChange = false;
-        saveSchedule();
     });
 
     dialogEl.addEventListener('no-temp-change-changed', (e) => {
+        logDialogChange('no-temp-change-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'no-temp-change-changed' });
         const noTempChangeEnabled = Boolean(e.detail.enabled);
         scheduleNode.noChange = noTempChangeEnabled;
         keyframe.noChange = noTempChangeEnabled;
@@ -5623,53 +5785,96 @@ async function handleNodeSettings(event) {
 
         timelineRef.keyframes = [...timelineRef.keyframes];
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('humidity-changed', (e) => {
+        logDialogChange('humidity-changed', e.detail);
+        captureDialogUndoState({ source: 'humidity-changed' });
         scheduleNode.target_humidity = e.detail.humidity;
-        saveSchedule();
+        keyframe.target_humidity = e.detail.humidity;
     });
     
     dialogEl.addEventListener('fan-mode-changed', (e) => {
+        logDialogChange('fan-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'fan-mode-changed' });
         if (e.detail.mode) {
             scheduleNode.fan_mode = e.detail.mode;
+            keyframe.fan_mode = e.detail.mode;
         } else {
             delete scheduleNode.fan_mode;
+            keyframe.fan_mode = null;
         }
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('preset-mode-changed', (e) => {
+        logDialogChange('preset-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'preset-mode-changed' });
         if (e.detail.mode) {
             scheduleNode.preset_mode = e.detail.mode;
+            keyframe.preset_mode = e.detail.mode;
         } else {
             delete scheduleNode.preset_mode;
+            keyframe.preset_mode = null;
         }
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('swing-mode-changed', (e) => {
+        logDialogChange('swing-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'swing-mode-changed' });
         if (e.detail.mode) {
             scheduleNode.swing_mode = e.detail.mode;
+            keyframe.swing_mode = e.detail.mode;
         } else {
             delete scheduleNode.swing_mode;
+            keyframe.swing_mode = null;
         }
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('swing-horizontal-mode-changed', (e) => {
+        logDialogChange('swing-horizontal-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'swing-horizontal-mode-changed' });
         if (e.detail.mode) {
             scheduleNode.swing_horizontal_mode = e.detail.mode;
+            keyframe.swing_horizontal_mode = e.detail.mode;
         } else {
             delete scheduleNode.swing_horizontal_mode;
+            keyframe.swing_horizontal_mode = null;
         }
         saveSchedule();
+        markDialogInteractionCommitted();
     });
     
     dialogEl.addEventListener('aux-heat-changed', (e) => {
-        scheduleNode.aux_heat = e.detail.enabled ? 'on' : 'off';
+        logDialogChange('aux-heat-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'aux-heat-changed' });
+        const value = e.detail.enabled ? 'on' : 'off';
+        scheduleNode.aux_heat = value;
+        keyframe.aux_heat = value;
         saveSchedule();
+        markDialogInteractionCommitted();
     });
+
+    const handleDialogSliderCommit = () => {
+        saveSchedule();
+        markDialogInteractionCommitted();
+    };
+
+    dialogEl.addEventListener('temperature-change-committed', (e) => logDialogChange('temperature-change-committed', e.detail));
+    dialogEl.addEventListener('target-temp-low-committed', (e) => logDialogChange('target-temp-low-committed', e.detail));
+    dialogEl.addEventListener('target-temp-high-committed', (e) => logDialogChange('target-temp-high-committed', e.detail));
+    dialogEl.addEventListener('humidity-committed', (e) => logDialogChange('humidity-committed', e.detail));
+
+    dialogEl.addEventListener('temperature-change-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('target-temp-low-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('target-temp-high-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('humidity-committed', handleDialogSliderCommit);
     
     container.appendChild(dialogEl);
     
@@ -5846,6 +6051,7 @@ async function initializeDefaultScheduleGraph() {
         container.appendChild(timelineEditorContainer);
         
         defaultScheduleGraph = timeline;
+        attachUndoStackDebugLogging(timeline, 'default');
         
         // Get button references
         const undoBtn = controls.buttons['graph-undo-btn'];
