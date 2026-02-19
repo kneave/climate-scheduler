@@ -277,8 +277,8 @@ export class KeyframeTimeline extends LitElement {
     
     .scroll-nav {
       position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
+      top: 10px;
+      transform: none;
       background: var(--card-background-color, rgba(0, 0, 0, 0.6));
       color: var(--primary-text-color, white);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
@@ -300,11 +300,11 @@ export class KeyframeTimeline extends LitElement {
     }
     
     .scroll-nav.left {
-      left: 10px;
+      left: -10px;
     }
     
     .scroll-nav.right {
-      right: 10px;
+      right: -10px;
     }
 
     .graph-legend {
