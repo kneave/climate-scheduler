@@ -27,6 +27,7 @@ Purpose: compact handoff for future Copilot sessions.
 - Node-selection context switches in main timeline must not overwrite in-memory `currentSchedule` edits.
 - Climate dialog dual-range sliders rely on `pointer-events: none` at input level and must explicitly enable thumb interaction for both WebKit and Firefox (`::-webkit-slider-thumb` and `::-moz-range-thumb`).
 - Climate dialog slider steps are settings-driven: temperature uses `temperature_step` (default `0.5`) and humidity uses `humidity_step` (default `1`).
+- New timeline nodes default non-temperature settings to no-change (mode fields omitted until user sets them).
 
 ## High-Risk Areas
 

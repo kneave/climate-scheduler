@@ -31,6 +31,7 @@ Invariants:
 - Frontend no-temperature-change toggle locks node temperature to previous-node value with wrap-around; single-node schedules retain their own value.
 - Frontend mode selectors expose `-- No Change --` as empty string; save path removes mode field when empty.
 - Mode no-change is represented by omitted node fields (`hvac_mode`, `fan_mode`, `swing_mode`, `preset_mode`) rather than a sentinel string.
+- Newly added timeline nodes default non-temperature settings to no-change by omitting mode fields until explicitly set.
 
 Frontend dialog-state contract (runtime → climate dialog):
 - `stateObj.attributes.temperature_step` (optional number; defaults to `0.5` in dialog)
