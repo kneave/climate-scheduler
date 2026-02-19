@@ -237,6 +237,27 @@ class ClimateSchedulerPanel extends HTMLElement {
                                 <!-- Dynamically populated with groups -->
                             </div>
                         </div>
+
+                        <div class="profiles-section">
+                            <div class="group-container collapsed" id="global-profile-container">
+                                <div class="group-header" id="toggle-global-profiles">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span class="group-toggle-icon" style="transform: rotate(-90deg);">▼</span>
+                                        <span class="group-title">Profiles</span>
+                                    </div>
+                                </div>
+                                <div id="global-profile-list" style="display: none; padding: 12px 16px;">
+                                    <div class="profile-controls">
+                                        <select id="profile-dropdown" class="profile-dropdown">
+                                            <option value="" disabled selected>Select a profile to edit...</option>
+                                        </select>
+                                        <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
+                                        <button id="rename-profile-btn" class="btn-profile" title="Rename profile">✎</button>
+                                        <button id="delete-profile-btn" class="btn-profile" title="Delete profile">🗑</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         
                         <div class="ignored-section">
                             <div class="group-container collapsed" id="ignored-container">

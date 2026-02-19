@@ -1,7 +1,6 @@
 """Climate platform for Climate Scheduler."""
 import asyncio
 import logging
-import copy
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta, time
 
@@ -452,26 +451,11 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
     
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode (profile) for this group."""
-        # Verify the preset exists
-        group_data = self._storage._data.get("groups", {}).get(self._group_name)
-        if not group_data:
-            _LOGGER.error(f"Group {self._group_name} not found")
+        try:
+            await self._storage.async_set_active_profile(self._group_name, preset_mode)
+        except ValueError as err:
+            _LOGGER.error(f"Profile switch failed for group {self._group_name}: {err}")
             return
-        
-        profiles = group_data.get("profiles", {})
-        if preset_mode not in profiles:
-            _LOGGER.error(f"Profile {preset_mode} not found in group {self._group_name}")
-            return
-        
-        # Update active profile
-        group_data["active_profile"] = preset_mode
-        
-        # Load the profile's schedule
-        profile_data = profiles[preset_mode]
-        group_data["schedule_mode"] = profile_data.get("schedule_mode", "all_days")
-        group_data["schedules"] = copy.deepcopy(profile_data.get("schedules", {}))
-        
-        await self._storage.async_save()
         
         # Force coordinator refresh to apply new schedule immediately
         await self.coordinator.async_request_refresh()

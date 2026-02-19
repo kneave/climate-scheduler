@@ -226,6 +226,10 @@ button, .btn {
     margin-bottom: 20px;
 }
 
+.profiles-section {
+    margin-bottom: 20px;
+}
+
 .groups-list {
     display: flex;
     flex-direction: column;

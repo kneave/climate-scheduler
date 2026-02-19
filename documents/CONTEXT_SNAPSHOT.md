@@ -28,7 +28,10 @@ Purpose: compact handoff for future Copilot sessions.
 - Climate dialog dual-range sliders rely on `pointer-events: none` at input level and must explicitly enable thumb interaction for both WebKit and Firefox (`::-webkit-slider-thumb` and `::-moz-range-thumb`).
 - Climate dialog slider steps are settings-driven: temperature uses `temperature_step` (default `0.5`) and humidity uses `humidity_step` (default `1`).
 - New timeline nodes default non-temperature settings to no-change (mode fields omitted until user sets them).
-- New profile creation seeds a single `all_days` schedule from configured default schedule.
+- Profiles are global and shared across schedules; groups/selectors choose `active_profile` only.
+- Legacy per-schedule profiles are migrated to global names using `<schedule name> - <profile name>`.
+- Original per-schedule profiles are retained per group as tagged legacy snapshots (`[legacy]`) for downgrade safety.
+- Profile editor is rendered in its own section above Unmonitored (not inside schedule settings panels).
 - Enabling monitoring on entities/groups with empty schedules seeds a single `all_days` schedule from configured default schedule.
 
 ## High-Risk Areas

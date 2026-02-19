@@ -31,22 +31,15 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
     ]
     
-    # Get all profiles with formatted labels
-    profile_options = []
-    for group_name, group_data in all_groups.items():
-        profiles = group_data.get("profiles", {})
-        for profile_name in profiles.keys():
-            # Format: value is just the profile name, label shows "GroupName: ProfileName"
-            if group_name.startswith("__entity_"):
-                entity_id = group_name.replace("__entity_", "")
-                display_name = entity_id
-            else:
-                display_name = group_name
-            
-            profile_options.append({
-                "value": profile_name,
-                "label": f"{display_name}: {profile_name}"
-            })
+    # Get global profile options
+    global_profiles = await storage.async_get_global_profiles()
+    profile_options = [
+        {
+            "value": profile_name,
+            "label": profile_name,
+        }
+        for profile_name in global_profiles.keys()
+    ]
     
     return {
         "recreate_all_sensors": {
@@ -549,7 +542,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         
         "list_profiles": {
             "name": "List all profile names",
-            "description": "Get a list of all profiles across all entities and groups with group prefix for populating selectors",
+            "description": "Get a list of all global profiles for populating selectors",
         },
         
         "cleanup_derivative_sensors": {
@@ -930,21 +923,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
     ]
 
-    # Build profile options with labels
-    profile_options = []
-    for group_name, group_data in all_groups.items():
-        profiles = group_data.get("profiles", {})
-        for profile_name in profiles.keys():
-            if group_name.startswith("__entity_"):
-                entity_id = group_name.replace("__entity_", "")
-                display_name = entity_id
-            else:
-                display_name = group_name
-
-            profile_options.append({
-                "value": profile_name,
-                "label": f"{display_name}: {profile_name}"
-            })
+    # Build global profile options
+    global_profiles = await storage.async_get_global_profiles()
+    profile_options = [
+        {
+            "value": profile_name,
+            "label": profile_name,
+        }
+        for profile_name in global_profiles.keys()
+    ]
     
     # Build dynamic selectors
     group_selector = selector.SelectSelector(
@@ -1151,24 +1138,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return {"groups": group_names}
     
     async def handle_list_profiles(call: ServiceCall) -> dict:
-        """Handle list_profiles service call - return list of all profiles with value/label format."""
-        groups = await storage.async_get_groups()
-        profiles_list = []
-        
-        for group_name, group_data in groups.items():
-            profiles = group_data.get("profiles", {})
-            for profile_name in profiles.keys():
-                if group_name.startswith("__entity_"):
-                    entity_id = group_name.replace("__entity_", "")
-                    display_name = entity_id
-                else:
-                    display_name = group_name
-                
-                profiles_list.append({
-                    "value": profile_name,
-                    "label": f"{display_name}: {profile_name}"
-                })
-        
+        """Handle list_profiles service call - return all global profiles."""
+        global_profiles = await storage.async_get_global_profiles()
+        profiles_list = [
+            {
+                "value": profile_name,
+                "label": profile_name,
+            }
+            for profile_name in global_profiles.keys()
+        ]
+
         return {"profiles": profiles_list}
     
     async def handle_set_group_schedule(call: ServiceCall) -> None:

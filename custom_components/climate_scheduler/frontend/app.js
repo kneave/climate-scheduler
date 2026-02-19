@@ -340,6 +340,9 @@ async function loadGroups() {
         
         // Render unmonitored entities section
         renderIgnoredEntities();
+
+        // Refresh global profile editor section
+        await refreshGlobalProfileEditor();
         
         // Re-render entity list now that groups are loaded
         // This will hide entities that are in groups
@@ -953,6 +956,53 @@ function getScheduleNodesForDay(schedules, dayKey) {
     return nodes || [];
 }
 
+function getMainEditorDisplayedDay(scheduleMode) {
+    if (scheduleMode === 'all_days') {
+        return 'all_days';
+    }
+
+    const activeDayButton = getDocumentRoot().querySelector('#main-day-period-buttons .day-period-btn.active');
+    const dayFromButton = activeDayButton?.dataset?.day;
+    if (dayFromButton) {
+        return dayFromButton;
+    }
+
+    const now = new Date();
+    const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+    if (scheduleMode === '5/2') {
+        return (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+    }
+    return weekday;
+}
+
+function syncMainTimelineForActiveProfileEdit(targetGroup, editedProfileName) {
+    if (!targetGroup || currentGroup !== targetGroup) {
+        return;
+    }
+
+    const groupData = allGroups[targetGroup];
+    if (!groupData) {
+        return;
+    }
+
+    const activeProfile = groupData.active_profile || 'Default';
+    if (activeProfile !== editedProfileName) {
+        return;
+    }
+
+    const mainTimeline = getDocumentRoot().querySelector('#main-timeline');
+    if (!mainTimeline || !mainTimeline.isConnected) {
+        return;
+    }
+
+    const scheduleMode = groupData.schedule_mode || 'all_days';
+    const displayedDay = getMainEditorDisplayedDay(scheduleMode);
+    const nodes = getScheduleNodesForDay(groupData.schedules || {}, displayedDay).map(node => ({ ...node }));
+
+    mainTimeline.keyframes = scheduleNodesToKeyframes(nodes);
+    updateScheduledTemp();
+}
+
 function setMainEditingContext(editorRoot = null) {
     const wasEditingProfile = editingProfile !== null;
     editingProfile = null;
@@ -1488,23 +1538,7 @@ function createSettingsPanel(groupData, editor) {
         </div>
     `;
     
-    // Add profile selector
-    const profileSelectorHTML = `
-        <div class="profile-selector">
-            <h3>Profile Editor</h3>
-            <div class="profile-controls">
-                <select id="profile-dropdown" class="profile-dropdown">
-                    <option value="" disabled selected>Select a profile to edit...</option>
-                    <option value="Default">Default</option>
-                </select>
-                <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
-                <button id="rename-profile-btn" class="btn-profile" title="Rename profile">✎</button>
-                <button id="delete-profile-btn" class="btn-profile" title="Delete profile">🗑</button>
-            </div>
-        </div>
-    `;
-    
-    settingsPanel.innerHTML = controlsHTML + profileSelectorHTML;
+    settingsPanel.innerHTML = controlsHTML;
     
     // Toggle functionality
     toggleHeader.onclick = () => {
@@ -1522,11 +1556,6 @@ function createSettingsPanel(groupData, editor) {
     
     container.appendChild(toggleHeader);
     container.appendChild(settingsPanel);
-    
-    // Add profile management handlers
-    setTimeout(() => {
-        setupProfileHandlers(container, groupData);
-    }, 0);
     
     return container;
 }
@@ -1594,15 +1623,39 @@ function showEditingProfileIndicator(editingProfile, activeProfile) {
     }
 }
 
+function getProfileEditorTargetGroup(container) {
+    if (currentGroup && allGroups[currentGroup]) {
+        return currentGroup;
+    }
+
+    const firstMonitored = Object.keys(allGroups).find(groupName => {
+        const groupData = allGroups[groupName] || {};
+        const isIgnored = groupData.ignored === true;
+        return !isIgnored;
+    });
+
+    return firstMonitored || null;
+}
+
+async function refreshGlobalProfileEditor() {
+    const container = getDocumentRoot().querySelector('#global-profile-list');
+    if (!container) return;
+
+    await setupProfileHandlers(container, null);
+}
+
 // Setup profile management event handlers
 async function setupProfileHandlers(container, groupData) {
-    if (!groupData || !currentGroup) {
-        console.warn('setupProfileHandlers - no group data, aborting');
+    const targetGroup = getProfileEditorTargetGroup(container);
+    if (!targetGroup || !allGroups[targetGroup]) {
+        console.warn('setupProfileHandlers - no target group available, aborting');
         return;
     }
+
+    const targetGroupData = allGroups[targetGroup];
     
     // Load and populate profiles
-    await loadProfiles(container, currentGroup);
+    await loadProfiles(container, targetGroup);
     
     // Profile dropdown change handler - automatically open editor when selection changes
     const profileDropdown = container.querySelector('#profile-dropdown');
@@ -1615,15 +1668,15 @@ async function setupProfileHandlers(container, groupData) {
                 return;
             }
             
-            const activeProfile = groupData.active_profile;
+            const activeProfile = targetGroupData.active_profile;
             
             try {
                 // Load group data to get the latest profile schedules
                 const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || {};
+                allGroups = groupsResult?.groups || groupsResult?.response?.groups || groupsResult || {};
                 
                 // Load the selected profile's schedule data
-                const updatedGroupData = allGroups[currentGroup];
+                const updatedGroupData = allGroups[targetGroup];
                 if (updatedGroupData && updatedGroupData.profiles && updatedGroupData.profiles[selectedProfile]) {
                     const profileData = updatedGroupData.profiles[selectedProfile];
                     
@@ -1633,11 +1686,11 @@ async function setupProfileHandlers(container, groupData) {
                     const day = currentDay || 'all_days';
                     const nodes = schedules[day] || schedules['all_days'] || [];
                     
-                    // Find the profile-selector container
-                    const profileSelector = container.querySelector('.profile-selector');
-                    if (profileSelector) {
+                    // Find the profile editor host container
+                    const profileEditorHost = container.querySelector('.profile-selector') || container;
+                    if (profileEditorHost) {
                         // Remove any existing profile editor
-                        const existingEditor = profileSelector.querySelector('.timeline-editor-container');
+                        const existingEditor = profileEditorHost.querySelector('.timeline-editor-container');
                         if (existingEditor) {
                             existingEditor.remove();
                         }
@@ -1713,7 +1766,7 @@ async function setupProfileHandlers(container, groupData) {
                         
                         // Add to profile selector
                         editorContainer.style.marginTop = '16px';
-                        profileSelector.appendChild(editorContainer);
+                        profileEditorHost.appendChild(editorContainer);
                         
                         // Track current day for profile editor
                         let currentProfileDay = day;
@@ -1758,10 +1811,12 @@ async function setupProfileHandlers(container, groupData) {
                             }
                             profileData.schedules[currentProfileDay] = updatedNodes.map(n => ({ ...n }));
 
-                            await haAPI.setGroupSchedule(currentGroup, updatedNodes, currentProfileDay, scheduleModeOverride, selectedProfile);
+                            await haAPI.setGroupSchedule(targetGroup, updatedNodes, currentProfileDay, scheduleModeOverride, selectedProfile);
 
                             const refreshedGroupData = await haAPI.getGroups();
-                            allGroups = refreshedGroupData.groups || refreshedGroupData;
+                            allGroups = refreshedGroupData?.groups || refreshedGroupData?.response?.groups || refreshedGroupData || {};
+
+                            syncMainTimelineForActiveProfileEdit(targetGroup, selectedProfile);
 
                             return updatedNodes;
                         };
@@ -1985,6 +2040,8 @@ async function setupProfileHandlers(container, groupData) {
                             });
                         });
                     }
+                } else {
+                    showToast('Selected profile is unavailable for the target schedule', 'warning');
                 }
             } catch (error) {
                 console.error('Failed to load profile:', error);
@@ -1997,18 +2054,24 @@ async function setupProfileHandlers(container, groupData) {
     const newProfileBtn = container.querySelector('#new-profile-btn');
     if (newProfileBtn) {
         newProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const profileName = prompt('Enter name for new profile:');
             if (!profileName || profileName.trim() === '') return;
             
             try {
-                await haAPI.createProfile(currentGroup, profileName.trim());
+                await haAPI.createProfile(selectedTargetGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
                 allGroups = groupsResult.groups || groupsResult;
                 
-                await loadProfiles(container, currentGroup);
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to create profile:', error);
@@ -2021,6 +2084,12 @@ async function setupProfileHandlers(container, groupData) {
     const renameProfileBtn = container.querySelector('#rename-profile-btn');
     if (renameProfileBtn) {
         renameProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const dropdown = container.querySelector('#profile-dropdown');
             const currentProfile = dropdown?.value;
             if (!currentProfile) return;
@@ -2029,14 +2098,14 @@ async function setupProfileHandlers(container, groupData) {
             if (!newName || newName.trim() === '' || newName === currentProfile) return;
             
             try {
-                await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
+                await haAPI.renameProfile(selectedTargetGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
                 allGroups = groupsResult.groups || groupsResult;
                 
-                await loadProfiles(container, currentGroup);
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to rename profile:', error);
@@ -2049,6 +2118,12 @@ async function setupProfileHandlers(container, groupData) {
     const deleteProfileBtn = container.querySelector('#delete-profile-btn');
     if (deleteProfileBtn) {
         deleteProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const dropdown = container.querySelector('#profile-dropdown');
             const currentProfile = dropdown?.value;
             if (!currentProfile) return;
@@ -2056,14 +2131,14 @@ async function setupProfileHandlers(container, groupData) {
             if (!confirm(`Delete profile "${currentProfile}"?`)) return;
             
             try {
-                await haAPI.deleteProfile(currentGroup, currentProfile);
+                await haAPI.deleteProfile(selectedTargetGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
                 allGroups = groupsResult.groups || groupsResult;
                 
-                await loadProfiles(container, currentGroup);
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to delete profile:', error);
@@ -5156,7 +5231,30 @@ function setupEventListeners() {
             }
         });
     }
-    
+
+    // Toggle global profile editor section
+    const toggleGlobalProfiles = getDocumentRoot().querySelector('#toggle-global-profiles');
+    const globalProfileList = getDocumentRoot().querySelector('#global-profile-list');
+    const globalProfileContainer = getDocumentRoot().querySelector('#global-profile-container');
+    if (toggleGlobalProfiles && globalProfileList && globalProfileContainer) {
+        toggleGlobalProfiles.addEventListener('click', async () => {
+            const toggleIcon = toggleGlobalProfiles.querySelector('.group-toggle-icon');
+
+            if (globalProfileList.style.display === 'none') {
+                globalProfileList.style.display = 'block';
+                globalProfileContainer.classList.remove('collapsed');
+                globalProfileContainer.classList.add('expanded');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
+                await refreshGlobalProfileEditor();
+            } else {
+                globalProfileList.style.display = 'none';
+                globalProfileContainer.classList.remove('expanded');
+                globalProfileContainer.classList.add('collapsed');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(-90deg)';
+            }
+        });
+    }
+
     // Filter ignored entities
     const ignoredFilter = getDocumentRoot().querySelector('#ignored-filter');
     if (ignoredFilter) {
@@ -5993,6 +6091,8 @@ async function handleProfileChanged(event) {
     if (currentGroup === groupName) {
         await editGroupSchedule(groupName);
     }
+
+    await refreshGlobalProfileEditor();
 }
 
 // ===== Settings Panel =====

@@ -32,7 +32,7 @@ Purpose: minimal index for where to change code safely.
 1) User edits graph/node/profile in UI.
 2) app.js updates state and dispatches API calls.
 3) services.py validates/maps service payloads.
-4) storage.py persists group/profile/schedule.
+4) storage.py persists group active-profile selection + global profile/schedule data.
 5) coordinator.py resolves/apply active node and emits events.
 
 ## Where To Change X
@@ -67,6 +67,11 @@ Purpose: minimal index for where to change code safely.
 - Day/mode mapping:
   - custom_components/climate_scheduler/storage.py
   - custom_components/climate_scheduler/frontend/app.js
+- Profile model/migration (global profiles):
+  - custom_components/climate_scheduler/storage.py
+  - custom_components/climate_scheduler/services.py
+  - custom_components/climate_scheduler/frontend/app.js
+  - src/panel.ts (profiles section placement)
 
 ## Stable Event/Service Surface
 

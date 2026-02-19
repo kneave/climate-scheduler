@@ -46,13 +46,14 @@ Frontend dialog-state contract (runtime → climate dialog):
   - all_days mode: all_days
   - 5/2 mode: weekday/weekend
   - individual mode: mon..sun
-- profiles: { profile_name: { schedule_mode, schedules } }
+- global profiles: { profile_name: { schedule_mode, schedules } }
 - active_profile: string
 
 Invariants:
 - non-active profile save must not switch active_profile.
-- group-level current schedule mirrors active profile.
-- creating a new profile seeds a single `all_days` schedule from configured settings default schedule.
+- group-level current schedule mirrors the selected global active profile.
+- profiles are shared globally across all schedules; each group stores only `active_profile` selection.
+- creating a new profile seeds from the selected schedule's current mode/schedules.
 - enabling monitoring for an entity/group with empty schedules seeds a single `all_days` schedule from configured settings default schedule.
 
 ## Group Contract
@@ -63,9 +64,15 @@ Core fields:
 - ignored
 - schedule_mode
 - schedules
-- profiles
 - active_profile
 - _is_single_entity_group (internal)
+
+Global storage field:
+- profiles
+
+Legacy preservation fields (migration compatibility):
+- group `profiles` remains in-place and is retagged as `<profile> [legacy]`
+- active_profile_legacy
 
 Naming:
 - single-entity groups: __entity_<entity_id>
@@ -124,6 +131,8 @@ Frontend timeline events:
 storage async_load migrations:
 - day schedule migration
 - profiles migration
+- per-group profiles to global profiles migration (`<schedule name> - <profile name>`)
+- per-group originals preserved as tagged legacy copies (`<profile name> [legacy]`)
 - entity-to-single-group migration
 
 ## Last Updated

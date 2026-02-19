@@ -152,6 +152,11 @@ class ScheduleStorage:
             await self._migrate_to_profiles()
             # Migrate entities to single-entity groups (will remove entities key after migration)
             await self._migrate_entities_to_groups()
+            # Migrate per-group profiles to global profile registry
+            await self._migrate_profiles_to_global()
+        # Ensure global profile structure exists and schedule/profile views are synchronized
+        self._ensure_global_profiles_initialized()
+        self._sync_group_profile_views()
         # Ensure min/max temp defaults are present in settings
         settings = self._data.get("settings", {})
         # Drop legacy/unreferenced settings keys that may have been persisted
@@ -312,6 +317,7 @@ class ScheduleStorage:
 
     async def async_save(self) -> None:
         """Save data to storage."""
+        self._sync_group_profile_views()
         await self._store.async_save(self._data)
         _LOGGER.debug(f"Saved schedule data: {self._data}")
 
@@ -334,6 +340,139 @@ class ScheduleStorage:
     def _build_schedules_from_template(self, default_schedule: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """Build schedule dictionary from the single default schedule template."""
         return {"all_days": copy.deepcopy(default_schedule)}
+
+    def _ensure_global_profiles_initialized(self) -> None:
+        """Ensure global profiles exist with at least one usable profile."""
+        profiles = self._data.get("profiles")
+        if not isinstance(profiles, dict):
+            profiles = {}
+
+        if not profiles:
+            default_schedule = self._get_default_schedule_template()
+            profiles["Default"] = {
+                "schedule_mode": "all_days",
+                "schedules": self._build_schedules_from_template(default_schedule)
+            }
+
+        self._data["profiles"] = profiles
+
+    def _resolve_group_active_global_profile(self, group_data: Dict[str, Any], global_profiles: Dict[str, Any]) -> Optional[str]:
+        """Resolve the active global profile for a group using compatibility fields."""
+        active_global = group_data.get("active_profile_global")
+        if active_global in global_profiles:
+            return active_global
+
+        active_profile = group_data.get("active_profile")
+        if active_profile in global_profiles:
+            return active_profile
+
+        return "Default" if "Default" in global_profiles else next(iter(global_profiles), None)
+
+    def _sync_group_profile_views(self) -> None:
+        """Align active schedule fields with selected global active profile."""
+        groups = self._data.get("groups", {})
+        if not isinstance(groups, dict):
+            return
+
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+        for group_data in groups.values():
+            if not isinstance(group_data, dict):
+                continue
+
+            active_profile = self._resolve_group_active_global_profile(group_data, global_profiles)
+            if active_profile:
+                group_data["active_profile_global"] = active_profile
+
+            if active_profile:
+                active_profile_data = global_profiles.get(active_profile, {})
+                group_data["schedule_mode"] = active_profile_data.get("schedule_mode", "all_days")
+                group_data["schedules"] = copy.deepcopy(active_profile_data.get("schedules", {"all_days": []}))
+
+    async def _migrate_profiles_to_global(self) -> None:
+        """Migrate legacy per-group profile dictionaries into global profiles."""
+        groups = self._data.get("groups", {})
+        if not isinstance(groups, dict):
+            return
+
+        global_profiles = self._data.get("profiles")
+        if not isinstance(global_profiles, dict):
+            global_profiles = {}
+
+        migrated = False
+
+        def make_unique_profile_name(base_name: str) -> str:
+            candidate = base_name
+            suffix = 2
+            while candidate in global_profiles:
+                candidate = f"{base_name} ({suffix})"
+                suffix += 1
+            return candidate
+
+        if not global_profiles:
+            for group_name, group_data in groups.items():
+                if not isinstance(group_data, dict):
+                    continue
+
+                legacy_profiles = group_data.get("profiles", {})
+                active_profile = group_data.get("active_profile", "Default")
+                legacy_tag_suffix = " [legacy]"
+
+                preserved_legacy_profiles: Dict[str, Any] = {}
+
+                if isinstance(legacy_profiles, dict) and legacy_profiles:
+                    name_map: Dict[str, str] = {}
+                    legacy_name_map: Dict[str, str] = {}
+                    for profile_name, profile_data in legacy_profiles.items():
+                        source_profile = profile_data if isinstance(profile_data, dict) else {}
+                        new_profile_name = make_unique_profile_name(f"{group_name} - {profile_name}")
+                        name_map[profile_name] = new_profile_name
+                        global_profiles[new_profile_name] = {
+                            "schedule_mode": source_profile.get("schedule_mode", group_data.get("schedule_mode", "all_days")),
+                            "schedules": copy.deepcopy(source_profile.get("schedules", group_data.get("schedules", {"all_days": []})))
+                        }
+
+                        legacy_name = profile_name if profile_name.endswith(legacy_tag_suffix) else f"{profile_name}{legacy_tag_suffix}"
+                        legacy_name_map[profile_name] = legacy_name
+                        preserved_legacy_profiles[legacy_name] = {
+                            "schedule_mode": source_profile.get("schedule_mode", group_data.get("schedule_mode", "all_days")),
+                            "schedules": copy.deepcopy(source_profile.get("schedules", group_data.get("schedules", {"all_days": []})))
+                        }
+
+                    group_data["profiles"] = preserved_legacy_profiles
+                    if active_profile in legacy_name_map:
+                        group_data["active_profile_legacy"] = legacy_name_map[active_profile]
+                        group_data["active_profile"] = legacy_name_map[active_profile]
+
+                    mapped_active_profile = name_map.get(active_profile)
+                    if mapped_active_profile:
+                        group_data["active_profile_global"] = mapped_active_profile
+                    elif name_map:
+                        group_data["active_profile_global"] = next(iter(name_map.values()))
+                else:
+                    fallback_name = make_unique_profile_name(f"{group_name} - Default")
+                    global_profiles[fallback_name] = {
+                        "schedule_mode": group_data.get("schedule_mode", "all_days"),
+                        "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []}))
+                    }
+
+                    legacy_default_name = f"Default{legacy_tag_suffix}"
+                    preserved_legacy_profiles[legacy_default_name] = {
+                        "schedule_mode": group_data.get("schedule_mode", "all_days"),
+                        "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []}))
+                    }
+                    group_data["profiles"] = preserved_legacy_profiles
+                    group_data["active_profile_legacy"] = legacy_default_name
+                    group_data["active_profile"] = legacy_default_name
+                    group_data["active_profile_global"] = fallback_name
+
+            migrated = True
+
+        if migrated:
+            self._data["profiles"] = global_profiles
+            self._sync_group_profile_views()
+            await self.async_save()
+            _LOGGER.info("Migrated legacy per-group profiles to global profiles")
 
     async def async_get_settings(self) -> Dict[str, Any]:
         """Return current global settings."""
@@ -418,33 +557,35 @@ class ScheduleStorage:
         single_group_name = self._find_single_entity_group(entity_id)
         if single_group_name:
             group_data = self._data["groups"][single_group_name]
+            projected_group = self._project_group_runtime_view(group_data)
             _LOGGER.debug(f"async_get_schedule: entity {entity_id} found in single-entity group - enabled={group_data.get('enabled', True)}")
             
             # If no day specified, return the whole schedule structure
             if day is None:
-                return group_data
+                return projected_group
             
             # Return nodes for specific day based on schedule mode
             return {
-                "nodes": self._get_nodes_for_day(group_data, day),
+                "nodes": self._get_nodes_for_day(projected_group, day),
                 "enabled": group_data.get("enabled", True),
-                "schedule_mode": group_data.get("schedule_mode", "all_days")
+                "schedule_mode": projected_group.get("schedule_mode", "all_days")
             }
         
         # Check if entity is in a multi-entity group
         for group_name, group_data in self._data.get("groups", {}).items():
             if entity_id in group_data.get("entities", []):
+                projected_group = self._project_group_runtime_view(group_data)
                 _LOGGER.debug(f"async_get_schedule: entity {entity_id} found in multi-entity group '{group_name}' - enabled={group_data.get('enabled', True)}")
                 
                 # If no day specified, return the whole schedule structure
                 if day is None:
-                    return group_data
+                    return projected_group
                 
                 # Return nodes for specific day based on schedule mode
                 return {
-                    "nodes": self._get_nodes_for_day(group_data, day),
+                    "nodes": self._get_nodes_for_day(projected_group, day),
                     "enabled": group_data.get("enabled", True),
-                    "schedule_mode": group_data.get("schedule_mode", "all_days")
+                    "schedule_mode": projected_group.get("schedule_mode", "all_days")
                 }
         
         _LOGGER.debug(f"async_get_schedule: entity {entity_id} not found in any group")
@@ -1294,11 +1435,37 @@ class ScheduleStorage:
 
     async def async_get_groups(self) -> Dict[str, Any]:
         """Get all groups."""
-        return self._data.get("groups", {})
+        self._sync_group_profile_views()
+        groups = self._data.get("groups", {})
+        projected: Dict[str, Any] = {}
+        for group_name, group_data in groups.items():
+            if isinstance(group_data, dict):
+                projected[group_name] = self._project_group_runtime_view(group_data)
+            else:
+                projected[group_name] = group_data
+        return projected
 
     async def async_get_group(self, group_name: str) -> Optional[Dict[str, Any]]:
         """Get a specific group."""
-        return self._data.get("groups", {}).get(group_name)
+        self._sync_group_profile_views()
+        group_data = self._data.get("groups", {}).get(group_name)
+        if not isinstance(group_data, dict):
+            return group_data
+        return self._project_group_runtime_view(group_data)
+
+    def _project_group_runtime_view(self, group_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a runtime view exposing global profiles while preserving persisted legacy profiles."""
+        view = copy.deepcopy(group_data)
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+        view["profiles"] = copy.deepcopy(global_profiles)
+
+        active_profile = self._resolve_group_active_global_profile(group_data, global_profiles)
+        if active_profile:
+            view["active_profile"] = active_profile
+            view["active_profile_global"] = active_profile
+
+        return view
 
     async def async_get_entity_group(self, entity_id: str) -> Optional[str]:
         """Get the group name that an entity belongs to."""
@@ -1353,36 +1520,38 @@ class ScheduleStorage:
                 # Individual mode or all_days mode
                 group_data["schedules"][day] = nodes
         
-        # Determine which profile to save to
-        target_profile = profile_name if profile_name else group_data.get("active_profile", "Default")
-        
-        if "profiles" not in group_data:
-            group_data["profiles"] = {}
-        
+        # Determine which profile to save to (global profile namespace)
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+
+        resolved_active_profile = self._resolve_group_active_global_profile(group_data, global_profiles)
+        target_profile = profile_name if profile_name else resolved_active_profile
+
         # Verify profile exists if explicitly specified
-        if profile_name and profile_name not in group_data["profiles"]:
-            raise ValueError(f"Profile '{profile_name}' does not exist in group '{group_name}'")
-        
-        # Create profile if it doesn't exist (only for active profile)
-        if target_profile not in group_data["profiles"]:
-            group_data["profiles"][target_profile] = {
+        if profile_name and target_profile not in global_profiles:
+            raise ValueError(f"Profile '{profile_name}' does not exist")
+
+        # Create profile if it doesn't exist (only for active profile flow)
+        if target_profile not in global_profiles:
+            global_profiles[target_profile] = {
                 "schedule_mode": current_mode,
                 "schedules": {}
             }
-        
+
         # Save to target profile
-        group_data["profiles"][target_profile]["schedule_mode"] = current_mode
-        group_data["profiles"][target_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
-        
+        global_profiles[target_profile]["schedule_mode"] = current_mode
+        global_profiles[target_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
+        self._data["profiles"] = global_profiles
+
         # If saving to non-active profile, restore group's current schedule from active profile
-        if profile_name and profile_name != group_data.get("active_profile"):
-            active_profile = group_data.get("active_profile", "Default")
-            if active_profile in group_data["profiles"]:
-                group_data["schedule_mode"] = group_data["profiles"][active_profile].get("schedule_mode", "all_days")
-                group_data["schedules"] = copy.deepcopy(group_data["profiles"][active_profile].get("schedules", {}))
+        if profile_name and profile_name != resolved_active_profile:
+            active_profile = resolved_active_profile
+            if active_profile in global_profiles:
+                group_data["schedule_mode"] = global_profiles[active_profile].get("schedule_mode", "all_days")
+                group_data["schedules"] = copy.deepcopy(global_profiles[active_profile].get("schedules", {}))
         
         _LOGGER.info(f"Saved group schedule to profile '{target_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
-        _LOGGER.debug(f"Profile schedules after save: {group_data['profiles'][target_profile]['schedules'].keys()}")
+        _LOGGER.debug(f"Profile schedules after save: {global_profiles[target_profile]['schedules'].keys()}")
         
         await self.async_save()
         _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes (day: {day}, mode: {schedule_mode})")
@@ -1461,102 +1630,120 @@ class ScheduleStorage:
     # Profile Management Methods
     
     async def async_create_profile(self, target_id: str, profile_name: str) -> None:
-        """Create a new schedule profile for a group.
-
-        Profiles are stored under the `groups` top-level key.
-        """
-        target_key = "groups"
-
-        if target_id not in self._data.get(target_key, {}):
+        """Create a new global schedule profile."""
+        if target_id not in self._data.get("groups", {}):
             raise ValueError(f"Group '{target_id}' does not exist")
 
-        target_data = self._data[target_key][target_id]
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
 
-        # Initialize profiles if not present
-        if "profiles" not in target_data:
-            target_data["profiles"] = {}
-
-        if profile_name in target_data["profiles"]:
+        if profile_name in global_profiles:
             raise ValueError(f"Profile '{profile_name}' already exists")
 
-        # Create new profile with configured default schedule template
-        default_schedule = self._get_default_schedule_template()
-        profile_schedules = self._build_schedules_from_template(default_schedule)
-
-        target_data["profiles"][profile_name] = {
-            "schedule_mode": "all_days",
-            "schedules": profile_schedules
+        # Seed from current target group's active schedule for convenience
+        target_group = self._data["groups"][target_id]
+        global_profiles[profile_name] = {
+            "schedule_mode": target_group.get("schedule_mode", "all_days"),
+            "schedules": copy.deepcopy(target_group.get("schedules", {"all_days": []}))
         }
+        self._data["profiles"] = global_profiles
 
         await self.async_save()
-        _LOGGER.info(f"Created profile '{profile_name}' for group '{target_id}'")
+        _LOGGER.info(f"Created global profile '{profile_name}'")
     
     async def async_delete_profile(self, target_id: str, profile_name: str) -> None:
-        """Delete a schedule profile from a group."""
-        target_key = "groups"
-
-        if target_id not in self._data.get(target_key, {}):
+        """Delete a global schedule profile."""
+        if target_id not in self._data.get("groups", {}):
             raise ValueError(f"Group '{target_id}' does not exist")
 
-        target_data = self._data[target_key][target_id]
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
 
-        if profile_name not in target_data.get("profiles", {}):
+        if profile_name not in global_profiles:
             raise ValueError(f"Profile '{profile_name}' does not exist")
 
-        # Don't allow deleting the active profile or the last profile
-        if profile_name == target_data.get("active_profile"):
-            raise ValueError(f"Cannot delete the active profile. Switch to another profile first.")
-
-        if len(target_data.get("profiles", {})) <= 1:
+        if len(global_profiles) <= 1:
             raise ValueError(f"Cannot delete the last profile")
 
-        del target_data["profiles"][profile_name]
+        for group_name, group_data in self._data.get("groups", {}).items():
+            if group_data.get("active_profile") == profile_name:
+                raise ValueError(f"Cannot delete profile '{profile_name}' because it is active for group '{group_name}'")
+
+        del global_profiles[profile_name]
+        self._data["profiles"] = global_profiles
 
         await self.async_save()
-        _LOGGER.info(f"Deleted profile '{profile_name}' from group '{target_id}'")
+        _LOGGER.info(f"Deleted global profile '{profile_name}'")
     
     async def async_rename_profile(self, target_id: str, old_name: str, new_name: str) -> None:
-        """Rename a schedule profile for a group."""
-        target_key = "groups"
-
-        if target_id not in self._data.get(target_key, {}):
+        """Rename a global schedule profile."""
+        if target_id not in self._data.get("groups", {}):
             raise ValueError(f"Group '{target_id}' does not exist")
 
-        target_data = self._data[target_key][target_id]
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
 
-        if old_name not in target_data.get("profiles", {}):
+        if old_name not in global_profiles:
             raise ValueError(f"Profile '{old_name}' does not exist")
 
-        if new_name in target_data.get("profiles", {}):
+        if new_name in global_profiles:
             raise ValueError(f"Profile '{new_name}' already exists")
 
-        # Rename the profile
-        target_data["profiles"][new_name] = target_data["profiles"].pop(old_name)
+        global_profiles[new_name] = global_profiles.pop(old_name)
+        self._data["profiles"] = global_profiles
 
-        # Update active profile name if needed
-        if target_data.get("active_profile") == old_name:
-            target_data["active_profile"] = new_name
+        for group_data in self._data.get("groups", {}).values():
+            if group_data.get("active_profile") == old_name:
+                group_data["active_profile"] = new_name
 
         await self.async_save()
-        _LOGGER.info(f"Renamed profile from '{old_name}' to '{new_name}' for group '{target_id}'")
+        _LOGGER.info(f"Renamed global profile from '{old_name}' to '{new_name}'")
     
     async def async_set_active_profile(self, target_id: str, profile_name: str) -> None:
         """Set the active profile for a group."""
-        target_key = "groups"
-        
-        if target_id not in self._data.get(target_key, {}):
+
+        if target_id not in self._data.get("groups", {}):
             raise ValueError(f"Group '{target_id}' does not exist")
-        
-        target_data = self._data[target_key][target_id]
-        
-        if profile_name not in target_data.get("profiles", {}):
+
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+
+        if profile_name not in global_profiles:
             raise ValueError(f"Profile '{profile_name}' does not exist")
-        
-        # Set the active profile
-        target_data["active_profile"] = profile_name
-        
+
+        target_data = self._data["groups"][target_id]
+
+        # Set the active global profile (runtime path)
+        target_data["active_profile_global"] = profile_name
+
+        # Keep legacy active profile pointer for downgrade compatibility
+        legacy_profiles = target_data.get("profiles", {})
+        legacy_active = target_data.get("active_profile")
+        legacy_candidate = None
+        if isinstance(legacy_profiles, dict):
+            if profile_name in legacy_profiles:
+                legacy_candidate = profile_name
+            else:
+                prefix = f"{target_id} - "
+                if profile_name.startswith(prefix):
+                    original_name = profile_name[len(prefix):]
+                    tagged_name = f"{original_name} [legacy]"
+                    if tagged_name in legacy_profiles:
+                        legacy_candidate = tagged_name
+
+        if legacy_candidate:
+            target_data["active_profile"] = legacy_candidate
+            target_data["active_profile_legacy"] = legacy_candidate
+        elif legacy_active in legacy_profiles:
+            target_data["active_profile"] = legacy_active
+            target_data["active_profile_legacy"] = legacy_active
+        elif isinstance(legacy_profiles, dict) and legacy_profiles:
+            fallback_legacy = next(iter(legacy_profiles))
+            target_data["active_profile"] = fallback_legacy
+            target_data["active_profile_legacy"] = fallback_legacy
+
         # Load the profile's schedule into the main schedule fields
-        profile_data = target_data["profiles"][profile_name]
+        profile_data = global_profiles[profile_name]
         target_data["schedule_mode"] = profile_data.get("schedule_mode", "all_days")
         target_data["schedules"] = copy.deepcopy(profile_data.get("schedules", {}))
         
@@ -1567,14 +1754,12 @@ class ScheduleStorage:
         _LOGGER.info(f"Set active profile to '{profile_name}' for group '{target_id}'")
     
     async def async_get_profiles(self, target_id: str) -> Dict[str, Any]:
-        """Get all profiles for a group."""
-        target_key = "groups"
-        
-        if target_id not in self._data.get(target_key, {}):
+        """Get all global profiles."""
+        if target_id not in self._data.get("groups", {}):
             return {}
-        
-        target_data = self._data[target_key][target_id]
-        return target_data.get("profiles", {})
+
+        self._ensure_global_profiles_initialized()
+        return self._data.get("profiles", {})
     
     async def async_get_active_profile_name(self, target_id: str) -> Optional[str]:
         """Get the name of the active profile for a group."""
@@ -1584,4 +1769,11 @@ class ScheduleStorage:
             return None
         
         target_data = self._data[target_key][target_id]
-        return target_data.get("active_profile")
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+        return self._resolve_group_active_global_profile(target_data, global_profiles)
+
+    async def async_get_global_profiles(self) -> Dict[str, Any]:
+        """Get the global profile dictionary."""
+        self._ensure_global_profiles_initialized()
+        return self._data.get("profiles", {})
