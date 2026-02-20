@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.15.0-develop.11] - 2026-02-20
+
+
+### Changed
+
+- **Global Profile Architecture**: Migrated from per-schedule profiles to global profiles with per-group active profile selection
+  - Groups/selectors now choose `active_profile` while profile definitions are shared globally
+  - Migration preserves legacy per-group profile snapshots tagged for downgrade safety
+
+- **Profile Editor Node Settings**: Added full node settings pane support in the profile editor timeline workflow
+
+- **Timeline UX Enhancements**:
+  - Added timeline graph legend
+  - Added climate dialog slider step configuration limits and improved HVAC-aware slider background updates
+
+- **No-Change Behavior**: Reimplemented frontend no-change handling for mode settings
+  - New nodes now default non-temperature settings to no-change (mode fields omitted until explicitly set)
+
+- **Node Workflow Improvements**:
+  - Test event action moved into node settings
+  - Creating a new node while climate dialog is open now correctly targets the newly created node
+  - Undo now covers climate settings dialog changes (not temperature-only edits)
+
+- **UI/UX Polish**:
+  - Delete action icon changed to trash can
+  - Tooltip contrast/colors improved
+  - Timeline scroll navigation buttons repositioned for better layout
+  - Reduced frontend console log spam
+
+- **Instruction/Context Cleanup**: Moved duplicated instructions to global area and expanded project context/contract documentation
+
+### Removed
+- **Per-Schedule Profile Model**: Replaced by global profiles architecture (legacy compatibility data retained)
+- **Duplicated Local Instructions**: Consolidated into a single global instruction location
+
+### Fixed
+- **Advance Mode**: Fixed broken advance behavior
+- **Save Pipeline**: Fixed no-save regression in schedule editing flow
+- **Rounding/Precision**: Fixed timeline and slider rounding artifacts
+- **Default Profile Selection**: Fixed default profile usage when monitoring newly added entities
+- **Issue Fixes**: Included targeted fixes for #126, #149, #154, and #156
+
+
+
 ## [1.15.0-develop.10] - 2026-02-13
 
 ### Changed
