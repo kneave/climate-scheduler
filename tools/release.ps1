@@ -726,6 +726,29 @@ else {
 # Build TypeScript files
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would build' } else { 'Building' }) TypeScript files..." -ForegroundColor Yellow
 if (-not $DryRun) {
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCmd) {
+        Write-Error "npm is not available in PATH. Install Node.js (which includes npm) and retry."
+        exit 1
+    }
+
+    $rollupBin = Join-Path $repoRoot "node_modules\.bin\rollup.cmd"
+    if (-not (Test-Path $rollupBin)) {
+        Write-Host "Local Rollup binary not found. Installing project dependencies..." -ForegroundColor Yellow
+        if (Test-Path (Join-Path $repoRoot "package-lock.json")) {
+            npm ci
+        }
+        else {
+            npm install
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install npm dependencies required for frontend build"
+            exit 1
+        }
+    }
+
     npm run build
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to build TypeScript files"
@@ -734,6 +757,7 @@ if (-not $DryRun) {
     Write-Host "Build complete" -ForegroundColor Green
 }
 else {
+    Write-Host "Would verify npm is available and install dependencies if needed" -ForegroundColor Cyan
     Write-Host "Would run: npm run build" -ForegroundColor Cyan
 }
 
@@ -776,9 +800,42 @@ if (-not $DryRun) {
         }
         # Add .version file
         git add custom_components/climate_scheduler/frontend/.version
-        # Add built files
-        git add custom_components/climate_scheduler/frontend/climate-scheduler-card.js
-        git add custom_components/climate_scheduler/frontend/climate-scheduler-card.js.map
+        # Add built frontend artifacts generated from TypeScript sources.
+        # Keep runtime app.js excluded (it is direct runtime source, not a TS build artifact).
+        $frontendBuildDir = "custom_components/climate_scheduler/frontend"
+        if (Test-Path $frontendBuildDir) {
+            Get-ChildItem -Path $frontendBuildDir -File |
+                Where-Object {
+                    (
+                        $_.Name -like "*.js" -or
+                        $_.Name -like "*.js.map"
+                    ) -and $_.Name -ne "app.js"
+                } |
+                ForEach-Object {
+                    git add $_.FullName
+                }
+        }
+
+        # Safety check: fail release if any compiled frontend artifacts remain unstaged.
+        $unstagedFrontend = git diff --name-only -- $frontendBuildDir
+        $untrackedFrontend = git ls-files --others --exclude-standard -- $frontendBuildDir
+
+        $remainingBuildArtifacts = @($unstagedFrontend, $untrackedFrontend) |
+            ForEach-Object { $_ } |
+            Where-Object {
+                $_ -and (
+                    $_ -like "*.js" -or $_ -like "*.js.map"
+                ) -and -not ($_ -like "*\app.js")
+            } |
+            Sort-Object -Unique
+
+        if ($remainingBuildArtifacts.Count -gt 0) {
+            Write-Error "Compiled frontend build artifacts remain unstaged after git add. Aborting release."
+            Write-Host "Remaining files:" -ForegroundColor Red
+            $remainingBuildArtifacts | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+            exit 1
+        }
+
         git commit -m "Release v$fullVersion"
 
         if ($LASTEXITCODE -ne 0) {
@@ -795,8 +852,7 @@ if (-not $DryRun) {
 }
 else {
     Write-Host "Files to commit: manifest.json" -ForegroundColor Cyan
-    Write-Host "                 climate-scheduler-card.js (built from TypeScript)" -ForegroundColor Cyan
-    Write-Host "                 climate-scheduler-card.js.map" -ForegroundColor Cyan
+    Write-Host "                 frontend/*.js + *.js.map build artifacts (excluding app.js)" -ForegroundColor Cyan
     if ($needsChangelogUpdate) {
         Write-Host "                 CHANGELOG.md (updated with new entries)" -ForegroundColor Cyan
     }
