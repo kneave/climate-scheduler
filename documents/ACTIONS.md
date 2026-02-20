@@ -4,12 +4,45 @@ This document describes all the services (actions) exposed by the Climate Schedu
 
 ## Table of Contents
 
+- [Target Type Matrix](#target-type-matrix)
 - [Schedule Management](#schedule-management)
 - [Profile Management](#profile-management)
 - [Entity Management](#entity-management)
 - [Schedule Control](#schedule-control)
 - [Advanced Features](#advanced-features)
+- [Maintenance & Diagnostics](#maintenance--diagnostics)
 - [Settings Management](#settings-management)
+
+---
+
+## Target Type Matrix
+
+`schedule_id` does not mean exactly the same thing for every service. Use this quick matrix as the source of truth:
+
+| Service | Target type accepted for `schedule_id` |
+|---|---|
+| `set_schedule` | Climate entity ID |
+| `get_schedule` | Climate entity ID |
+| `clear_schedule` | Climate entity ID |
+| `enable_schedule` | Climate entity ID **or** group name |
+| `disable_schedule` | Climate entity ID **or** group name |
+| `set_ignored` | Climate entity ID |
+| `set_group_schedule` | Group name |
+| `enable_group` | Group name |
+| `disable_group` | Group name |
+| `advance_schedule` | Climate entity ID **or** group name |
+| `advance_group` | Group name |
+| `cancel_advance` | Climate entity ID |
+| `get_advance_status` | Climate entity ID |
+| `clear_advance_history` | Climate entity ID |
+| `create_profile` | Group name |
+| `delete_profile` | Group name |
+| `rename_profile` | Group name |
+| `set_active_profile` | Group name |
+| `get_profiles` | Group name |
+| `test_fire_event` | Climate entity ID **or** group name |
+
+Note: storage is group-backed internally (including single-entity groups), but service input validation remains mixed for backward compatibility.
 
 ---
 
@@ -20,7 +53,7 @@ This document describes all the services (actions) exposed by the Climate Schedu
 Configure temperature schedule for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name (e.g., `Living Room`, `Upstairs`, `Bedrooms`)
+- `schedule_id` (required): Climate entity ID target (e.g., `climate.living_room`)
 - `nodes` (required): List of schedule nodes with time and temperature (e.g., `[{"time": "07:00", "temp": 21}, {"time": "23:00", "temp": 18}]`)
 - `day` (optional): Day of week for this schedule - `all_days`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, `weekday`, `weekend` (default: `all_days`)
 - `schedule_mode` (optional): Schedule mode - `all_days`, `5/2`, `individual` (default: `all_days`)
@@ -29,7 +62,7 @@ Configure temperature schedule for a climate entity.
 ```yaml
 service: climate_scheduler.set_schedule
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
   nodes:
     - time: "06:00"
       temp: 21
@@ -48,13 +81,13 @@ data:
 Retrieve the current schedule for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to get schedule for
+- `schedule_id` (required): Climate entity ID target
 
 **Example:**
 ```yaml
 service: climate_scheduler.get_schedule
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 ### `climate_scheduler.clear_schedule`
@@ -62,13 +95,13 @@ data:
 Remove the schedule for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to clear schedule for
+- `schedule_id` (required): Climate entity ID target
 
 **Example:**
 ```yaml
 service: climate_scheduler.clear_schedule
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 ### `climate_scheduler.enable_schedule`
@@ -76,7 +109,7 @@ data:
 Enable automatic scheduling for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to enable
+- `schedule_id` (required): Schedule target (climate entity ID or group name)
 
 **Example:**
 ```yaml
@@ -90,7 +123,7 @@ data:
 Disable automatic scheduling for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to disable
+- `schedule_id` (required): Schedule target (climate entity ID or group name)
 
 **Example:**
 ```yaml
@@ -110,7 +143,7 @@ Profiles allow you to create multiple schedule configurations and switch between
 Create a new schedule profile.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name
+- `schedule_id` (required): Group name (including single-entity schedule groups)
 - `profile_name` (required): Name for the new profile
 
 **Example:**
@@ -126,7 +159,7 @@ data:
 Switch to a different schedule profile. Use this in automations to change schedules based on conditions.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name
+- `schedule_id` (required): Group name (including single-entity schedule groups)
 - `profile_name` (required): Name of the profile to activate
 
 **Example - Switch to winter schedule in autumn:**
@@ -166,7 +199,7 @@ automation:
 Rename a schedule profile.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name
+- `schedule_id` (required): Group name (including single-entity schedule groups)
 - `old_name` (required): Current name of the profile
 - `new_name` (required): New name for the profile
 
@@ -184,7 +217,7 @@ data:
 Delete a schedule profile.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name
+- `schedule_id` (required): Group name (including single-entity schedule groups)
 - `profile_name` (required): Name of the profile to delete
 
 **Example:**
@@ -200,7 +233,7 @@ data:
 Get list of all available profiles.
 
 **Parameters:**
-- `schedule_id` (required): Schedule name
+- `schedule_id` (required): Group name (including single-entity schedule groups)
 
 **Example:**
 ```yaml
@@ -334,13 +367,13 @@ data:
 Manually advance a climate entity to its next scheduled temperature and settings, even if the scheduled time hasn't arrived yet.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to advance
+- `schedule_id` (required): Schedule target (climate entity ID or group name)
 
 **Example:**
 ```yaml
 service: climate_scheduler.advance_schedule
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 **Use case:** Press a button to skip ahead to nighttime temperature early.
@@ -350,7 +383,7 @@ data:
 Manually advance all climate entities in a group to their next scheduled temperature and settings.
 
 **Parameters:**
-- `schedule_id` (required): Name of the group to advance
+- `schedule_id` (required): Group name target
 
 **Example:**
 ```yaml
@@ -364,13 +397,13 @@ data:
 Cancel an active advance override and return the climate entity to its current scheduled settings.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to cancel advance for
+- `schedule_id` (required): Climate entity ID target
 
 **Example:**
 ```yaml
 service: climate_scheduler.cancel_advance
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 ### `climate_scheduler.get_advance_status`
@@ -378,13 +411,13 @@ data:
 Check if a climate entity has an active advance override.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to check
+- `schedule_id` (required): Climate entity ID target
 
 **Example:**
 ```yaml
 service: climate_scheduler.get_advance_status
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 ### `climate_scheduler.clear_advance_history`
@@ -392,13 +425,13 @@ data:
 Clear all advance history markers for a climate entity.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to clear history for
+- `schedule_id` (required): Climate entity ID target
 
 **Example:**
 ```yaml
 service: climate_scheduler.clear_advance_history
 data:
-  schedule_id: Living Room
+  schedule_id: climate.living_room
 ```
 
 ---
@@ -410,16 +443,109 @@ data:
 Mark an entity as ignored (not monitored) or un-ignore it.
 
 **Parameters:**
-- `schedule_id` (required): Climate entity ID to set ignored status for
+- `schedule_id` (required): Climate entity ID target
 - `ignored` (required): Whether to ignore this entity (true) or monitor it (false)
 
 **Example:**
 ```yaml
 service: climate_scheduler.set_ignored
 data:
-  schedule_id: Guest Room
+  schedule_id: climate.guest_room
   ignored: true
 ```
+
+---
+
+## Maintenance & Diagnostics
+
+### `climate_scheduler.sync_all`
+
+Force an immediate sync of all managed climate entities.
+
+```yaml
+service: climate_scheduler.sync_all
+```
+
+### `climate_scheduler.reload_integration`
+
+Reload the Climate Scheduler integration.
+
+```yaml
+service: climate_scheduler.reload_integration
+```
+
+### `climate_scheduler.reregister_card`
+
+Re-register the Lovelace card resource (useful when card picker/resource registration is broken).
+
+```yaml
+service: climate_scheduler.reregister_card
+data:
+  resource_type: module
+```
+
+### `climate_scheduler.test_fire_event`
+
+Emit a `climate_scheduler_node_activated` test event without applying climate changes.
+
+```yaml
+service: climate_scheduler.test_fire_event
+data:
+  schedule_id: climate.living_room
+  node:
+    time: "07:00"
+    temp: 21
+  day: mon
+```
+
+### `climate_scheduler.get_groups`, `climate_scheduler.list_groups`, `climate_scheduler.list_profiles`
+
+Return group/profile metadata for automation and diagnostics workflows.
+
+### `climate_scheduler.cleanup_malformed_sensors`
+
+Find unexpected Climate Scheduler sensor entities, with optional deletion (`delete: true`).
+
+### `climate_scheduler.cleanup_orphaned_climate_entities`
+
+Find orphaned Climate Scheduler entities (climate/sensor/switch), with optional deletion (`delete: true`).
+
+### `climate_scheduler.cleanup_derivative_sensors`
+
+Clean up derivative and legacy helper sensors that are no longer needed.
+
+### `climate_scheduler.cleanup_unmonitored_storage`
+
+Prune stale storage references for unmonitored/missing entities, including obsolete groups, invalid profile references, stale entity links, and orphaned advance history.
+
+**Parameters:**
+- `delete` (optional, default: `false`): When `false`, returns everything that would be deleted without making changes. When `true`, executes cleanup and returns what was deleted/repaired.
+
+**Example (preview only):**
+```yaml
+service: climate_scheduler.cleanup_unmonitored_storage
+data:
+  delete: false
+```
+
+**Example (execute cleanup):**
+```yaml
+service: climate_scheduler.cleanup_unmonitored_storage
+data:
+  delete: true
+```
+
+### `climate_scheduler.recreate_all_sensors`
+
+Delete and recreate all Climate Scheduler sensors (requires `confirm: true`).
+
+### `climate_scheduler.factory_reset`
+
+Reset integration storage to defaults (destructive; requires explicit confirmation fields).
+
+### `climate_scheduler.diagnostics`
+
+Run built-in diagnostics for integration/card setup and registration state.
 
 ---
 

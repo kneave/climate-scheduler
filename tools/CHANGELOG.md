@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.15.0] - 2026-02-20
+
+Pre-release (`develop`) entries for this release are archived in `tools/CHANGELOG-DEV.md`.
+
+### Added
+- **Timeline-Based Editor**: Introduced a new timeline UI system across main schedule, default schedule, and profile editing flows
+  - Keyframe timeline component with drag/edit interactions
+  - Climate settings dialog for richer node configuration
+  - Previous/Next navigation controls, copy/paste support, and timeline legend
+
+- **Profile Editing Improvements**:
+  - Dedicated Profile Editor workflow with inline profile timeline editing
+  - Node settings support in profile editor
+  - Global profile architecture with per-group `active_profile` selection
+
+- **TypeScript Frontend Source**:
+  - Added `src/*.ts` source pipeline with Rollup/TypeScript build configuration
+  - Added new frontend components: timeline, panel, card, and climate dialog TS sources
+
+- **Developer/Project Documentation**:
+  - Added architecture map, contracts, hotspots, ADR index, and AI review/context guides
+
+### Changed
+- **UI/UX Overhaul**: Major modernization of scheduling UI for desktop and mobile
+  - Improved spacing/responsive layouts and light mode presentation
+  - Updated icons, tooltip styling, and node settings panel structure
+  - Moved test event actions into node settings workflow
+
+- **Scheduling/Profile Behavior**:
+  - Reimplemented frontend no-change behavior for mode settings
+  - New nodes now default non-temperature settings to no-change
+  - Save pipeline hardened with debounce/serialization and improved state handling
+
+- **Coordinator Behavior**:
+  - Settings application made more selective (time transitions, current-node edits, first run)
+  - HVAC mode/temperature application sequencing refined for better reliability
+
+### Removed
+- **Legacy Graph System**: Removed deprecated `graph.js` and fully transitioned to timeline-based frontend
+- **Per-Schedule Profile Model**: Replaced by global profile model (legacy compatibility data retained)
+- **Redundant UI Elements**: Removed duplicated local instructions and outdated/duplicate controls
+
+### Fixed
+- **Timeline Interaction Reliability**:
+  - Fixed mobile touch selection/tap behavior and horizontal scroll click detection
+  - Fixed copy/paste button state and profile editor initialization issues
+  - Fixed midnight `24:00` normalization issues and wraparound visualization edge cases
+
+- **Node/Save Correctness**:
+  - Fixed node settings persistence across HVAC/fan/swing/preset/custom values
+  - Fixed no-save regression and improved undo coverage for climate dialog edits
+  - Fixed rounding/precision artifacts in timeline/slider edits
+
+- **Scheduling/Backend Fixes**:
+  - Fixed advance mode regressions and no-change resync behavior
+  - Fixed default profile selection when monitoring new entities
+  - Included targeted fixes for [#118](https://github.com/kneave/climate-scheduler/issues/118), [#126](https://github.com/kneave/climate-scheduler/issues/126), [#137](https://github.com/kneave/climate-scheduler/issues/137), [#149](https://github.com/kneave/climate-scheduler/issues/149), [#150](https://github.com/kneave/climate-scheduler/issues/150), [#154](https://github.com/kneave/climate-scheduler/issues/154), and [#156](https://github.com/kneave/climate-scheduler/issues/156)
+
 ## [1.14.12] - 2026-01-21
 
 ### Fixed
@@ -200,7 +258,7 @@
 
 ## [1.14.4] - 2026-01-02
 ### Fixed
-- Issue #78: Schedules now reapply on node time transitions even if settings are the same, ensuring manual changes are reset to the schedule at each node time
+- Issue [#78](https://github.com/kneave/climate-scheduler/issues/78): Schedules now reapply on node time transitions even if settings are the same, ensuring manual changes are reset to the schedule at each node time
 
 ## [1.14.3] - 2026-01-02
 ### Fixed
@@ -209,11 +267,11 @@
 
 ## [1.14.2] - 2026-01-01
 ### Fixed
-- Issue #75: Fixing loads of inconsistencies with schedule advance
-- Issue #74: Settings not saving
+- Issue [#75](https://github.com/kneave/climate-scheduler/issues/75): Fixing loads of inconsistencies with schedule advance
+- Issue [#74](https://github.com/kneave/climate-scheduler/issues/74): Settings not saving
 - Extra checks for null temperature entities
-- Issue #57: is_group errors
-- Issue #62: En/disabling schedules
+- Issue [#57](https://github.com/kneave/climate-scheduler/issues/57): is_group errors
+- Issue [#62](https://github.com/kneave/climate-scheduler/issues/62): En/disabling schedules
 - Autosave bugs
 - Services for malformed sensors
 - Duplicate sensor creation issues
@@ -236,7 +294,7 @@
 
 ## [1.14.1] - 2025-12-31
 ### Fixed
-- Extra checking for NULL temperature entities (Issue #73)
+- Extra checking for NULL temperature entities (Issue [#73](https://github.com/kneave/climate-scheduler/issues/73))
 
 ## [1.14.0] - 2025-12-31
 ### Added
@@ -446,3 +504,7 @@
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
+
+
+

@@ -1,0 +1,22 @@
+{
+  "name": "climate-scheduler",
+  "version": "1.15.0",
+  "private": true,
+  "description": "Climate Scheduler for Home Assistant",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -c --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "lit": "^3.1.0",
+    "rollup": "^4.9.6",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "lit": "^3.1.0"
+  }
+}

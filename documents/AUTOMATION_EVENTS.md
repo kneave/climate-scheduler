@@ -8,7 +8,7 @@ The Climate Scheduler integration fires events whenever schedule nodes are activ
 
 This event is fired whenever:
 - A scheduled node transition occurs (scheduled time reached)
-- A node is manually advanced using the `climate_scheduler.advance_to_next_node` service
+- A node is manually advanced using the `climate_scheduler.advance_schedule` service
 
 ## Virtual Schedules (Event-Only Mode)
 
@@ -262,7 +262,7 @@ automation:
           trigger_type: scheduled
     condition:
       - condition: template
-        value_template: "{{ trigger.event.data.entity_id is none }}"  # Virtual schedule
+        value_template: "{{ (trigger.event.data.entities | default([]) | count) == 0 }}"  # Virtual schedule
     action:
       - service: light.turn_on
         target:
@@ -328,7 +328,7 @@ automation:
 ## Tips
 
 1. **Use Templates**: Access event data with `{{ trigger.event.data.field_name }}`
-2. **Filter by Entity**: Use `event_data.entity_id` to target specific thermostats
+2. **Filter by Entity**: Prefer `event_data.entities` (or `group_name`) for targeting; `entity_id` is legacy compatibility
 3. **Filter by Time**: Check `event_data.node.time` for specific schedule times
 4. **Filter by Trigger Type**: Use `event_data.trigger_type` to distinguish scheduled vs manual changes
 5. **Compare Nodes**: Use `previous_node` (when available) to detect temperature increases/decreases

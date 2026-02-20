@@ -32,6 +32,7 @@ A custom Home Assistant integration that provides intelligent 24-hour, weekday/w
 - **[Actions Reference](documents/ACTIONS.md)** - Complete list of all services/actions for use in automations and scripts
 - **[Automation Events](documents/AUTOMATION_EVENTS.md)** - Fire events when nodes activate for custom automations
 - **[Development Guide](documents/DEVELOPMENT.md)** - Information for developers and contributors
+- **[AI Workflow](documents/DEVELOPMENT.md#ai-workflow-copilot)** - Fast startup context order and source-of-truth edit rules for Copilot sessions
 
 ## Known Issues
 - Editing the graph on the mobile app doesn't seem to work, as a workaround you can tap on a node and edit using the UI below the graph.
@@ -182,7 +183,7 @@ For issues, feature requests, or questions:
 
 ## License
 
-MIT License - see [LICENSE](documents/LICENSE) file for details
+MIT License - see [LICENSE](LICENSE) file for details
 
 ## Development & AI Attribution
 

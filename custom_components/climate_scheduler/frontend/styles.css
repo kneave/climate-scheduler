@@ -18,45 +18,45 @@ body {
     min-height: 0 !important;
 }
 
-/* CSS Variables - Dark Theme (default) */
+/* CSS Variables - Use Home Assistant theme variables with dark theme fallbacks */
 :root,
 climate-scheduler-panel {
-    --primary-color: #03a9f4;
-    --primary-dark: #0288d1;
-    --background: #1e1e1e;
-    --surface: #2d2d2d;
-    --surface-light: #3d3d3d;
-    --text-primary: #ffffff;
-    --text-secondary: #b0b0b0;
-    --border: #444444;
-    --accent: #ff9800;
-    --success: #4caf50;
-    --danger: #f44336;
-    --grid-line: #444444;
-    --node-color: #03a9f4;
-    --node-hover: #29b6f6;
-    --line-color: #ff9800;
+    --primary-color: var(--primary-color, #03a9f4);
+    --primary-dark: var(--dark-primary-color, #0288d1);
+    --background: var(--card-background-color, #1e1e1e);
+    --surface: var(--card-background-color, #2d2d2d);
+    --surface-light: var(--secondary-background-color, #3d3d3d);
+    --text-primary: var(--primary-text-color, #ffffff);
+    --text-secondary: var(--secondary-text-color, #b0b0b0);
+    --border: var(--divider-color, #444444);
+    --accent: var(--accent-color, #ff9800);
+    --success: var(--success-color, #4caf50);
+    --danger: var(--error-color, #f44336);
+    --grid-line: var(--divider-color, #444444);
+    --node-color: var(--accent-color, #03a9f4);
+    --node-hover: var(--accent-color, #29b6f6);
+    --line-color: var(--warning-color, #ff9800);
     display: block;
 }
 
-/* Light Theme */
+/* Light Theme Override - only for explicit fallbacks when HA theme doesn't provide values */
 :root[data-theme="light"],
 climate-scheduler-panel[data-theme="light"] {
-    --primary-color: #0288d1;
-    --primary-dark: #01579b;
-    --background: #fafafa;
-    --surface: #ffffff;
-    --surface-light: #f5f5f5;
-    --text-primary: #212121;
-    --text-secondary: #757575;
-    --border: #e0e0e0;
-    --accent: #f57c00;
-    --success: #388e3c;
-    --danger: #d32f2f;
-    --grid-line: #e0e0e0;
-    --node-color: #0288d1;
-    --node-hover: #039be5;
-    --line-color: #f57c00;
+    --primary-color: var(--primary-color, #0288d1);
+    --primary-dark: var(--dark-primary-color, #01579b);
+    --background: var(--card-background-color, #fafafa);
+    --surface: var(--card-background-color, #ffffff);
+    --surface-light: var(--secondary-background-color, #f5f5f5);
+    --text-primary: var(--primary-text-color, #212121);
+    --text-secondary: var(--secondary-text-color, #757575);
+    --border: var(--divider-color, #e0e0e0);
+    --accent: var(--accent-color, #f57c00);
+    --success: var(--success-color, #388e3c);
+    --danger: var(--error-color, #d32f2f);
+    --grid-line: var(--divider-color, #e0e0e0);
+    --node-color: var(--accent-color, #0288d1);
+    --node-hover: var(--accent-color, #039be5);
+    --line-color: var(--warning-color, #f57c00);
 }
 
 climate-scheduler-panel {
@@ -64,22 +64,27 @@ climate-scheduler-panel {
     height: 100%;
 }
 
-/* Buttons - moved out of :host to work with light DOM */
-.schedule-btn {
-    min-width: 110px;
-    padding: 8px 16px;
+/* Base button styles - all buttons inherit from this */
+button, .btn {
+    padding: 6px 12px;
     font-size: 0.95rem;
     font-weight: 500;
     border-radius: 6px;
     margin: 0;
     box-sizing: border-box;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+/* Schedule buttons */
+.schedule-btn {
+    min-width: 110px;
 }
 
 .btn-primary {
     background: var(--primary-color);
-    color: white;
+    color: var(--primary-text-color, #ffffff);
     border: none;
-    transition: all 0.2s;
 }
 
 .btn-primary:hover {
@@ -96,7 +101,6 @@ climate-scheduler-panel {
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    transition: all 0.2s;
 }
 
 .btn-secondary:hover {
@@ -114,7 +118,6 @@ climate-scheduler-panel {
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border);
-    transition: all 0.2s;
 }
 
 .btn-secondary-outline:hover {
@@ -126,7 +129,6 @@ climate-scheduler-panel {
     background: transparent;
     color: var(--danger);
     border: 1px solid var(--danger);
-    transition: all 0.2s;
 }
 
 .btn-danger-outline:hover {
@@ -177,11 +179,7 @@ climate-scheduler-panel {
     background: var(--surface-light);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    padding: 8px 12px;
-    border-radius: 6px;
-    cursor: pointer;
     font-size: 1.2rem;
-    transition: all 0.2s;
 }
 
 .btn-icon:hover {
@@ -194,6 +192,8 @@ climate-scheduler-panel {
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 12px;
     overflow-y: visible;
+    background: var(--card-background-color);
+    padding: 12px;
 }
 
 .selector-header {
@@ -223,6 +223,11 @@ climate-scheduler-panel {
     margin-top: 0;
     padding-top: 0;
     border-top: none;
+    margin-bottom: 20px;
+}
+
+.profiles-section {
+    margin-bottom: 20px;
 }
 
 .groups-list {
@@ -328,41 +333,10 @@ climate-scheduler-panel {
 }
 
 .ignored-section {
-    margin-top: 20px;
-}
-
-.ignored-toggle {
-    background: var(--surface-light);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    padding: 12px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    width: 100%;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.2s;
-}
-
-.ignored-toggle:hover {
-    background: var(--surface);
-    color: var(--text-primary);
-}
-
-.toggle-icon {
-    font-size: 0.8rem;
-    transition: transform 0.2s;
-}
-
-.toggle-icon.expanded {
-    transform: rotate(90deg);
+    margin-bottom: 12px;
 }
 
 .ignored-list {
-    margin-top: 12px;
     display: flex;
     flex-direction: column; /* stack filter above grid */
     width: 100%;
@@ -571,14 +545,10 @@ climate-scheduler-panel {
 /* Buttons */
 .btn-primary {
     background: var(--primary-color);
-    color: white;
+    color: var(--primary-text-color, #ffffff);
     border: none;
-    padding: 10px 24px;
-    border-radius: 6px;
     font-size: 1rem;
     font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
 }
 
 .btn-primary:hover {
@@ -595,11 +565,8 @@ climate-scheduler-panel {
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    padding: 10px 20px;
-    border-radius: 6px;
     font-size: 0.95rem;
-    font-weight: 500;
-    cursor: pointer;
+}
     transition: all 0.2s;
 }
 
@@ -728,26 +695,6 @@ climate-scheduler-panel {
 .graph-container {
     margin-top: 20px;
 }
-
-.graph-wrapper {
-    background: var(--background);
-    border-radius: 8px;
-    padding: 20px;
-    padding-bottom: 10px;
-    overflow: hidden;
-}
-
-#temperature-graph {
-    width: 100%;
-    height: auto;
-    display: block;
-    touch-action: none;
-    user-select: none;
-}
-
-/* Ensure SVG text uses theme colors by default */
-svg text {
-    fill: var(--text-primary);
 }
 
 /* Graph node selection highlight */
@@ -813,6 +760,212 @@ footer {
         flex-direction: row;
         justify-content: space-between;
     }
+    
+    /* Stack graph top controls on tablet and mobile */
+    .graph-top-controls {
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    
+    .day-period-selector,
+    .graph-quick-actions {
+        width: 100%;
+        margin: 0;
+        padding: 10px;
+    }
+    
+    /* Reduce schedule editor padding on tablets */
+    .schedule-editor {
+        padding: 12px;
+    }
+    
+    .editor-header {
+        margin-bottom: 12px;
+        gap: 10px;
+    }
+    
+    .graph-container {
+        margin-top: 12px;
+    }
+    
+    /* Reduce 16px padding/margins to 10-12px on tablets */
+    .schedule-settings-panel,
+    .schedule-editor-inline {
+        padding: 10px;
+    }
+    
+    .group-members-container,
+    .instructions-container,
+    .editor-header-inline {
+        margin-bottom: 10px;
+    }
+}
+
+/* Extra small mobile devices (320px width) */
+@media (max-width: 400px) {
+    .container {
+        padding: 8px;
+    }
+
+    header h1 {
+        font-size: 1.2rem;
+    }
+
+    /* Make buttons more compact */
+    button, .btn {
+        padding: 4px 8px;
+        font-size: 0.85rem;
+    }
+
+    .schedule-btn {
+        min-width: 80px;
+    }
+
+    .btn-quick-action {
+        font-size: 0.8rem;
+        padding: 4px 6px;
+    }
+
+    /* Reduce spacing in group headers */
+    .group-header {
+        padding: 8px;
+        gap: 6px;
+    }
+
+    .group-title {
+        font-size: 0.9rem;
+    }
+
+    .group-count {
+        font-size: 0.75rem;
+    }
+
+    /* Make profile dropdown more compact */
+    .group-profile-selector {
+        gap: 4px;
+    }
+
+    .group-profile-selector label {
+        font-size: 0.8rem;
+    }
+
+    .group-profile-dropdown {
+        font-size: 0.8rem;
+        padding: 4px 6px;
+    }
+
+    /* Compact day selector */
+    .day-period-btn {
+        padding: 3px 6px;
+        font-size: 0.8rem;
+        min-width: 30px;
+    }
+
+    /* Reduce entity status text */
+    .entity-status {
+        gap: 6px;
+    }
+
+    .status-label {
+        font-size: 0.75rem;
+    }
+
+    .status-value {
+        font-size: 0.85rem;
+    }
+
+    /* Compact node settings panel */
+    .setting-item label {
+        font-size: 0.85rem;
+    }
+
+    .setting-item input,
+    .setting-item select {
+        font-size: 0.85rem;
+        padding: 4px 6px;
+    }
+
+    /* Reduce modal sizes */
+    .modal-content {
+        min-width: 280px;
+        max-width: 95%;
+        padding: 12px;
+    }
+
+    .modal-header h2 {
+        font-size: 1rem;
+    }
+
+    /* Compact graph controls */
+    .graph-controls {
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+    
+    /* Stack graph top controls on mobile */
+    .graph-top-controls {
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 4px;
+    }
+    
+    .day-period-selector,
+    .graph-quick-actions {
+        width: 100%;
+        margin: 0;
+        padding: 4px;
+    }
+    
+    /* Reduce schedule editor padding */
+    .schedule-editor {
+        padding: 4px;
+        border-radius: 8px;
+    }
+    
+    .editor-header {
+        margin-bottom: 6px;
+        gap: 4px;
+    }
+    
+    .editor-header h2 {
+        font-size: 1.1rem;
+    }
+    
+    .editor-controls {
+        gap: 4px;
+    }
+    
+    .graph-container {
+        margin-top: 6px;
+    }
+    
+    /* Reduce all padding/margins to 4px */
+    .schedule-settings-panel,
+    .schedule-editor-inline,
+    .group-members-container,
+    .instructions-container {
+        padding: 4px !important;
+        margin-bottom: 4px;
+    }
+    
+    .editor-header-inline {
+        margin-bottom: 4px;
+    }
+
+    /* Reduce spinner button sizes */
+    .spinner-btn {
+        padding: 3px 6px;
+        font-size: 0.7rem;
+        min-width: 20px;
+    }
+
+    /* Make input fields more compact */
+    .time-input, .temp-input {
+        padding: 4px 6px;
+        font-size: 0.85rem;
+        width: 70px;
+    }
 }
 
 /* Scrollbar */
@@ -837,9 +990,9 @@ footer {
 /* Node Settings Panel (inline) */
 .node-settings-panel {
     margin-top: 20px;
-    padding: 20px;
+    padding: 0;
     background: var(--surface-light);
-    border: 2px solid var(--primary-color);
+    border: 1px solid var(--border);
     border-radius: 8px;
     animation: slideDown 0.3s ease-out;
 }
@@ -855,16 +1008,23 @@ footer {
     }
 }
 
-.settings-header {
+.node-settings-panel .settings-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 15px;
-    padding-bottom: 10px;
+    padding: 12px 20px;
+    background: var(--surface-light);
     border-bottom: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
 }
 
-.settings-header h3 {
+#climate-dialog-container {
+    background: var(--surface-light);
+    padding: 20px;
+    border-radius: 0 0 8px 8px;
+}
+
+.node-settings-panel .settings-header h3 {
     margin: 0;
     font-size: 1.1rem;
     color: var(--primary-color);
@@ -896,10 +1056,7 @@ footer {
     border: 1px solid var(--border);
     color: var(--text-primary);
     font-size: 0.9rem;
-    cursor: pointer;
-    padding: 4px 10px;
-    border-radius: 4px;
-    transition: all 0.2s;
+}
     font-weight: bold;
 }
 
@@ -973,11 +1130,7 @@ footer {
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 0.75rem;
-    transition: all 0.2s;
     min-width: 24px;
 }
 
@@ -1151,7 +1304,6 @@ footer {
 }
 
 .btn-danger {
-    padding: 10px 24px;
     background: #d32f2f;
     color: #fff;
     border: none;
@@ -1172,15 +1324,10 @@ footer {
 }
 
 .btn-danger-outline {
-    padding: 8px 16px;
     background: transparent;
     color: var(--danger);
     border: 1px solid var(--danger);
-    border-radius: 6px;
     font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
 }
 
 .btn-danger-outline:hover {
@@ -1189,11 +1336,9 @@ footer {
 }
 
 .btn-secondary-outline {
-    padding: 8px 16px;
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border);
-    border-radius: 6px;
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
@@ -1384,6 +1529,59 @@ footer {
     margin-top: -1px;
 }
 
+.timeline-comparison-container {
+    margin-bottom: 16px;
+}
+
+.timeline-comparison-toggle {
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+.timeline-comparison-toggle:hover {
+    background: var(--surface);
+}
+
+.timeline-comparison-toggle .toggle-icon {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    transition: transform 0.2s;
+    display: inline-block;
+}
+
+.timeline-comparison-toggle .toggle-text {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.timeline-comparison-content.collapsed {
+    display: none;
+}
+
+.timeline-comparison-content {
+    background: var(--surface-light);
+    border-radius: 0 0 8px 8px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-top: none;
+    margin-top: -1px;
+    overflow: visible;
+    min-height: 0;
+}
+
+.timeline-comparison-content keyframe-timeline {
+    display: block;
+}
+
 .group-members-container {
     margin-bottom: 16px;
 }
@@ -1498,11 +1696,7 @@ footer {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-secondary);
-    padding: 4px 8px;
-    border-radius: 4px;
-    cursor: pointer;
     font-size: 0.9rem;
-    transition: all 0.2s;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1531,7 +1725,6 @@ footer {
     border-top: 2px solid var(--primary-color);
     border-radius: 0 0 12px 12px;
     padding: 16px;
-    margin-top: 12px;
     animation: slideDown 0.3s ease-out;
     width: 100%;
     box-sizing: border-box;
@@ -1560,12 +1753,8 @@ footer {
     background: none;
     border: none;
     color: var(--text-secondary);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 1.2rem;
     line-height: 1;
-    transition: all 0.2s;
 }
 
 .close-editor-btn:hover {
@@ -1583,51 +1772,58 @@ footer {
 
 /* Settings Panel */
 .settings-panel {
-    background: var(--surface);
-    border-radius: 12px;
-    margin-top: 20px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
     margin-bottom: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     overflow: hidden;
     transition: all 0.3s ease;
 }
 
 .settings-header {
-    padding: 16px 20px;
+    padding: 12px 16px;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: var(--surface-light);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
     user-select: none;
     transition: background 0.2s;
 }
 
 .settings-header:hover {
-    background: #4d4d4d;
+    background: var(--surface-light);
 }
 
 .settings-header h3 {
     margin: 0;
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
 .settings-header .collapse-indicator {
     transition: transform 0.3s ease;
     font-size: 0.8rem;
+    color: var(--text-secondary);
 }
 
-.settings-panel.collapsed .collapse-indicator {
-    transform: rotate(-90deg);
+.settings-panel.expanded .collapse-indicator {
+    transform: rotate(0deg) !important;
 }
 
 .settings-panel.collapsed .settings-content {
     display: none;
 }
 
+.settings-panel.expanded {
+    border-color: var(--primary-color);
+}
+
 .settings-content {
     padding: 20px;
+    background: var(--card-background-color);
 }
 
 .settings-section {
@@ -1651,12 +1847,15 @@ footer {
     background: var(--background);
     border-radius: 8px;
     border: 1px solid var(--border);
-    padding: 16px;
+    padding: 0;
+    overflow: hidden;
 }
 
 .settings-section .temperature-graph {
     width: 100%;
-    height: 300px;
+    height: 260px;
+    display: block;
+    box-sizing: border-box;
 }
 
 /* Debug Panel */
@@ -1862,7 +2061,6 @@ footer {
 }
 
 .btn-profile {
-    padding: 8px 12px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -1912,8 +2110,31 @@ footer {
     margin: 0 auto;
 }
 
+.mode-dropdown {
+    padding: 6px 10px;
+    background: var(--surface-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+    max-width: 200px;
+}
+
+.mode-dropdown:hover {
+    border-color: var(--primary-color);
+    background: var(--surface);
+}
+
+.mode-dropdown:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-color-alpha);
+}
+
 .btn-quick-action {
-    padding: 6px 14px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -1992,19 +2213,17 @@ footer {
 }
 
 .day-period-btn {
-    padding: 8px 16px;
+    padding: 4px 10px;
     background: var(--surface-light);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 6px;
     font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    min-width: 60px;
+    min-width: 40px;
 }
 
 .day-period-btn:hover {
     background: var(--surface-hover);
+}
     border-color: var(--primary-color);
 }
 

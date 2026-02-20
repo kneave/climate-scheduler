@@ -2,46 +2,52 @@
  * Climate Scheduler Custom Panel
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
+
 // Version checking - detect if browser cache is stale
-(async function () {
-    try {
-        const scriptUrl = document.currentScript?.src || new URL(import.meta.url).href;
-        const loadedVersion = new URL(scriptUrl).searchParams.get('v');
-        // Fetch the current server version
-        const response = await fetch('/climate_scheduler/static/.version');
-        if (response.ok) {
-            const serverVersion = (await response.text()).trim().split(',')[0];
-            // Compare versions - check the aren't None and if they don't match, user has stale cache
-            if ((loadedVersion && serverVersion) && loadedVersion !== serverVersion) {
-                console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
-                // Store in sessionStorage to avoid showing repeatedly
-                const notificationKey = 'climate_scheduler_refresh_shown';
-                const shownVersion = sessionStorage.getItem(notificationKey);
-                if (shownVersion !== serverVersion) {
-                    // Show persistent notification
-                    const event = new CustomEvent('hass-notification', {
-                        bubbles: true,
-                        cancelable: false,
-                        composed: true,
-                        detail: {
-                            message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
-                            duration: 0 // Persistent notification
-                        }
-                    });
-                    document.body.dispatchEvent(event);
-                    // Mark as shown for this session
-                    sessionStorage.setItem(notificationKey, serverVersion);
-                    console.info('[Climate Scheduler] Refresh notification displayed');
-                }
+(async function() {
+  try {
+    const scriptUrl = (document.currentScript as HTMLScriptElement)?.src || new URL(import.meta.url).href;
+    const loadedVersion = new URL(scriptUrl).searchParams.get('v');
+    
+    // Fetch the current server version
+    const response = await fetch('/climate_scheduler/static/.version');
+    if (response.ok) {
+      const serverVersion = (await response.text()).trim().split(',')[0];
+      
+      // Compare versions - check the aren't None and if they don't match, user has stale cache
+      if ((loadedVersion && serverVersion) && loadedVersion !== serverVersion) {
+        console.warn('[Climate Scheduler] Version mismatch detected. Loaded:', loadedVersion, 'Server:', serverVersion);
+        
+        // Store in sessionStorage to avoid showing repeatedly
+        const notificationKey = 'climate_scheduler_refresh_shown';
+        const shownVersion = sessionStorage.getItem(notificationKey);
+        
+        if (shownVersion !== serverVersion) {
+          // Show persistent notification
+          const event = new CustomEvent('hass-notification', {
+            bubbles: true,
+            cancelable: false,
+            composed: true,
+            detail: {
+              message: 'Climate Scheduler has been updated. Please refresh your browser (Ctrl+F5 or Cmd+Shift+R) to load the new version.',
+              duration: 0  // Persistent notification
             }
+          });
+          document.body.dispatchEvent(event);
+          
+          // Mark as shown for this session
+          sessionStorage.setItem(notificationKey, serverVersion);
+          console.info('[Climate Scheduler] Refresh notification displayed');
         }
+      }
     }
-    catch (e) {
+  } catch (e) {
         console.warn('[Climate Scheduler] Version check failed:', e);
-    }
+  }
 })();
+
 // Load other JavaScript files
-const loadScript = (src) => {
+const loadScript = (src: string): Promise<void> => {
     return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
@@ -50,13 +56,15 @@ const loadScript = (src) => {
         document.head.appendChild(script);
     });
 };
+
 // Track if scripts are loaded
 let scriptsLoaded = false;
-const getVersion = () => {
+
+const getVersion = (): string | null => {
     const scriptUrl = import.meta.url;
     const version = new URL(scriptUrl).searchParams.get('v');
-    if (!version)
-        return null;
+    if (!version) return null;
+    
     // If version has comma (dev: "tag,timestamp"), use timestamp for cache busting
     if (version.includes(',')) {
         const parts = version.split(',');
@@ -64,17 +72,19 @@ const getVersion = () => {
     }
     // Otherwise use version as-is (HACS tag or production tag)
     return version;
-};
+}
+
 // Load dependencies in order
-const loadScripts = () => {
-    if (scriptsLoaded)
-        return Promise.resolve();
+const loadScripts = (): Promise<void> => {
+    if (scriptsLoaded) return Promise.resolve();
+    
     // Determine base path from where panel.js was loaded
     const scriptUrl = import.meta.url;
     const url = new URL(scriptUrl);
     // Remove panel.js and query params to get base path
     const basePath = url.origin + url.pathname.substring(0, url.pathname.lastIndexOf('/'));
     const version = getVersion();
+    
     return Promise.all([
         loadScript(`${basePath}/utils.js?v=${version}`),
         loadScript(`${basePath}/ha-api.js?v=${version}`)
@@ -87,13 +97,33 @@ const loadScripts = () => {
         throw error;
     });
 };
+
+interface HassThemes {
+    darkMode: boolean;
+}
+
+interface HassObject {
+    themes: HassThemes;
+    [key: string]: any;
+}
+
+declare global {
+    interface Window {
+        climateSchedulerPanelRoot: ClimateSchedulerPanel;
+        initClimateSchedulerApp?: (hass: HassObject) => void;
+        updateHassConnection?: (hass: HassObject) => void;
+    }
+}
+
 class ClimateSchedulerPanel extends HTMLElement {
+    private _hass: HassObject | null = null;
+    narrow: boolean = false;
+    panel: any = null;
+
     constructor() {
         super();
-        this._hass = null;
-        this.narrow = false;
-        this.panel = null;
     }
+
     // Declare properties that Home Assistant looks for
     static get properties() {
         return {
@@ -103,56 +133,63 @@ class ClimateSchedulerPanel extends HTMLElement {
             panel: { type: Object }
         };
     }
+
     async connectedCallback() {
         this.render();
+
         // Store reference to this panel element globally so app.js can query within it
         window.climateSchedulerPanelRoot = this;
+
         // Wait for scripts to load before initializing
         try {
             await loadScripts();
+
             // Small delay to ensure DOM is fully rendered
             await new Promise(resolve => setTimeout(resolve, 100));
+
             // Update version info in footer
             const versionElement = this.querySelector('#version-info');
             if (versionElement) {
                 try {
                     const scriptUrl = import.meta.url;
                     const versionParam = new URL(scriptUrl).searchParams.get('v');
+                    
                     let version = '';
+                    
                     if (versionParam) {
                         if (versionParam.includes(',')) {
                             // Has timestamp - dev deployment: "tag,timestamp"
                             const parts = versionParam.split(',');
                             const tag = (parts[0] || 'unknown').replace(/^v/, '');
                             version = `v${tag} (dev)`;
-                        }
-                        else {
+                        } else {
                             // No timestamp - production: just tag
                             const tag = versionParam.replace(/^v/, '');
                             version = `v${tag}`;
                         }
-                    }
-                    else {
+                    } else {
                         version = '(manual)';
                     }
+                    
                     versionElement.textContent = `Climate Scheduler ${version}`;
-                }
-                catch (e) {
+                } catch (e) {
                     console.warn('Failed to determine version:', e);
                     versionElement.textContent = 'Climate Scheduler';
                 }
             }
+
             // Initialize the app when panel is loaded and scripts are ready
             if (window.initClimateSchedulerApp) {
-                window.initClimateSchedulerApp(this.hass);
+                window.initClimateSchedulerApp(this.hass!);
             }
-        }
-        catch (error) {
+        } catch (error) {
             console.error('Failed to initialize Climate Scheduler:', error);
         }
     }
-    set hass(value) {
+
+    set hass(value: HassObject | null) {
         this._hass = value;
+        
         // Apply theme based on Home Assistant theme mode
         if (value && value.themes) {
             const isDark = value.themes.darkMode;
@@ -160,21 +197,23 @@ class ClimateSchedulerPanel extends HTMLElement {
                 // Dark mode is default, remove attribute
                 document.documentElement.removeAttribute('data-theme');
                 this.removeAttribute('data-theme');
-            }
-            else {
+            } else {
                 // Light mode needs explicit attribute
                 document.documentElement.setAttribute('data-theme', 'light');
                 this.setAttribute('data-theme', 'light');
             }
         }
+        
         // Pass hass object to app if it's already initialized
         if (window.updateHassConnection && value) {
             window.updateHassConnection(value);
         }
     }
-    get hass() {
+
+    get hass(): HassObject | null {
         return this._hass;
     }
+
     render() {
         if (!this.querySelector('.container')) {
             // Load CSS using same base path detection as scripts
@@ -186,6 +225,7 @@ class ClimateSchedulerPanel extends HTMLElement {
             styleLink.rel = 'stylesheet';
             styleLink.href = `${basePath}/styles.css?v=${version}`;
             this.appendChild(styleLink);
+
             // Create container div for content
             const container = document.createElement('div');
             container.innerHTML = `
@@ -590,9 +630,10 @@ class ClimateSchedulerPanel extends HTMLElement {
                     </footer>
                 </div>
             `;
+            
             this.appendChild(container);
         }
     }
 }
+
 customElements.define('climate-scheduler-panel', ClimateSchedulerPanel);
-//# sourceMappingURL=panel.js.map

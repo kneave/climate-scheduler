@@ -5,11 +5,17 @@
 
 // Helper function to get the correct document root for DOM queries
 function getDocumentRoot() {
+    // If panel is using shadow DOM (LitElement), use shadowRoot
+    if (window.climateSchedulerPanelRoot?.shadowRoot) {
+        return window.climateSchedulerPanelRoot.shadowRoot;
+    }
+    // Otherwise use the panel element directly or document
     return window.climateSchedulerPanelRoot || document;
 }
 
 let haAPI;
 let graph;
+let nodeSettingsTimeline = null;
 let climateEntities = [];
 let entitySchedules = new Map(); // Track which entities have schedules locally
 let temperatureUnit = '°C'; // Default to Celsius, updated from HA config
@@ -19,11 +25,84 @@ let storedTemperatureUnit = null; // Unit that schedules were saved in
 
 function convertScheduleNodes(nodes, fromUnit, toUnit) {
     if (!nodes || nodes.length === 0 || fromUnit === toUnit) return nodes;
-    const multiplier = 1 / graphSnapStep;
     return nodes.map(node => ({
         ...node,
-        temp: Math.round(convertTemperature(node.temp, fromUnit, toUnit) * multiplier) / multiplier
+        temp: normalizeTemperature(convertTemperature(node.temp, fromUnit, toUnit), graphSnapStep)
     }));
+}
+
+function getStepPrecision(step) {
+    if (!Number.isFinite(step) || step <= 0) {
+        return 3;
+    }
+
+    const stepString = step.toString().toLowerCase();
+    if (stepString.includes('e-')) {
+        const exponent = Number(stepString.split('e-')[1]);
+        return Number.isFinite(exponent) ? exponent : 3;
+    }
+
+    const decimalPart = stepString.split('.')[1];
+    return decimalPart ? decimalPart.length : 0;
+}
+
+function roundToPrecision(value, precision) {
+    const safePrecision = Math.max(0, Math.min(precision, 10));
+    const factor = 10 ** safePrecision;
+    return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function normalizeTemperature(value, step = null) {
+    if (!Number.isFinite(value)) {
+        return value;
+    }
+
+    if (Number.isFinite(step) && step > 0) {
+        const snapped = Math.round(value / step) * step;
+        return roundToPrecision(snapped, getStepPrecision(step));
+    }
+
+    return roundToPrecision(value, 4);
+}
+
+function resolveNoChangeLockedTemp(nodes, targetNode) {
+    if (!Array.isArray(nodes) || nodes.length === 0 || !targetNode) {
+        return null;
+    }
+
+    const toNumericTemp = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const ownTemp = toNumericTemp(targetNode.temp);
+
+    // Single-node schedules lock to the node's own value.
+    if (nodes.length === 1) {
+        return ownTemp;
+    }
+
+    const sortedNodes = [...nodes].sort((a, b) => {
+        const [aHours, aMinutes] = (a.time || '00:00').split(':').map(Number);
+        const [bHours, bMinutes] = (b.time || '00:00').split(':').map(Number);
+        const aDecimal = aHours + (aMinutes / 60);
+        const bDecimal = bHours + (bMinutes / 60);
+        return aDecimal - bDecimal;
+    });
+
+    let targetIndex = sortedNodes.findIndex((node) => node === targetNode);
+    if (targetIndex === -1 && targetNode.time) {
+        targetIndex = sortedNodes.findIndex((node) => node.time === targetNode.time);
+    }
+
+    if (targetIndex === -1) {
+        return ownTemp;
+    }
+
+    const previousIndex = (targetIndex - 1 + sortedNodes.length) % sortedNodes.length;
+    const previousTemp = toNumericTemp(sortedNodes[previousIndex]?.temp);
+
+    return previousTemp ?? ownTemp;
 }
 let allGroups = {}; // Store all groups data
 let allEntities = {}; // Store all entities data with their schedules
@@ -31,11 +110,15 @@ let currentGroup = null; // Currently selected group
 let currentEntityId = null; // Currently selected individual entity (legacy path, mostly unused now)
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
+let keyframeTimelineLoaded = false; // Track if keyframe-timeline.js is loaded
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
+let humidityStep = parseFloat(localStorage.getItem('humidityStep')) || 1; // Step for humidity slider in node settings dialog
+const cleanupAutoDownloadReports = localStorage.getItem('cleanupAutoDownloadReports') === 'true'; // Opt-in: auto-download cleanup preview/result JSON files
 let currentDay = null; // Currently selected day for editing (e.g., 'mon', 'weekday')
 let currentScheduleMode = 'all_days'; // Current schedule mode: 'all_days', '5/2', 'individual'
+let currentSchedule = []; // Currently loaded schedule nodes with all properties (time, temp, hvac_mode, etc.)
 let isLoadingSchedule = false; // Flag to prevent auto-save during schedule loading
 let isSaveInProgress = false; // Flag to prevent concurrent saves
 let pendingSaveNeeded = false; // Flag to indicate a save was skipped and needs to be retried
@@ -43,10 +126,28 @@ let saveTimeout = null; // Timeout for debouncing save operations
 const SAVE_DEBOUNCE_MS = 300; // Wait 300ms after last change before saving
 let serverTimeZone = null; // Store the Home Assistant server timezone
 
+function flushPendingSaveIfNeeded() {
+    if (!isLoadingSchedule && !isSaveInProgress && pendingSaveNeeded) {
+        pendingSaveNeeded = false;
+        saveSchedule();
+    }
+}
+
 // Debug logging function
 function debugLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString();
-        //
+
+    const shouldMirrorToConsole = typeof message === 'string' && (message.includes('[Undo]') || message.includes('[Dialog]'));
+    if (shouldMirrorToConsole) {
+        const consoleMessage = `[Climate Scheduler ${timestamp}] ${message}`;
+        if (type === 'error') {
+            console.error(consoleMessage);
+        } else if (type === 'warning') {
+            console.warn(consoleMessage);
+        } else {
+            console.info(consoleMessage);
+        }
+    }
     
     if (debugPanelEnabled) {
         const debugContent = getDocumentRoot().querySelector('#debug-content');
@@ -148,6 +249,9 @@ async function initApp() {
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
         
+        // Subscribe to profile change events
+        await haAPI.subscribeToEvents('climate_scheduler_profile_changed', handleProfileChanged);
+        
         // Set up UI event listeners
         setupEventListeners();
     } catch (error) {
@@ -236,6 +340,9 @@ async function loadGroups() {
         
         // Render unmonitored entities section
         renderIgnoredEntities();
+
+        // Refresh global profile editor section
+        await refreshGlobalProfileEditor();
         
         // Re-render entity list now that groups are loaded
         // This will hide entities that are in groups
@@ -389,12 +496,15 @@ function renderIgnoredEntities() {
                 try {
                     await haAPI.setIgnored(entityId, false);
                     
-                    // Verify the entity was created successfully
-                    const schedule = await haAPI.getSchedule(entityId);
+                    // Verify the entity was updated successfully
+                    const result = await haAPI.getSchedule(entityId);
+                    const schedule = result?.response || result;
+                    
                     if (schedule && schedule.ignored === false) {
-                        showToast(`${friendlyName} is now monitored. Refresh the page to edit its schedule.`, 'success');
+                        showToast(`${friendlyName} is now monitored.`, 'success');
                     } else {
-                        showToast(`${friendlyName} status updated, but verification failed. Try refreshing the page.`, 'warning');
+                        // Still show success since setIgnored didn't throw
+                        showToast(`${friendlyName} is now monitored.`, 'success');
                     }
                     
                     // Reload groups to update the display
@@ -470,20 +580,69 @@ function createGroupContainer(groupName, groupData) {
     // Always display the actual group name for consistency with service calls/actions
     title.textContent = groupName;
     
-    const count = document.createElement('span');
-    count.className = 'group-count';
-    count.textContent = `${groupData.entities?.length || 0} entities`;
-    
     leftSide.appendChild(toggleIcon);
     leftSide.appendChild(title);
-    leftSide.appendChild(count);
     
     header.appendChild(leftSide);
     
     // Add rename button for all groups
     const actions = document.createElement('div');
     actions.className = 'group-actions';
-    actions.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+    actions.style.cssText = 'display: flex; gap: 12px; align-items: center;';
+    
+    // Add Active Profile selector
+    const profileSelector = document.createElement('div');
+    profileSelector.className = 'group-profile-selector';
+    profileSelector.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    
+    const profileDropdown = document.createElement('select');
+    profileDropdown.className = 'group-profile-dropdown';
+    profileDropdown.dataset.groupName = groupName;
+    profileDropdown.style.cssText = 'padding: 4px 8px; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--text-primary);';
+    
+    // Get profiles for this group
+    const activeProfile = groupData.active_profile || 'Default';
+    const profiles = groupData.profiles ? Object.keys(groupData.profiles) : ['Default'];
+    
+    profiles.forEach(profileName => {
+        const option = document.createElement('option');
+        option.value = profileName;
+        option.textContent = profileName;
+        if (profileName === activeProfile) {
+            option.selected = true;
+        }
+        profileDropdown.appendChild(option);
+    });
+    
+    // Add event listener for profile change
+    profileDropdown.addEventListener('click', (e) => e.stopPropagation());
+    profileDropdown.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const newProfile = e.target.value;
+        
+        try {
+            await haAPI.setActiveProfile(groupName, newProfile);
+            
+            // Reload group data from server
+            const groupsResult = await haAPI.getGroups();
+            allGroups = groupsResult.groups || groupsResult;
+            
+            // If this group is currently being edited, reload it
+            if (currentGroup === groupName) {
+                await editGroupSchedule(groupName);
+            }
+            
+            showToast(`Switched ${groupName} to profile: ${newProfile}`, 'success');
+        } catch (error) {
+            console.error('Failed to switch profile:', error);
+            showToast('Failed to switch profile', 'error');
+            // Revert dropdown
+            profileDropdown.value = activeProfile;
+        }
+    });
+    
+    profileSelector.appendChild(profileDropdown);
+    actions.appendChild(profileSelector);
     
     // Enable/disable toggle - reuse the styled toggle switch from settings
     const toggleLabel = document.createElement('label');
@@ -532,20 +691,10 @@ function createGroupContainer(groupName, groupData) {
     renameBtn.textContent = '✎';
     renameBtn.className = 'btn-icon';
     renameBtn.title = 'Rename group';
-    renameBtn.style.cssText = 'padding: 4px 8px; font-size: 1rem; background: none; border: none; cursor: pointer; color: var(--text-secondary);';
-    renameBtn.onclick = async (e) => {
+    renameBtn.style.cssText = 'padding: 4px 8px; font-size: 1rem; background: none; border: none; cursor: pointer; color: var(--text-secondary); transform: scaleX(-1);';
+    renameBtn.onclick = (e) => {
         e.stopPropagation();
-        const newName = prompt(`Rename group "${groupName}" to:`, groupName);
-        if (newName && newName.trim() !== '' && newName !== groupName) {
-            try {
-                await haAPI.renameGroup(groupName, newName.trim());
-                showToast(`Renamed group to: ${newName}`, 'success');
-                await loadGroups();
-            } catch (error) {
-                console.error('Failed to rename group:', error);
-                showToast('Failed to rename group: ' + error.message, 'error');
-            }
-        }
+        showEditGroupModal(groupName);
     };
     
     actions.appendChild(renameBtn);
@@ -562,13 +711,11 @@ function createGroupContainer(groupName, groupData) {
         
         // Block if there's a save in progress
         if (isSaveInProgress) {
-            console.log(`[Schedule] Ignoring click on group: ${groupName} (save in progress)`);
             return;
         }
         
         // Global lock: only process one group click at a time
         if (isProcessingGroupClick) {
-            console.log(`[Schedule] Ignoring click on group: ${groupName} (already processing another group)`);
             return;
         }
         
@@ -576,7 +723,6 @@ function createGroupContainer(groupName, groupData) {
         const now = Date.now();
         const lastClick = lastClickTime[groupName] || 0;
         if (now - lastClick < CLICK_DEBOUNCE_MS) {
-            console.log(`[Schedule] Ignoring duplicate click on group: ${groupName} (debounced)`);
             return;
         }
         lastClickTime[groupName] = now;
@@ -609,7 +755,444 @@ function createGroupContainer(groupName, groupData) {
     container.appendChild(header);
     
     return container;
-}// Edit group schedule - load group schedule into editor
+}
+
+// Load keyframe-timeline.js dynamically
+async function loadKeyframeTimeline() {
+    if (keyframeTimelineLoaded) return true;
+    
+    try {
+        // Get the base path from where scripts are loaded (same as graph.js, ha-api.js)
+        // We can infer this from the current location or use a known path
+        const basePath = '/climate_scheduler/static';
+        // Try to get version from graph.js or ha-api.js script tags
+        let version = null;
+        const scripts = document.querySelectorAll('script[src*="graph.js"], script[src*="ha-api.js"]');
+        for (const s of scripts) {
+            const url = new URL(s.src, window.location.href);
+            version = url.searchParams.get('v');
+            if (version) break;
+        }
+        
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = `${basePath}/keyframe-timeline.js${version ? `?v=${version}` : ''}`;
+        
+        await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+        
+        keyframeTimelineLoaded = true;
+        return true;
+    } catch (error) {
+        console.error('Failed to load keyframe-timeline.js:', error);
+        showToast('Failed to load canvas graph component', 'error');
+        return false;
+    }
+}
+
+// Convert schedule nodes {time: "HH:MM", temp: number} to keyframes {time: decimal_hours, value: number}
+function scheduleNodesToKeyframes(nodes) {
+    const keyframes = nodes
+        .filter(node => node.temp !== null && node.temp !== undefined)
+        .map(node => {
+            const [hours, minutes] = node.time.split(':').map(Number);
+            const decimalHours = hours + (minutes / 60);
+            return {
+                time: decimalHours,
+                value: normalizeTemperature(node.temp),
+                noChange: Boolean(node.noChange),
+                hvac_mode: node.hvac_mode ?? null,
+                fan_mode: node.fan_mode ?? null,
+                swing_mode: node.swing_mode ?? null,
+                swing_horizontal_mode: node.swing_horizontal_mode ?? null,
+                preset_mode: node.preset_mode ?? null,
+                target_temp_low: Number.isFinite(node.target_temp_low) ? node.target_temp_low : null,
+                target_temp_high: Number.isFinite(node.target_temp_high) ? node.target_temp_high : null,
+                target_humidity: Number.isFinite(node.target_humidity) ? node.target_humidity : null,
+                aux_heat: node.aux_heat ?? null
+            };
+        })
+        .sort((a, b) => a.time - b.time); // Sort by time
+    return keyframes;
+}
+
+function applyOptionalStringField(target, key, value) {
+    if (typeof value === 'string' && value.trim() !== '') {
+        target[key] = value;
+        return;
+    }
+    delete target[key];
+}
+
+function applyOptionalNumberField(target, key, value) {
+    if (Number.isFinite(value)) {
+        target[key] = value;
+        return;
+    }
+    delete target[key];
+}
+
+// Convert keyframes {time: decimal_hours, value: number} to schedule nodes {time: "HH:MM", temp: number}
+function keyframesToScheduleNodes(keyframes) {
+    // Sort keyframes by time to maintain correct order
+    const sortedKeyframes = [...keyframes].sort((a, b) => a.time - b.time);
+    
+    return sortedKeyframes.map((kf) => {
+        // Clamp time to 23:59 (23.9833 hours) to prevent 24:00 which would clash with 00:00 on next day
+        const clampedTime = Math.min(kf.time, 23 + (59/60));
+        const hours = Math.floor(clampedTime);
+        const minutes = Math.round((clampedTime - hours) * 60);
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        
+        // Find existing node in currentSchedule to preserve properties
+        const existingNode = currentSchedule.find(n => n.time === timeStr);
+        const scheduleNode = existingNode
+            ? { ...existingNode, time: timeStr, temp: normalizeTemperature(kf.value, graphSnapStep) }
+            : { time: timeStr, temp: normalizeTemperature(kf.value, graphSnapStep) };
+
+        // Mirror keyframe metadata back to schedule node so undo restores non-temp fields.
+        applyOptionalStringField(scheduleNode, 'hvac_mode', kf.hvac_mode);
+        applyOptionalStringField(scheduleNode, 'fan_mode', kf.fan_mode);
+        applyOptionalStringField(scheduleNode, 'swing_mode', kf.swing_mode);
+        applyOptionalStringField(scheduleNode, 'swing_horizontal_mode', kf.swing_horizontal_mode);
+        applyOptionalStringField(scheduleNode, 'preset_mode', kf.preset_mode);
+        applyOptionalStringField(scheduleNode, 'aux_heat', kf.aux_heat);
+
+        applyOptionalNumberField(scheduleNode, 'target_temp_low', kf.target_temp_low);
+        applyOptionalNumberField(scheduleNode, 'target_temp_high', kf.target_temp_high);
+        applyOptionalNumberField(scheduleNode, 'target_humidity', kf.target_humidity);
+
+        if (kf.noChange === true) {
+            scheduleNode.noChange = true;
+        } else {
+            delete scheduleNode.noChange;
+        }
+
+        return scheduleNode;
+    });
+}
+
+// Get nodes from graph (canvas timeline)
+function getGraphNodes() {
+    if (!graph) return [];
+    // Return currentSchedule which has all properties (hvac_mode, fan_mode, A/B/C, etc.)
+    // Don't convert from keyframes as that loses all non-temp properties
+    return currentSchedule || [];
+}
+
+// Set nodes on graph (canvas timeline)
+function setGraphNodes(nodes) {
+    if (!graph) return;
+    // Canvas graph - convert nodes to keyframes
+    const keyframes = scheduleNodesToKeyframes(nodes);
+    // Force reactivity by creating new array reference
+    graph.keyframes = [...keyframes];
+}
+
+// Set history data on graph (canvas timeline)
+function setGraphHistoryData(historyDataArray) {
+    if (!graph) return;
+    
+    // Canvas graph - convert to backgroundGraphs format
+    if (!historyDataArray || historyDataArray.length === 0) {
+        graph.backgroundGraphs = [];
+        return;
+    }
+    
+    // Detect format: old format [{time, temp}] or new format [{entityId, data, color}]
+    const isNewFormat = historyDataArray[0] && historyDataArray[0].entityId !== undefined;
+        
+        if (isNewFormat) {
+            // New format: array of {entityId, entityName, data, color}
+            const backgroundGraphs = historyDataArray.map((entity) => {
+                const keyframes = entity.data
+                    .map(node => ({
+                        time: timeStringToDecimalHours(node.time),
+                        value: node.temp
+                    }))
+                    .sort((a, b) => a.time - b.time); // Sort by time
+                return {
+                    keyframes: keyframes,
+                    color: entity.color ? entity.color + '80' : undefined, // Add transparency
+                    label: entity.entityName || entity.entityId
+                };
+            });
+            // Force reactivity by creating new array reference
+            graph.backgroundGraphs = [...backgroundGraphs];
+        } else {
+            // Old format: single array of {time, temp}
+            const keyframes = historyDataArray
+                .map(node => ({
+                    time: timeStringToDecimalHours(node.time),
+                    value: node.temp
+                }))
+                .sort((a, b) => a.time - b.time); // Sort by time
+            graph.backgroundGraphs = [{
+                keyframes: keyframes,
+                color: '#2196f380',
+                label: 'Temperature'
+            }];
+        }
+}
+
+// Helper function to convert time string "HH:MM" to decimal hours
+function timeStringToDecimalHours(timeStr) {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours + minutes / 60;
+}
+
+function getScheduleNodesForDay(schedules, dayKey) {
+    let nodes = schedules?.[dayKey] || [];
+
+    if ((!nodes || nodes.length === 0) && dayKey === 'weekday' && schedules?.mon) {
+        nodes = schedules.mon;
+    } else if ((!nodes || nodes.length === 0) && dayKey === 'weekend' && schedules?.sat) {
+        nodes = schedules.sat;
+    }
+
+    return nodes || [];
+}
+
+function getMainEditorDisplayedDay(scheduleMode) {
+    if (scheduleMode === 'all_days') {
+        return 'all_days';
+    }
+
+    const activeDayButton = getDocumentRoot().querySelector('#main-day-period-buttons .day-period-btn.active');
+    const dayFromButton = activeDayButton?.dataset?.day;
+    if (dayFromButton) {
+        return dayFromButton;
+    }
+
+    const now = new Date();
+    const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+    if (scheduleMode === '5/2') {
+        return (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+    }
+    return weekday;
+}
+
+function syncMainTimelineForActiveProfileEdit(targetGroup, editedProfileName) {
+    if (!targetGroup || currentGroup !== targetGroup) {
+        return;
+    }
+
+    const groupData = allGroups[targetGroup];
+    if (!groupData) {
+        return;
+    }
+
+    const activeProfile = groupData.active_profile || 'Default';
+    if (activeProfile !== editedProfileName) {
+        return;
+    }
+
+    const mainTimeline = getDocumentRoot().querySelector('#main-timeline');
+    if (!mainTimeline || !mainTimeline.isConnected) {
+        return;
+    }
+
+    const scheduleMode = groupData.schedule_mode || 'all_days';
+    const displayedDay = getMainEditorDisplayedDay(scheduleMode);
+    const nodes = getScheduleNodesForDay(groupData.schedules || {}, displayedDay).map(node => ({ ...node }));
+
+    mainTimeline.keyframes = scheduleNodesToKeyframes(nodes);
+    updateScheduledTemp();
+}
+
+function setMainEditingContext(editorRoot = null) {
+    const wasEditingProfile = editingProfile !== null;
+    editingProfile = null;
+
+    const activeProfile = (currentGroup && allGroups[currentGroup])
+        ? (allGroups[currentGroup].active_profile || 'Default')
+        : 'Default';
+    showEditingProfileIndicator(null, activeProfile);
+
+    const mainTimeline = editorRoot?.querySelector?.('#main-timeline') || getDocumentRoot().querySelector('#main-timeline');
+    if (mainTimeline) {
+        graph = mainTimeline;
+    }
+
+    // Regression guard:
+    // Do NOT reload currentSchedule from group cache during normal node selection.
+    // That can overwrite in-memory edits before the debounced save runs, causing
+    // "new nodes save, existing-node edits do not" behavior.
+    if (wasEditingProfile && currentGroup && allGroups[currentGroup] && allGroups[currentGroup].schedules) {
+        const schedules = allGroups[currentGroup].schedules;
+        const nodesForDay = getScheduleNodesForDay(schedules, currentDay);
+        currentSchedule = nodesForDay.map(n => ({ ...n }));
+    }
+}
+
+function placeNodeSettingsPanelAfter(anchorElement) {
+    if (!anchorElement || !anchorElement.parentNode) return;
+
+    const panel = getDocumentRoot().querySelector('#node-settings-panel');
+    if (!panel) return;
+
+    if (panel.parentNode === anchorElement.parentNode && panel.previousElementSibling === anchorElement) {
+        return;
+    }
+
+    anchorElement.after(panel);
+}
+
+function getAddedKeyframeIndex(timeline, event) {
+    const keyframes = timeline?.keyframes || [];
+    if (keyframes.length === 0) return -1;
+
+    const addedTime = Number(event?.detail?.time);
+    const addedValue = Number(event?.detail?.value);
+
+    if (Number.isFinite(addedTime)) {
+        const timeTolerance = 0.0001;
+        const valueTolerance = 0.0001;
+
+        const byTimeAndValue = keyframes.findIndex(kf =>
+            Math.abs(kf.time - addedTime) < timeTolerance &&
+            (!Number.isFinite(addedValue) || Math.abs((kf.value || 0) - addedValue) < valueTolerance)
+        );
+        if (byTimeAndValue !== -1) return byTimeAndValue;
+
+        const byTime = keyframes.findIndex(kf => Math.abs(kf.time - addedTime) < timeTolerance);
+        if (byTime !== -1) return byTime;
+    }
+
+    return keyframes.length - 1;
+}
+
+function refreshOpenNodeSettingsForAddedKeyframe({ editor, timeline, event, beforeShow, anchorElement }) {
+    if (!editor || !timeline) return;
+
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    if (nodeSettingsTimeline && nodeSettingsTimeline !== timeline) return;
+
+    const keyframeIndex = getAddedKeyframeIndex(timeline, event);
+    if (keyframeIndex < 0) return;
+
+    const keyframe = timeline.keyframes?.[keyframeIndex];
+    if (!keyframe) return;
+
+    if (typeof beforeShow === 'function') {
+        beforeShow();
+    }
+
+    if (anchorElement) {
+        placeNodeSettingsPanelAfter(anchorElement);
+    }
+
+    showNodeSettingsPanel(editor, keyframeIndex, keyframe, timeline);
+}
+
+function refreshOpenNodeSettingsAfterUndo({ editor, timeline, beforeShow, anchorElement }) {
+    if (!editor || !timeline) return;
+
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    if (nodeSettingsTimeline && nodeSettingsTimeline !== timeline) return;
+
+    const keyframes = timeline.keyframes || [];
+    if (keyframes.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const panelIndex = Number.parseInt(panel.dataset.nodeIndex, 10);
+    const keyframeIndex = Number.isFinite(panelIndex)
+        ? Math.max(0, Math.min(panelIndex, keyframes.length - 1))
+        : 0;
+    const keyframe = keyframes[keyframeIndex];
+    if (!keyframe) return;
+
+    if (typeof beforeShow === 'function') {
+        beforeShow();
+    }
+
+    if (anchorElement) {
+        placeNodeSettingsPanelAfter(anchorElement);
+    }
+
+    debugLog(`[Dialog][Undo] refreshing panel after restore index=${keyframeIndex}`);
+    showNodeSettingsPanel(editor, keyframeIndex, keyframe, timeline);
+}
+
+function attachUndoStackDebugLogging(timeline, label) {
+    if (!timeline || timeline.__undoDebugLoggingAttached) return;
+
+    timeline.addEventListener('undo-stack-changed', (event) => {
+        const detail = event.detail || {};
+        const action = detail.action || 'unknown';
+        const size = Number.isFinite(detail.size) ? detail.size : 'n/a';
+        const removedCount = Number.isFinite(detail.removedCount) ? detail.removedCount : 0;
+        const keyframeCount = Number.isFinite(detail.keyframeCount) ? detail.keyframeCount : 'n/a';
+
+        debugLog(`[Undo][${label}] action=${action} size=${size} removed=${removedCount} keyframes=${keyframeCount}`);
+    });
+
+    timeline.__undoDebugLoggingAttached = true;
+}
+
+// Show node settings panel for a clicked keyframe
+function showNodeSettingsPanel(editor, keyframeIndex, keyframe, sourceTimeline = graph) {
+    nodeSettingsTimeline = sourceTimeline || nodeSettingsTimeline;
+
+    if (!keyframe || typeof keyframe.time !== 'number') {
+        console.warn('showNodeSettingsPanel called without a valid keyframe', { keyframeIndex, keyframe });
+        return;
+    }
+
+    // Convert keyframe time (decimal hours) to HH:MM format
+    const hours = Math.floor(keyframe.time);
+    const minutes = Math.round((keyframe.time - hours) * 60);
+    const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    
+    // Convert keyframe to node format
+    const node = {
+        time: timeStr,  // Use formatted time string
+        temp: keyframe.value,
+        noChange: false // Keyframes always have a value
+    };
+    
+    // Find corresponding node in currentSchedule to get additional properties
+    const scheduleNode = currentSchedule.find(n => 
+        n.time === timeStr || (
+            Math.abs(timeStringToDecimalHours(n.time) - keyframe.time) < 0.01 && 
+            Math.abs((n.temp || 0) - keyframe.value) < 0.1
+        )
+    );
+    
+    if (scheduleNode) {
+        // Copy all properties from schedule node
+        Object.assign(node, scheduleNode);
+    }
+    
+    // Get the panel from the editor (not globally)
+    const panel = editor.querySelector('#node-settings-panel');
+    if (!panel) {
+        console.error('Node settings panel not found in editor');
+        return;
+    }
+    
+    // Create event detail and call handleNodeSettings
+    const event = {
+        detail: {
+            nodeIndex: keyframeIndex,
+            node: node,
+            timeline: sourceTimeline
+        }
+    };
+    
+    handleNodeSettings(event);
+}
+
+// Edit group schedule - load group schedule into editor
 async function editGroupSchedule(groupName, day = null) {
     // Fetch fresh group data from server before editing
     try {
@@ -655,7 +1238,11 @@ async function editGroupSchedule(groupName, day = null) {
     
     // Find the group container
     const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${groupName}"]`);
-    if (!groupContainer) return;
+    if (!groupContainer) {
+        isLoadingSchedule = false;
+        flushPendingSaveIfNeeded();
+        return;
+    }
     
     // Mark as expanded
     groupContainer.classList.add('expanded');
@@ -670,67 +1257,166 @@ async function editGroupSchedule(groupName, day = null) {
         entityStatus.style.display = 'none';
     }
     
-    // Recreate graph with the new SVG element
-    const svgElement = editor.querySelector('#temperature-graph');
-    if (svgElement) {
-        graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
-        graph.setTooltipMode(tooltipMode);
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
-            graph.setMinMax(minTempSetting, maxTempSetting);
-        }
-        
-        // Attach graph event listeners (permanent listeners)
-        svgElement.addEventListener('nodeSettings', handleNodeSettings);
-        
-        // Handle node updates during dragging
-        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
-            const { nodeIndex, node } = event.detail;
-            const panel = editor.querySelector('#node-settings-panel');
-            
-            // Only update if this node's panel is currently showing
-            if (panel && panel.style.display !== 'none' && parseInt(panel.dataset.nodeIndex) === nodeIndex) {
-                const tempInput = panel.querySelector('#node-temp-input');
-                const tempNoChange = panel.querySelector('#temp-no-change');
-                const tempUpBtn = panel.querySelector('#temp-up');
-                const tempDownBtn = panel.querySelector('#temp-down');
-                const timeInput = panel.querySelector('#node-time-input');
-                
-                // Update time
-                if (timeInput) timeInput.value = node.time;
-                
-                // Update temperature and checkbox state
-                const isNoChange = node.noChange === true;
-                if (tempNoChange) tempNoChange.checked = isNoChange;
-                if (tempInput) {
-                    tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
-                    tempInput.disabled = isNoChange;
-                }
-                if (tempUpBtn) tempUpBtn.disabled = isNoChange;
-                if (tempDownBtn) tempDownBtn.disabled = isNoChange;
-            }
+    // Use keyframe-timeline component
+    const canvasLoaded = await loadKeyframeTimeline();
+    if (!canvasLoaded) {
+        console.error('Failed to load keyframe-timeline component');
+        isLoadingSchedule = false;
+        flushPendingSaveIfNeeded();
+        return;
+    }
+    
+    // Create timeline editor using reusable function
+    const graphContainer = editor.querySelector('.graph-container');
+    if (graphContainer) {
+        const editorInstance = createTimelineEditor({
+            idPrefix: 'main',
+            buttons: [
+                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
+                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change' },
+                { id: 'advance-schedule-btn', text: 'Advance', title: 'Advance to next scheduled node' },
+                { id: 'save-schedule-btn', text: 'Save', title: 'Save schedule', className: 'btn-quick-action btn-primary' }
+            ],
+            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+            snapValue: graphSnapStep,
+            title: getScheduleTitle(),
+            yAxisLabel: `Temperature (${temperatureUnit})`,
+            xAxisLabel: `Time of Day (24hr)`,
+            showCurrentTime: true,
+            tooltipMode: tooltipMode,
+            showHeader: false,
+            allowCollapse: false
         });
         
-        // Create and insert settings panel after the graph container but before instructions
-        const graphContainer = svgElement.closest('.graph-container') || svgElement.parentElement;
-        const instructionsContainer = editor.querySelector('.instructions-container');
+        const { container: timelineEditorContainer, timeline, controls } = editorInstance;
         
-        if (graphContainer && instructionsContainer) {
+        // Replace the old editor-header with the new one from timelineEditorContainer
+        const oldEditorHeader = editor.querySelector('.editor-header-inline');
+        const newEditorHeader = timelineEditorContainer.querySelector('.editor-header-inline');
+        if (oldEditorHeader && newEditorHeader) {
+            oldEditorHeader.replaceWith(newEditorHeader);
+        }
+        
+        // Insert timeline into graph-container
+        graphContainer.innerHTML = '';
+        graphContainer.appendChild(timeline);
+        
+        // Store reference
+        graph = timeline;
+        attachUndoStackDebugLogging(timeline, 'main');
+        
+        // Attach event listeners for keyframe changes
+        timeline.addEventListener('keyframe-moved', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-added', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-deleted', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframes-cleared', handleKeyframeTimelineChange);
+        timeline.addEventListener('keyframe-restored', handleKeyframeTimelineChange);
+
+        timeline.addEventListener('keyframe-added', (e) => {
+            refreshOpenNodeSettingsForAddedKeyframe({
+                editor,
+                timeline,
+                event: e,
+                beforeShow: () => setMainEditingContext(editor),
+                anchorElement: editor.querySelector('.graph-container')
+            });
+        });
+
+        timeline.addEventListener('keyframe-restored', () => {
+            refreshOpenNodeSettingsAfterUndo({
+                editor,
+                timeline,
+                beforeShow: () => setMainEditingContext(editor),
+                anchorElement: editor.querySelector('.graph-container')
+            });
+        });
+        
+        // Show node settings panel when keyframe is clicked
+        timeline.addEventListener('keyframe-clicked', (e) => {
+            graph = timeline;
+            setMainEditingContext(editor);
+            placeNodeSettingsPanelAfter(editor.querySelector('.graph-container'));
+            const { index, keyframe } = e.detail;
+            showNodeSettingsPanel(editor, index, keyframe, timeline);
+        });
+        
+        // Update node settings panel when selection changes (prev/next navigation)
+        timeline.addEventListener('keyframe-selected', (e) => {
+            graph = timeline;
+            setMainEditingContext(editor);
+            placeNodeSettingsPanelAfter(editor.querySelector('.graph-container'));
+            const index = e.detail?.index ?? e.detail?.nodeIndex;
+            const keyframe = e.detail?.keyframe ?? (Number.isInteger(index) ? graph?.keyframes?.[index] : undefined);
+            showNodeSettingsPanel(editor, index, keyframe, timeline);
+        });
+        
+        // Link external undo button to timeline's undo system
+        const graphUndoBtn = controls.buttons['graph-undo-btn'];
+        if (graphUndoBtn && typeof timeline.setUndoButton === 'function') {
+            timeline.setUndoButton(graphUndoBtn);
+        }
+        
+        // Link previous/next buttons to timeline navigation
+        const graphPrevBtn = controls.buttons['graph-prev-btn'];
+        if (graphPrevBtn && typeof timeline.setPreviousButton === 'function') {
+            timeline.setPreviousButton(graphPrevBtn);
+        }
+        
+        const graphNextBtn = controls.buttons['graph-next-btn'];
+        if (graphNextBtn && typeof timeline.setNextButton === 'function') {
+            timeline.setNextButton(graphNextBtn);
+        }
+        
+        // Link other control buttons if they exist
+        const graphCopyBtn = controls.buttons['graph-copy-btn'];
+        const graphPasteBtn = controls.buttons['graph-paste-btn'];
+        const advanceBtn = controls.buttons['advance-schedule-btn'];
+        const saveBtn = controls.buttons['save-schedule-btn'];
+        
+        // Attach copy/paste handlers
+        if (graphCopyBtn) {
+            graphCopyBtn.onclick = () => copySchedule();
+        }
+        if (graphPasteBtn) {
+            graphPasteBtn.onclick = () => pasteSchedule();
+        }
+        
+        // Note: Advance and Save buttons have custom handlers in attachEditorEventListeners
+    }
+    
+    // Get graph element (canvas timeline)
+    const graphElement = editor.querySelector('#main-timeline');
+    
+    if (graphElement) {
+        // Create and insert settings panel below timeline controls and node settings panel
+        const graphContainer = graphElement.closest('.graph-container') || graphElement.parentElement;
+        const nodeSettingsPanel = editor.querySelector('#node-settings-panel');
+        const insertionAnchor = nodeSettingsPanel || graphContainer;
+        
+        if (insertionAnchor) {
+            let insertAfter = insertionAnchor;
+
             const settingsPanel = createSettingsPanel(groupData, editor);
             if (settingsPanel) {
-                instructionsContainer.before(settingsPanel);
+                insertAfter.after(settingsPanel);
+                insertAfter = settingsPanel;
             }
             
             // Check if any entities in the group are preset-only and show notice if needed
             const presetOnlyNotice = createPresetOnlyNotice(groupData.entities, groupName);
             if (presetOnlyNotice) {
-                instructionsContainer.before(presetOnlyNotice);
+                insertAfter.after(presetOnlyNotice);
+                insertAfter = presetOnlyNotice;
             }
             
-            // Insert group members table after instructions
+            // Insert group members table beneath settings/notice block
             const groupTable = createGroupMembersTable(groupData.entities);
             if (groupTable) {
-                instructionsContainer.after(groupTable);
+                insertAfter.after(groupTable);
             }
         }
     }
@@ -766,20 +1452,14 @@ async function editGroupSchedule(groupName, day = null) {
     
     currentSchedule = nodes.length > 0 ? nodes.map(n => ({...n})) : [];
     
-    // Find the SVG element
-    const svg = editor.querySelector('#temperature-graph');
+    // Canvas graph - set keyframes
+    const keyframes = scheduleNodesToKeyframes(currentSchedule);
+    // Force reactivity by creating new array reference
+    graph.keyframes = [...keyframes];
     
-    // Set initial nodes
-    graph.setNodes(currentSchedule);
-    
-    // Set previous day's last temperature for graph rendering
-    setPreviousDayLastTempForGraph(groupData, currentDay);
-    
-    // Always attach the permanent nodesChanged listener for auto-save
-    if (svg) {
-        svg.removeEventListener('nodesChanged', handleGraphChange); // Remove any previous
-        svg.addEventListener('nodesChanged', handleGraphChange);
-    }
+    // Set previous day's last temperature
+    const prevTemp = getPreviousDayLastTemp(groupData, currentDay);
+    graph.previousDayEndValue = prevTemp;
     
     // Update schedule mode UI
     updateScheduleModeUI();
@@ -809,6 +1489,7 @@ async function editGroupSchedule(groupName, day = null) {
     // Clear loading flag now that setup is complete
         //
     isLoadingSchedule = false;
+    flushPendingSaveIfNeeded();
 }
 
 // Create settings panel with controls and mode selector
@@ -840,7 +1521,6 @@ function createSettingsPanel(groupData, editor) {
             <button id="undo-btn" class="btn-secondary-outline schedule-btn" title="Undo last change (Ctrl+Z)" disabled>Undo</button>
             <button id="copy-schedule-btn" class="btn-secondary-outline schedule-btn" title="Copy current schedule">Copy Schedule</button>
             <button id="paste-schedule-btn" class="btn-secondary-outline schedule-btn" title="Paste copied schedule" disabled>Paste Schedule</button>
-            <button id="test-fire-event-btn" class="btn-secondary-outline schedule-btn" title="Test fire event with current active node">🧪 Test Event</button>
             <button id="clear-advance-history-btn" class="btn-secondary-outline schedule-btn" title="Clear advance history markers">Clear Advance History</button>`;
     
     // Only show unmonitor button for single-entity groups
@@ -849,14 +1529,7 @@ function createSettingsPanel(groupData, editor) {
     }
     
     controlsHTML += `
-            <button id="clear-schedule-btn" class="btn-danger-outline schedule-btn" title="Clear entire schedule">Clear Schedule</button>`;
-    
-    // Add delete group button if this is a group
-    if (groupData) {
-        controlsHTML += `<button id="delete-group-btn" class="btn-danger schedule-btn" title="Delete this group">Delete Group</button>`;
-    }
-    
-    controlsHTML += `
+            <button id="clear-schedule-btn" class="btn-danger-outline schedule-btn" title="Clear entire schedule">Clear Schedule</button>
             <label class="toggle-switch">
                 <input type="checkbox" id="schedule-enabled">
                 <span class="slider"></span>
@@ -865,61 +1538,7 @@ function createSettingsPanel(groupData, editor) {
         </div>
     `;
     
-    // Add profile selector
-    const profileSelectorHTML = `
-        <div class="profile-selector">
-            <h3>Schedule Profile</h3>
-            <div class="profile-controls">
-                <select id="profile-dropdown" class="profile-dropdown">
-                    <option value="Default">Default</option>
-                </select>
-                <button id="edit-profile-btn" class="btn-profile btn-edit-profile" title="Edit selected profile">Edit</button>
-                <button id="new-profile-btn" class="btn-profile" title="Create new profile">＋</button>
-                <button id="rename-profile-btn" class="btn-profile" title="Rename profile">✎</button>
-                <button id="delete-profile-btn" class="btn-profile" title="Delete profile">✕</button>
-            </div>
-        </div>
-    `;
-    
-    // Add schedule mode selector
-    const modeSelectorHTML = `
-        <div class="schedule-mode-selector">
-            <h3>Schedule Mode</h3>
-            <div class="mode-options">
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="all_days" id="mode-all-days" checked>
-                    <label for="mode-all-days">All Days</label>
-                </div>
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="5/2" id="mode-5-2">
-                    <label for="mode-5-2">5/2 (Weekday/Weekend)</label>
-                </div>
-                <div class="mode-option">
-                    <input type="radio" name="schedule-mode" value="individual" id="mode-individual">
-                    <label for="mode-individual">Individual Days</label>
-                </div>
-            </div>
-            <div class="day-selector" id="day-selector">
-                <div class="day-buttons">
-                    <button class="day-btn" data-day="mon">Mon</button>
-                    <button class="day-btn" data-day="tue">Tue</button>
-                    <button class="day-btn" data-day="wed">Wed</button>
-                    <button class="day-btn" data-day="thu">Thu</button>
-                    <button class="day-btn" data-day="fri">Fri</button>
-                    <button class="day-btn" data-day="sat">Sat</button>
-                    <button class="day-btn" data-day="sun">Sun</button>
-                </div>
-            </div>
-            <div class="weekday-selector" id="weekday-selector">
-                <div class="day-buttons">
-                    <button class="day-btn weekday-btn" data-day="weekday">Weekday</button>
-                    <button class="day-btn weekday-btn" data-day="weekend">Weekend</button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    settingsPanel.innerHTML = controlsHTML + profileSelectorHTML + modeSelectorHTML;
+    settingsPanel.innerHTML = controlsHTML;
     
     // Toggle functionality
     toggleHeader.onclick = () => {
@@ -937,31 +1556,6 @@ function createSettingsPanel(groupData, editor) {
     
     container.appendChild(toggleHeader);
     container.appendChild(settingsPanel);
-    
-    // Connect undo button to graph and add delete group handler
-    setTimeout(() => {
-        const undoBtn = container.querySelector('#undo-btn');
-        if (undoBtn && graph) {
-            graph.setUndoButton(undoBtn);
-        }
-        
-        // Add delete group button handler if this is a group
-        if (groupData) {
-            const deleteGroupBtn = container.querySelector('#delete-group-btn');
-            if (deleteGroupBtn) {
-                deleteGroupBtn.onclick = () => {
-                    // Get group name from currentGroup or from groupData
-                    const groupName = currentGroup;
-                    if (groupName) {
-                        confirmDeleteGroup(groupName);
-                    }
-                };
-            }
-        }
-        
-        // Add profile management handlers
-        setupProfileHandlers(container, groupData);
-    }, 0);
     
     return container;
 }
@@ -1008,7 +1602,7 @@ function showEditingProfileIndicator(editingProfile, activeProfile) {
                             const nodes = schedules[day] || schedules['all_days'] || [];
                             
                             if (graph) {
-                                graph.setNodes(nodes);
+                                setGraphNodes(nodes);
                             }
                             
                             // Update UI
@@ -1029,58 +1623,426 @@ function showEditingProfileIndicator(editingProfile, activeProfile) {
     }
 }
 
+function getProfileEditorTargetGroup(container) {
+    if (currentGroup && allGroups[currentGroup]) {
+        return currentGroup;
+    }
+
+    const firstMonitored = Object.keys(allGroups).find(groupName => {
+        const groupData = allGroups[groupName] || {};
+        const isIgnored = groupData.ignored === true;
+        return !isIgnored;
+    });
+
+    return firstMonitored || null;
+}
+
+async function refreshGlobalProfileEditor() {
+    const container = getDocumentRoot().querySelector('#global-profile-list');
+    if (!container) return;
+
+    await setupProfileHandlers(container, null);
+}
+
 // Setup profile management event handlers
 async function setupProfileHandlers(container, groupData) {
-    if (!groupData || !currentGroup) {
-        console.warn('setupProfileHandlers - no group data, aborting');
+    const targetGroup = getProfileEditorTargetGroup(container);
+    if (!targetGroup || !allGroups[targetGroup]) {
+        console.warn('setupProfileHandlers - no target group available, aborting');
         return;
     }
+
+    const targetGroupData = allGroups[targetGroup];
     
     // Load and populate profiles
-    await loadProfiles(container, currentGroup);
+    await loadProfiles(container, targetGroup);
     
-    // Profile dropdown change handler (no automatic loading)
+    // Profile dropdown change handler - automatically open editor when selection changes
     const profileDropdown = container.querySelector('#profile-dropdown');
-    
-    // Edit profile button handler
-    const editProfileBtn = container.querySelector('#edit-profile-btn');
-    if (editProfileBtn && profileDropdown) {
-        editProfileBtn.onclick = async () => {
+    if (profileDropdown) {
+        profileDropdown.onchange = async () => {
             const selectedProfile = profileDropdown.value;
-            const activeProfile = groupData.active_profile;
+            
+            // Don't load anything if no profile is selected (placeholder option)
+            if (!selectedProfile) {
+                return;
+            }
+            
+            const activeProfile = targetGroupData.active_profile;
             
             try {
                 // Load group data to get the latest profile schedules
                 const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || {};
+                allGroups = groupsResult?.groups || groupsResult?.response?.groups || groupsResult || {};
                 
-                // Load the selected profile's schedule data into the graph
-                const updatedGroupData = allGroups[currentGroup];
+                // Load the selected profile's schedule data
+                const updatedGroupData = allGroups[targetGroup];
                 if (updatedGroupData && updatedGroupData.profiles && updatedGroupData.profiles[selectedProfile]) {
                     const profileData = updatedGroupData.profiles[selectedProfile];
                     
-                    // Track which profile we're editing
-                    editingProfile = selectedProfile;
-                    
-                    // Update the schedules to show the selected profile
-                    currentScheduleMode = profileData.schedule_mode || 'all_days';
+                    // Get schedule data (don't modify global state)
+                    let profileScheduleMode = profileData.schedule_mode || 'all_days';
                     const schedules = profileData.schedules || {};
                     const day = currentDay || 'all_days';
                     const nodes = schedules[day] || schedules['all_days'] || [];
                     
-                    if (graph) {
-                        graph.setNodes(nodes);
+                    // Find the profile editor host container
+                    const profileEditorHost = container.querySelector('.profile-selector') || container;
+                    if (profileEditorHost) {
+                        // Remove any existing profile editor
+                        const existingEditor = profileEditorHost.querySelector('.timeline-editor-container');
+                        if (existingEditor) {
+                            existingEditor.remove();
+                        }
+                        
+                        // Get temperature settings from globals (same as main timeline)
+                        const temperatureUnit = updatedGroupData.temperature_unit || '°C';
+                        
+                        // Create timeline editor using reusable function
+                        const editorInstance = createTimelineEditor({
+                            idPrefix: 'profile',
+                            buttons: [
+                                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
+                                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change', disabled: true },
+                                { id: 'graph-clear-btn', text: 'Clear', title: 'Clear all nodes' },
+                                { id: 'save-schedule-btn', text: 'Save', title: 'Save schedule', className: 'btn-quick-action btn-primary' },
+                                { id: 'close-btn', text: 'Close', title: 'Close profile editor' }
+                            ],
+                            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+                            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+                            snapValue: graphSnapStep,
+                            title: `Editing Profile: ${selectedProfile}`,
+                            yAxisLabel: `Temperature (${temperatureUnit})`,
+                            xAxisLabel: `Time of Day (24hr)`,
+                            showCurrentTime: false,
+                            tooltipMode: tooltipMode || 'hover',
+                            showHeader: false,
+                            allowCollapse: false
+                        });
+                        
+                        const { container: editorContainer, timeline, controls } = editorInstance;
+                        const { modeDropdown, dayPeriodSelector, dayPeriodButtons, buttons } = controls;
+                        const prevBtn = buttons['graph-prev-btn'];
+                        const nextBtn = buttons['graph-next-btn'];
+                        const copyBtn = buttons['graph-copy-btn'];
+                        const pasteBtn = buttons['graph-paste-btn'];
+                        const undoBtn = buttons['graph-undo-btn'];
+                        const clearBtn = buttons['graph-clear-btn'];
+                        const saveBtn = buttons['save-schedule-btn'];
+                        const closeBtn = buttons['close-btn'];
+                        
+                        // Attach copy/paste handlers for profile timeline
+                        if (copyBtn) {
+                            copyBtn.onclick = () => copySchedule();
+                        }
+                        if (pasteBtn) {
+                            pasteBtn.onclick = () => pasteSchedule();
+                        }
+                        
+                        // Link undo button to timeline's undo system
+                        if (undoBtn && typeof timeline.setUndoButton === 'function') {
+                            timeline.setUndoButton(undoBtn);
+                        }
+                        
+                        // Link previous/next buttons to timeline navigation
+                        if (prevBtn && typeof timeline.setPreviousButton === 'function') {
+                            timeline.setPreviousButton(prevBtn);
+                        }
+                        if (nextBtn && typeof timeline.setNextButton === 'function') {
+                            timeline.setNextButton(nextBtn);
+                        }
+                        
+                        // Link clear button to timeline's clear functionality
+                        if (clearBtn && typeof timeline.setClearButton === 'function') {
+                            timeline.setClearButton(clearBtn);
+                        }
+                        
+                        // Set initial mode
+                        modeDropdown.value = profileScheduleMode;
+                        dayPeriodSelector.style.display = profileScheduleMode === 'all_days' ? 'none' : 'block';
+                        
+                        // Add to profile selector
+                        editorContainer.style.marginTop = '16px';
+                        profileEditorHost.appendChild(editorContainer);
+                        
+                        // Track current day for profile editor
+                        let currentProfileDay = day;
+
+                        // Backing schedule state for the profile timeline (preserves node properties beyond temp/time)
+                        let profileCurrentSchedule = (nodes || []).map(n => ({ ...n }));
+
+                        // Keep global node-settings context aligned to profile timeline while editing profile
+                        const editorRoot = container.closest('.schedule-editor-inline') || getDocumentRoot();
+                        const syncProfileScheduleFromTimeline = () => {
+                            const previousSchedule = (profileCurrentSchedule || []).map(n => ({ ...n }));
+                            currentSchedule = previousSchedule;
+                            profileCurrentSchedule = keyframesToScheduleNodes(timeline.keyframes || []);
+                            currentSchedule = profileCurrentSchedule;
+                            return profileCurrentSchedule;
+                        };
+
+                        const setProfileEditingContext = () => {
+                            editingProfile = selectedProfile;
+                            showEditingProfileIndicator(editingProfile, activeProfile);
+                            graph = timeline;
+                            currentSchedule = (profileCurrentSchedule || []).map(n => ({ ...n }));
+                            currentScheduleMode = profileScheduleMode;
+                            currentDay = currentProfileDay;
+                        };
+
+                        const loadProfileDayIntoTimeline = (dayKey) => {
+                            currentProfileDay = dayKey;
+                            const schedules = profileData.schedules || {};
+                            const nodesForDay = schedules[dayKey] || [];
+                            profileCurrentSchedule = nodesForDay.map(n => ({ ...n }));
+                            timeline.keyframes = scheduleNodesToKeyframes(profileCurrentSchedule);
+                            setProfileEditingContext();
+                        };
+
+                        const persistProfileSchedule = async (scheduleModeOverride = profileScheduleMode) => {
+                            setProfileEditingContext();
+                            const updatedNodes = syncProfileScheduleFromTimeline();
+
+                            if (!profileData.schedules) {
+                                profileData.schedules = {};
+                            }
+                            profileData.schedules[currentProfileDay] = updatedNodes.map(n => ({ ...n }));
+
+                            await haAPI.setGroupSchedule(targetGroup, updatedNodes, currentProfileDay, scheduleModeOverride, selectedProfile);
+
+                            const refreshedGroupData = await haAPI.getGroups();
+                            allGroups = refreshedGroupData?.groups || refreshedGroupData?.response?.groups || refreshedGroupData || {};
+
+                            syncMainTimelineForActiveProfileEdit(targetGroup, selectedProfile);
+
+                            return updatedNodes;
+                        };
+
+                        // Function to update day/period buttons
+                        const updateDayPeriodButtons = (mode, activeDay) => {
+                            dayPeriodButtons.innerHTML = '';
+                            dayPeriodSelector.style.display = mode === 'all_days' ? 'none' : 'block';
+                            
+                            if (mode === 'individual') {
+                                const days = [
+                                    { value: 'mon', label: 'Mon' },
+                                    { value: 'tue', label: 'Tue' },
+                                    { value: 'wed', label: 'Wed' },
+                                    { value: 'thu', label: 'Thu' },
+                                    { value: 'fri', label: 'Fri' },
+                                    { value: 'sat', label: 'Sat' },
+                                    { value: 'sun', label: 'Sun' }
+                                ];
+                                
+                                days.forEach(dayInfo => {
+                                    const btn = document.createElement('button');
+                                    btn.className = 'day-period-btn';
+                                    btn.textContent = dayInfo.label;
+                                    btn.dataset.day = dayInfo.value;
+                                    if (activeDay === dayInfo.value) {
+                                        btn.classList.add('active');
+                                    }
+                                    btn.addEventListener('click', async () => {
+                                        loadProfileDayIntoTimeline(dayInfo.value);
+                                        
+                                        dayPeriodButtons.querySelectorAll('.day-period-btn').forEach(b => b.classList.remove('active'));
+                                        btn.classList.add('active');
+                                    });
+                                    dayPeriodButtons.appendChild(btn);
+                                });
+                            } else if (mode === '5/2') {
+                                const periods = [
+                                    { value: 'weekday', label: 'Weekday' },
+                                    { value: 'weekend', label: 'Weekend' }
+                                ];
+                                
+                                periods.forEach(period => {
+                                    const btn = document.createElement('button');
+                                    btn.className = 'day-period-btn';
+                                    btn.textContent = period.label;
+                                    btn.dataset.day = period.value;
+                                    if (activeDay === period.value) {
+                                        btn.classList.add('active');
+                                    }
+                                    btn.addEventListener('click', async () => {
+                                        loadProfileDayIntoTimeline(period.value);
+                                        
+                                        dayPeriodButtons.querySelectorAll('.day-period-btn').forEach(b => b.classList.remove('active'));
+                                        btn.classList.add('active');
+                                    });
+                                    dayPeriodButtons.appendChild(btn);
+                                });
+                            }
+                        };
+                        
+                        // Initial day/period buttons
+                        updateDayPeriodButtons(profileScheduleMode, currentProfileDay);
+                        
+                        // Mode dropdown change handler
+                        modeDropdown.addEventListener('change', async (e) => {
+                            const newMode = e.target.value;
+                            profileScheduleMode = newMode;
+                            
+                            // Determine new default day
+                            let newDay = currentProfileDay;
+                            if (newMode === 'all_days') {
+                                newDay = 'all_days';
+                            } else if (newMode === '5/2') {
+                                const now = new Date();
+                                const weekdayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                                newDay = (weekdayName === 'sat' || weekdayName === 'sun') ? 'weekend' : 'weekday';
+                            } else {
+                                const now = new Date();
+                                newDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+                            }
+                            loadProfileDayIntoTimeline(newDay);
+                            
+                            // Update day/period buttons
+                            updateDayPeriodButtons(newMode, newDay);
+                            
+                            // Save mode change to profile
+                            try {
+                                await persistProfileSchedule(newMode);
+                            } catch (error) {
+                                console.error('Failed to save mode change:', error);
+                                showToast('Failed to save mode change', 'error');
+                            }
+                        });
+                        
+                        // Update undo button state
+                        const updateUndoBtn = () => {
+                            undoBtn.disabled = !timeline.undoStack || timeline.undoStack.length === 0;
+                        };
+                        timeline.addEventListener('keyframe-moved', updateUndoBtn);
+                        timeline.addEventListener('keyframe-added', updateUndoBtn);
+                        timeline.addEventListener('keyframe-deleted', updateUndoBtn);
+                        timeline.addEventListener('keyframe-restored', updateUndoBtn);
+                        timeline.addEventListener('keyframes-cleared', updateUndoBtn);
+
+                        // Show node settings for profile timeline keyframe selection/click
+                        timeline.addEventListener('keyframe-clicked', (e) => {
+                            const { index, keyframe } = e.detail;
+                            setProfileEditingContext();
+                            placeNodeSettingsPanelAfter(editorContainer);
+                            showNodeSettingsPanel(editorRoot, index, keyframe, timeline);
+                        });
+
+                        timeline.addEventListener('keyframe-selected', (e) => {
+                            const index = e.detail?.index ?? e.detail?.nodeIndex;
+                            const keyframe = e.detail?.keyframe ?? (Number.isInteger(index) ? graph?.keyframes?.[index] : undefined);
+                            setProfileEditingContext();
+                            placeNodeSettingsPanelAfter(editorContainer);
+                            showNodeSettingsPanel(editorRoot, index, keyframe, timeline);
+                        });
+                        
+                        // Undo button handler
+                        undoBtn.onclick = () => {
+                            setProfileEditingContext();
+                            if (timeline && typeof timeline.undo === 'function') {
+                                timeline.undo();
+                            }
+                        };
+                        
+                        // Copy button handler
+                        copyBtn.onclick = () => {
+                            setProfileEditingContext();
+                            copiedSchedule = [...timeline.keyframes];
+                            pasteBtn.disabled = false;
+                            showToast('Schedule copied', 'success');
+                        };
+                        
+                        // Paste button handler
+                        pasteBtn.onclick = () => {
+                            setProfileEditingContext();
+                            if (copiedSchedule && copiedSchedule.length > 0) {
+                                timeline.keyframes = [...copiedSchedule];
+                                syncProfileScheduleFromTimeline();
+                                showToast('Schedule pasted', 'success');
+                            }
+                        };
+                        
+                        // Clear button handler
+                        clearBtn.onclick = () => {
+                            setProfileEditingContext();
+                            if (confirm('Clear all nodes for this profile?')) {
+                                timeline.keyframes = [];
+                                profileCurrentSchedule = [];
+                                currentSchedule = [];
+                            }
+                        };
+                        
+                        // Save button handler (manual save)
+                        saveBtn.onclick = async () => {
+                            try {
+                                await persistProfileSchedule();
+                                
+                                showToast('Profile saved successfully', 'success');
+                            } catch (error) {
+                                console.error('Failed to save profile changes:', error);
+                                showToast('Failed to save profile changes', 'error');
+                            }
+                        };
+                        
+                        // Close button handler
+                        closeBtn.onclick = () => {
+                            editorContainer.remove();
+                            
+                            // Reset dropdown to placeholder
+                            const profileDropdown = container.querySelector('#profile-dropdown');
+                            if (profileDropdown) {
+                                profileDropdown.value = '';
+                            }
+
+                            setMainEditingContext(editorRoot);
+                            placeNodeSettingsPanelAfter(editorRoot.querySelector('.graph-container'));
+                        };
+                        
+                        // Set the keyframes AFTER appending to DOM
+                        timeline.keyframes = scheduleNodesToKeyframes(profileCurrentSchedule);
+                        setProfileEditingContext();
+                        attachUndoStackDebugLogging(timeline, `profile:${selectedProfile}`);
+                        
+                        // Add event listeners to save changes directly to the selected profile
+                        const saveProfileChanges = async () => {
+                            try {
+                                await persistProfileSchedule();
+                            } catch (error) {
+                                console.error('Failed to save profile changes:', error);
+                                showToast('Failed to save profile changes', 'error');
+                            }
+                        };
+                        
+                        timeline.addEventListener('keyframe-moved', saveProfileChanges);
+                        timeline.addEventListener('keyframe-added', saveProfileChanges);
+                        timeline.addEventListener('keyframe-deleted', saveProfileChanges);
+                        timeline.addEventListener('keyframes-cleared', saveProfileChanges);
+                        timeline.addEventListener('keyframe-restored', saveProfileChanges);
+
+                        timeline.addEventListener('keyframe-added', (e) => {
+                            refreshOpenNodeSettingsForAddedKeyframe({
+                                editor: editorRoot,
+                                timeline,
+                                event: e,
+                                beforeShow: () => setProfileEditingContext(),
+                                anchorElement: editorContainer
+                            });
+                        });
+
+                        timeline.addEventListener('keyframe-restored', () => {
+                            refreshOpenNodeSettingsAfterUndo({
+                                editor: editorRoot,
+                                timeline,
+                                beforeShow: () => setProfileEditingContext(),
+                                anchorElement: editorContainer
+                            });
+                        });
                     }
-                    
-                    // Show editing indicator if editing a different profile than active
-                    if (selectedProfile !== activeProfile) {
-                        showEditingProfileIndicator(selectedProfile, activeProfile);
-                    } else {
-                        showEditingProfileIndicator(null, activeProfile);
-                    }
+                } else {
+                    showToast('Selected profile is unavailable for the target schedule', 'warning');
                 }
-                
-                showToast(`Now editing profile: ${selectedProfile}`, 'info');
             } catch (error) {
                 console.error('Failed to load profile:', error);
                 showToast('Failed to load profile: ' + error.message, 'error');
@@ -1092,13 +2054,24 @@ async function setupProfileHandlers(container, groupData) {
     const newProfileBtn = container.querySelector('#new-profile-btn');
     if (newProfileBtn) {
         newProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const profileName = prompt('Enter name for new profile:');
             if (!profileName || profileName.trim() === '') return;
             
             try {
-                await haAPI.createProfile(currentGroup, profileName.trim());
+                await haAPI.createProfile(selectedTargetGroup, profileName.trim());
                 showToast(`Created profile: ${profileName}`, 'success');
-                await loadProfiles(container, currentGroup);
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to create profile:', error);
@@ -1111,6 +2084,12 @@ async function setupProfileHandlers(container, groupData) {
     const renameProfileBtn = container.querySelector('#rename-profile-btn');
     if (renameProfileBtn) {
         renameProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const dropdown = container.querySelector('#profile-dropdown');
             const currentProfile = dropdown?.value;
             if (!currentProfile) return;
@@ -1119,9 +2098,14 @@ async function setupProfileHandlers(container, groupData) {
             if (!newName || newName.trim() === '' || newName === currentProfile) return;
             
             try {
-                await haAPI.renameProfile(currentGroup, currentProfile, newName.trim());
+                await haAPI.renameProfile(selectedTargetGroup, currentProfile, newName.trim());
                 showToast(`Renamed profile to: ${newName}`, 'success');
-                await loadProfiles(container, currentGroup);
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to rename profile:', error);
@@ -1134,6 +2118,12 @@ async function setupProfileHandlers(container, groupData) {
     const deleteProfileBtn = container.querySelector('#delete-profile-btn');
     if (deleteProfileBtn) {
         deleteProfileBtn.onclick = async () => {
+            const selectedTargetGroup = getProfileEditorTargetGroup(container);
+            if (!selectedTargetGroup) {
+                showToast('Select a monitored schedule first', 'warning');
+                return;
+            }
+
             const dropdown = container.querySelector('#profile-dropdown');
             const currentProfile = dropdown?.value;
             if (!currentProfile) return;
@@ -1141,9 +2131,14 @@ async function setupProfileHandlers(container, groupData) {
             if (!confirm(`Delete profile "${currentProfile}"?`)) return;
             
             try {
-                await haAPI.deleteProfile(currentGroup, currentProfile);
+                await haAPI.deleteProfile(selectedTargetGroup, currentProfile);
                 showToast(`Deleted profile: ${currentProfile}`, 'success');
-                await loadProfiles(container, currentGroup);
+                
+                // Reload group data from server to get updated profiles
+                const groupsResult = await haAPI.getGroups();
+                allGroups = groupsResult.groups || groupsResult;
+                
+                await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
             } catch (error) {
                 console.error('Failed to delete profile:', error);
@@ -1168,13 +2163,19 @@ async function loadProfiles(container, targetId) {
         
         // Clear and repopulate dropdown
         dropdown.innerHTML = '';
+        
+        // Add placeholder option
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = 'Choose Profile to Edit';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        dropdown.appendChild(placeholderOption);
+        
         Object.keys(profiles).forEach(profileName => {
             const option = document.createElement('option');
             option.value = profileName;
             option.textContent = profileName;
-            if (profileName === activeProfile) {
-                option.selected = true;
-            }
             dropdown.appendChild(option);
         });
         
@@ -1314,7 +2315,6 @@ function createGroupMembersTable(entityIds) {
     
     // Toggle functionality
     toggleHeader.onclick = async () => {
-        console.log('[Group Members Toggle] Clicked!');
         const isCollapsed = table.classList.contains('collapsed');
         if (isCollapsed) {
             // Fetch fresh entity states before expanding
@@ -1323,7 +2323,7 @@ function createGroupMembersTable(entityIds) {
             // Refresh table data
             const now = getServerNow(serverTimeZone);
             const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-            const groupSchedule = graph ? graph.getNodes() : [];
+            const groupSchedule = getGraphNodes();
             
             // Update each row with fresh data
             entityIds.forEach(entityId => {
@@ -1374,7 +2374,7 @@ function createGroupMembersTable(entityIds) {
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     
     // Get the group's schedule if it exists
-    const groupSchedule = graph ? graph.getNodes() : [];
+    const groupSchedule = getGraphNodes();
     
     // Create rows for each entity
     entityIds.forEach(entityId => {
@@ -1413,7 +2413,7 @@ function createGroupMembersTable(entityIds) {
         
         const moveBtn = document.createElement('button');
         moveBtn.className = 'btn-icon-small move-entity-btn';
-        moveBtn.innerHTML = 'M';
+        moveBtn.innerHTML = '⇄';
         moveBtn.title = 'Move to another group';
         moveBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1425,7 +2425,7 @@ function createGroupMembersTable(entityIds) {
         
         const removeBtn = document.createElement('button');
         removeBtn.className = 'btn-icon-small remove-entity-btn';
-        removeBtn.innerHTML = '✕';
+        removeBtn.innerHTML = '🗑';
         removeBtn.title = 'Remove from group';
         removeBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1583,12 +2583,6 @@ function showMoveToGroupModal(currentGroupName, entityId) {
             return;
         }
         
-        // Skip disabled groups
-        const isEnabled = groupData.enabled !== false;
-        if (!isEnabled) {
-            return;
-        }
-        
         // For single-entity groups, use the entity's friendly name only if group name matches entity ID
         const isSingleEntity = groupData.entities && groupData.entities.length === 1;
         let displayName = groupName;
@@ -1681,6 +2675,26 @@ function showAddToGroupModal(entityId) {
     modal.style.display = 'flex';
 }
 
+// Show edit group modal
+function showEditGroupModal(groupName) {
+    const modal = getDocumentRoot().querySelector('#edit-group-modal');
+    const input = getDocumentRoot().querySelector('#edit-group-name');
+    
+    if (!modal || !input) return;
+    
+    // Store group name on modal dataset
+    modal.dataset.groupName = groupName;
+    input.value = groupName;
+    
+    modal.style.display = 'flex';
+    
+    // Focus the input and select the text
+    setTimeout(() => {
+        input.focus();
+        input.select();
+    }, 100);
+}
+
 // Confirm delete group
 function confirmDeleteGroup(groupName) {
     if (!confirm(`Delete group "${groupName}"? All entities will be moved back to the entity list.`)) return;
@@ -1733,6 +2747,131 @@ async function renderEntityList() {
     return;
 }
 
+/**
+ * Creates a timeline editor instance with controls
+ * @param {Object} config - Configuration object
+ * @param {string} config.idPrefix - Prefix for element IDs (e.g., 'main', 'profile')
+ * @param {Array} config.buttons - Array of button configs: [{id, text, title, className?, onClick?}]
+ * @param {number} config.minValue - Min temperature value
+ * @param {number} config.maxValue - Max temperature value
+ * @param {number} config.snapValue - Snap step value
+ * @param {string} config.title - Timeline title
+ * @param {string} config.yAxisLabel - Y-axis label
+ * @param {string} config.xAxisLabel - X-axis label
+ * @param {boolean} config.showCurrentTime - Show current time indicator
+ * @param {string} config.tooltipMode - Tooltip mode
+ * @param {boolean} config.showHeader - Show timeline header
+ * @param {boolean} config.allowCollapse - Allow timeline collapse
+ * @returns {Object} - {container, timeline, controls: {modeDropdown, dayPeriodSelector, dayPeriodButtons, buttons: {}}}
+ */
+function createTimelineEditor(config) {
+    const {
+        idPrefix = 'timeline',
+        buttons = [],
+        minValue = 5,
+        maxValue = 30,
+        snapValue = 0.5,
+        title = 'Schedule',
+        yAxisLabel = 'Temperature (°C)',
+        xAxisLabel = 'Time of Day (24hr)',
+        showCurrentTime = true,
+        tooltipMode = 'hover',
+        showHeader = false,
+        allowCollapse = false,
+        showModeDropdown = true
+    } = config;
+    
+    // Create main container
+    const container = document.createElement('div');
+    container.className = 'timeline-editor-container';
+    
+    // Create editor header with controls
+    const editorHeader = document.createElement('div');
+    editorHeader.className = 'editor-header-inline';
+    
+    const graphTopControls = document.createElement('div');
+    graphTopControls.className = 'graph-top-controls';
+    
+    // Day/period selector
+    const dayPeriodSelector = document.createElement('div');
+    dayPeriodSelector.className = 'day-period-selector';
+    dayPeriodSelector.id = `${idPrefix}-day-period-selector`;
+    dayPeriodSelector.style.display = 'none';
+    
+    const dayPeriodButtons = document.createElement('div');
+    dayPeriodButtons.className = 'day-period-buttons';
+    dayPeriodButtons.id = `${idPrefix}-day-period-buttons`;
+    dayPeriodSelector.appendChild(dayPeriodButtons);
+    
+    // Quick actions container
+    const graphQuickActions = document.createElement('div');
+    graphQuickActions.className = 'graph-quick-actions';
+    
+    // Mode dropdown
+    const modeDropdown = document.createElement('select');
+    modeDropdown.id = `${idPrefix}-schedule-mode-dropdown`;
+    modeDropdown.className = 'mode-dropdown';
+    modeDropdown.title = 'Schedule mode';
+    modeDropdown.innerHTML = `
+        <option value="all_days">24hr</option>
+        <option value="5/2">Weekday</option>
+        <option value="individual">7 Day</option>
+    `;
+    if (showModeDropdown) {
+        graphQuickActions.appendChild(modeDropdown);
+    }
+    
+    // Create action buttons
+    const buttonElements = {};
+    buttons.forEach(btnConfig => {
+        const btn = document.createElement('button');
+        btn.id = `${idPrefix}-${btnConfig.id}`;
+        btn.className = btnConfig.className || 'btn-quick-action';
+        btn.textContent = btnConfig.text;
+        btn.title = btnConfig.title || '';
+        if (btnConfig.disabled) btn.disabled = true;
+        if (btnConfig.onClick) btn.onclick = btnConfig.onClick;
+        buttonElements[btnConfig.id] = btn;
+        graphQuickActions.appendChild(btn);
+    });
+    
+    graphTopControls.appendChild(dayPeriodSelector);
+    graphTopControls.appendChild(graphQuickActions);
+    editorHeader.appendChild(graphTopControls);
+    container.appendChild(editorHeader);
+    
+    // Create timeline instance
+    const timeline = document.createElement('keyframe-timeline');
+    timeline.id = `${idPrefix}-timeline`;
+    timeline.style.width = '100%';
+    timeline.style.setProperty('--timeline-height', '260px');
+    timeline.duration = 24;
+    timeline.slots = 96;
+    timeline.minValue = minValue;
+    timeline.maxValue = maxValue;
+    timeline.snapValue = snapValue;
+    timeline.title = title;
+    timeline.yAxisLabel = yAxisLabel;
+    timeline.xAxisLabel = xAxisLabel;
+    timeline.showCurrentTime = showCurrentTime;
+    timeline.tooltipMode = tooltipMode;
+    timeline.showHeader = showHeader;
+    timeline.allowCollapse = allowCollapse;
+    
+    container.appendChild(timeline);
+    
+    return {
+        container,
+        timeline,
+        controls: {
+            modeDropdown,
+            dayPeriodSelector,
+            dayPeriodButtons,
+            buttons: buttonElements
+        }
+    };
+}
+
 // Create the schedule editor element
 function createScheduleEditor() {
     const editor = document.createElement('div');
@@ -1746,17 +2885,16 @@ function createScheduleEditor() {
                     </div>
                 </div>
                 <div class="graph-quick-actions">
+                    <select id="schedule-mode-dropdown" class="mode-dropdown" title="Schedule mode">
+                        <option value="all_days">24hr</option>
+                        <option value="5/2">Weekday</option>
+                        <option value="individual">7 Day</option>
+                    </select>
                     <button id="graph-copy-btn" class="btn-quick-action" title="Copy schedule">Copy</button>
-                    <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule" disabled>Paste</button>
+                    <button id="graph-paste-btn" class="btn-quick-action" title="Paste schedule">Paste</button>
                     <button id="graph-undo-btn" class="btn-quick-action" title="Undo last change">Undo</button>
                     <button id="advance-schedule-btn" class="btn-quick-action" title="Advance to next scheduled node">Advance</button>
                     <button id="save-schedule-btn" class="btn-quick-action btn-primary" title="Save schedule">Save</button>
-                </div>
-                <div class="graph-profile-selector" id="graph-profile-selector">
-                    <label>Active Profile:</label>
-                    <select id="graph-profile-dropdown" class="graph-profile-dropdown">
-                        <option value="Default">Default</option>
-                    </select>
                 </div>
             </div>
         </div>
@@ -1793,110 +2931,55 @@ function createScheduleEditor() {
         </div>
 
         <div class="graph-container">
-            <div class="graph-wrapper">
-                <svg id="temperature-graph" viewBox="0 0 800 400">
-                    <!-- Dynamically generated -->
-                </svg>
-                
-                <!-- Node Settings Panel (inline below graph) -->
-                <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
-                    <div class="settings-header">
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
-                            <h3>Node Settings</h3>
-                            <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
-                        </div>
-                        <button id="close-settings" class="btn-close-settings">✕</button>
-                    </div>
-                    <div class="settings-grid">
-                        <div class="setting-item">
-                            <label>Time:</label>
-                            <div class="input-spinner">
-                                <button class="spinner-btn" id="time-down" title="-15 minutes">▼</button>
-                                <input type="time" id="node-time-input" class="time-input" />
-                                <button class="spinner-btn" id="time-up" title="+15 minutes">▲</button>
-                            </div>
-                        </div>
-                        <div class="setting-item">
-                            <label>Temperature:</label>
-                            <div class="input-spinner">
-                                <button class="spinner-btn" id="temp-down">▼</button>
-                                <input type="number" id="node-temp-input" class="temp-input" />
-                                <button class="spinner-btn" id="temp-up">▲</button>
-                            </div>
-                        </div>
-                        <div class="setting-item" style="padding-left: 20px;">
-                            <label style="display: flex; align-items: center; cursor: pointer;">
-                                <input type="checkbox" id="temp-no-change" style="margin-right: 8px; cursor: pointer;" />
-                                <span>No Change</span>
-                            </label>
-                        </div>
-                        <div class="setting-item">
-                            <label>HVAC Mode:</label>
-                            <select id="node-hvac-mode" disabled title="Coming soon">
-                                <option value="heat">Heat</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Fan Mode:</label>
-                            <select id="node-fan-mode" disabled title="Coming soon">
-                                <option value="auto">Auto</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Swing Mode:</label>
-                            <select id="node-swing-mode" disabled title="Coming soon">
-                                <option value="off">Off</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>Preset Mode:</label>
-                            <select id="node-preset-mode" disabled title="Coming soon">
-                                <option value="none">None</option>
-                            </select>
-                        </div>
-                        <div class="setting-item" style="grid-column: 1 / -1;">
-                            <label style="display: block; margin-bottom: 8px;">Custom Values:</label>
-                            <div style="display: flex; gap: 12px;">
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">A:</label>
-                                    <input type="number" id="node-value-A" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">B:</label>
-                                    <input type="number" id="node-value-B" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                                <div style="flex: 1; min-width: 100px;">
-                                    <label style="font-size: 0.9em; color: var(--secondary-text-color);">C:</label>
-                                    <input type="number" id="node-value-C" class="value-input" step="any" placeholder="Optional" style="width: 100%;" />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="settings-actions">
-                        <button id="test-fire-event-btn" class="btn-secondary" title="Test fire event with this node">🧪 Test Event</button>
-                        <button id="delete-node" class="btn-danger">Delete Node</button>
-                    </div>
-                </div>
-            </div>
+            <!-- Canvas timeline will be inserted here -->
         </div>
         
-        <!-- Instructions Section (Collapsible) -->
-        <div class="instructions-container">
-            <div class="instructions-toggle">
-                <span class="toggle-icon">▶</span>
-                <span class="toggle-text">Instructions</span>
+        <!-- Node Settings Panel (below timeline) -->
+        <div id="node-settings-panel" class="node-settings-panel" style="display: none;">
+            <div class="settings-header">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="prev-node" class="btn-nav-node" title="Previous node">◀</button>
+                    <div class="setting-item" style="margin: 0;">
+                        <select id="node-time-input" class="mode-select" style="min-width: 100px;">
+                        </select>
+                    </div>
+                    <button id="next-node" class="btn-nav-node" title="Next node">▶</button>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="test-fire-event-btn" class="btn-secondary-outline" title="Test fire event with current active node" style="padding: 4px 10px; font-size: 0.8rem;">Test Event</button>
+                    <button id="delete-node" class="btn-danger-outline" title="Delete selected node" style="padding: 4px 10px; font-size: 0.8rem;">Delete Node</button>
+                    <button id="close-settings" class="btn-close-settings">✕</button>
+                </div>
             </div>
-            <div class="graph-instructions collapsed" style="display: none;">
-                <p>📍 <strong>Double-click or double-tap</strong> the line to add a new node</p>
-                <p>👆 <strong>Drag nodes</strong> vertically to change temperature or horizontally to move their time</p>
-                <p>⬌ <strong>Drag the horizontal segment</strong> between two nodes to shift that period while preserving its duration</p>
-                <p>📋 <strong>Copy / Paste</strong> buttons duplicate a schedule across days or entities</p>
-                <p>⚙️ <strong>Tap a node</strong> to open its settings panel for HVAC/fan/swing/preset values</p>
-            </div>
+            <div id="climate-dialog-container"></div>
         </div>
+        
     `;
     return editor;
+}
+
+let climateDialogLoaded = false;
+
+async function loadClimateDialog() {
+    if (climateDialogLoaded) return;
+    
+    try {
+        const basePath = '/climate_scheduler/static';
+        const version = window.climateSchedulerVersion || Date.now();
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = `${basePath}/climate-dialog.js?v=${version}`;
+        
+        await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+        
+        climateDialogLoaded = true;
+    } catch (error) {
+        console.error('Failed to load climate dialog:', error);
+    }
 }
 
 // Collapse all editors
@@ -1927,23 +3010,8 @@ function collapseAllEditors() {
 // Attach event listeners to editor elements (for dynamically created editors)
 function attachEditorEventListeners(editorElement) {
     
-    // Instructions toggle
-    const instructionsToggle = editorElement.querySelector('.instructions-toggle');
-    const instructionsContent = editorElement.querySelector('.graph-instructions');
-    if (instructionsToggle && instructionsContent) {
-        instructionsToggle.onclick = () => {
-            const isCollapsed = instructionsContent.classList.contains('collapsed');
-            if (isCollapsed) {
-                instructionsContent.classList.remove('collapsed');
-                instructionsContent.style.display = 'block';
-                instructionsToggle.querySelector('.toggle-icon').style.transform = 'rotate(90deg)';
-            } else {
-                instructionsContent.classList.add('collapsed');
-                instructionsContent.style.display = 'none';
-                instructionsToggle.querySelector('.toggle-icon').style.transform = 'rotate(0deg)';
-            }
-        };
-    }
+
+    // Note: Undo buttons are now linked via timeline.setUndoButton() in editGroupSchedule
     
     // Ignore button (Unmonitor button for single-entity groups)
     const ignoreBtn = editorElement.querySelector('#ignore-entity-btn');
@@ -1997,7 +3065,7 @@ function attachEditorEventListeners(editorElement) {
     }
     
     // Advance schedule button
-    const advanceBtn = editorElement.querySelector('#advance-schedule-btn');
+    const advanceBtn = editorElement.querySelector('#main-advance-schedule-btn, #advance-schedule-btn');
     if (advanceBtn) {
         // Function to update button state
         const updateAdvanceButton = async () => {
@@ -2138,7 +3206,7 @@ function attachEditorEventListeners(editorElement) {
     }
 
     // Save button
-    const saveBtn = editorElement.querySelector('#save-schedule-btn');
+    const saveBtn = editorElement.querySelector('#main-save-schedule-btn, #save-schedule-btn');
     if (saveBtn) {
         saveBtn.onclick = async () => {
             saveBtn.disabled = true;
@@ -2161,9 +3229,10 @@ function attachEditorEventListeners(editorElement) {
             if (panel) {
                 panel.style.display = 'none';
                 // Clear selected node highlight
-                if (graph) {
-                    graph.selectedNodeIndex = null;
-                    graph.render();
+                const timeline = nodeSettingsTimeline || graph;
+                if (timeline) {
+                    timeline.selectedNodeIndex = null;
+                    timeline.render();
                 }
             }
         };
@@ -2175,28 +3244,18 @@ function attachEditorEventListeners(editorElement) {
     
     if (prevNodeBtn) {
         prevNodeBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const sortedIndices = graph.getSortedNodeIndices();
-                const currentPos = sortedIndices.indexOf(currentIndex);
-                const newPos = currentPos > 0 ? currentPos - 1 : sortedIndices.length - 1;
-                const newIndex = sortedIndices[newPos];
-                graph.showNodeSettings(newIndex);
+            const timeline = nodeSettingsTimeline || graph;
+            if (timeline && timeline.selectPrevious) {
+                timeline.selectPrevious();
             }
         };
     }
     
     if (nextNodeBtn) {
         nextNodeBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const currentIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(currentIndex) && graph && graph.nodes.length > 0) {
-                const sortedIndices = graph.getSortedNodeIndices();
-                const currentPos = sortedIndices.indexOf(currentIndex);
-                const newPos = currentPos < graph.nodes.length - 1 ? currentPos + 1 : 0;
-                const newIndex = sortedIndices[newPos];
-                graph.showNodeSettings(newIndex);
+            const timeline = nodeSettingsTimeline || graph;
+            if (timeline && timeline.selectNext) {
+                timeline.selectNext();
             }
         };
     }
@@ -2208,139 +3267,290 @@ function attachEditorEventListeners(editorElement) {
     const timeDownBtn = editorElement.querySelector('#time-down');
     const tempUpBtn = editorElement.querySelector('#temp-up');
     const tempDownBtn = editorElement.querySelector('#temp-down');
-    
-    const updateNodeFromInputs = () => {
+
+    const getNodeSettingsState = () => {
         const panel = editorElement.querySelector('#node-settings-panel');
+        if (!panel) return null;
+
         const nodeIndex = parseInt(panel.dataset.nodeIndex);
-        if (isNaN(nodeIndex) || !graph) return;
+        const timeline = nodeSettingsTimeline || graph;
+        if (isNaN(nodeIndex) || !timeline) return null;
+
+        const keyframe = timeline.keyframes?.[nodeIndex];
+        if (!keyframe) return null;
+
+        return { panel, nodeIndex, timeline, keyframe };
+    };
+
+    const saveNodeSettingsUndoState = (timeline) => {
+        if (timeline && typeof timeline.saveUndoState === 'function') {
+            timeline.saveUndoState();
+        }
+    };
+    
+    const updateNodeFromInputs = (captureUndo = false) => {
+        const state = getNodeSettingsState();
+        if (!state) return;
+        const { panel, nodeIndex, timeline, keyframe } = state;
+
+        if (captureUndo) {
+            saveNodeSettingsUndoState(timeline);
+        }
         
-        const node = graph.nodes[nodeIndex];
-        if (!node) return;
+        // Find the corresponding node in currentSchedule
+        const oldHours = Math.floor(keyframe.time);
+        const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+        const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
+        
+        const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
         
         // Update time
         if (timeInput && timeInput.value) {
-            node.time = timeInput.value;
+            const [hours, minutes] = timeInput.value.split(':').map(Number);
+            const decimalTime = hours + (minutes / 60);
+            keyframe.time = decimalTime;
+            
+            // Update schedule node time
+            if (scheduleNode) {
+                scheduleNode.time = timeInput.value;
+            }
         }
         
         // Update temperature
         const tempNoChange = editorElement.querySelector('#temp-no-change');
         if (tempNoChange && tempNoChange.checked) {
-            node.noChange = true;
+            // Set noChange flag in schedule node
+            if (scheduleNode) {
+                scheduleNode.noChange = true;
+                const lockedTemp = resolveNoChangeLockedTemp(currentSchedule, scheduleNode);
+                if (lockedTemp !== null) {
+                    scheduleNode.temp = lockedTemp;
+                    keyframe.value = lockedTemp;
+                    if (tempInput) {
+                        tempInput.value = String(lockedTemp);
+                    }
+                }
+            }
         } else {
-            node.noChange = false;
+            if (scheduleNode) {
+                scheduleNode.noChange = false;
+            }
             if (tempInput && tempInput.value) {
                 const temp = parseFloat(tempInput.value);
                 if (!isNaN(temp)) {
-                    node.temp = temp;
+                    const normalizedTemp = normalizeTemperature(temp, inputTempStep);
+                    keyframe.value = normalizedTemp;
+                    tempInput.value = String(normalizedTemp);
+                    if (scheduleNode) {
+                        scheduleNode.temp = normalizedTemp;
+                    }
                 }
             }
         }
         
-        graph.render();
+        // Sort the schedule by time to maintain correct order
+        currentSchedule.sort((a, b) => {
+            const [aHours, aMinutes] = a.time.split(':').map(Number);
+            const [bHours, bMinutes] = b.time.split(':').map(Number);
+            const aDecimal = aHours + aMinutes / 60;
+            const bDecimal = bHours + bMinutes / 60;
+            return aDecimal - bDecimal;
+        });
+        
+        // Rebuild keyframes from sorted schedule
+        const keyframes = scheduleNodesToKeyframes(currentSchedule);
+        timeline.keyframes = keyframes;
+        
+        // Find the new index of the node we're editing (by time)
+        const newNodeIndex = currentSchedule.findIndex(n => n.time === timeInput.value);
+        if (newNodeIndex !== -1 && newNodeIndex !== nodeIndex) {
+            // Update the panel's nodeIndex to the new position
+            panel.dataset.nodeIndex = newNodeIndex;
+            
+            // Close and reopen the panel to refresh the time dropdown
+            panel.style.display = 'none';
+            setTimeout(() => {
+                // Trigger a node selection event to reopen with updated dropdown
+                timeline.dispatchEvent(new CustomEvent('keyframe-selected', {
+                    detail: { 
+                        index: newNodeIndex,
+                        keyframe: timeline.keyframes[newNodeIndex]
+                    },
+                    bubbles: true
+                }));
+            }, 10);
+        }
+        
         saveSchedule();
     };
     
     if (timeInput) {
-        timeInput.addEventListener('change', updateNodeFromInputs);
-        timeInput.addEventListener('blur', updateNodeFromInputs);
+        timeInput.addEventListener('change', () => updateNodeFromInputs(true));
     }
     
     if (tempInput) {
-        tempInput.addEventListener('change', updateNodeFromInputs);
-        tempInput.addEventListener('blur', updateNodeFromInputs);
+        tempInput.addEventListener('input', () => updateNodeFromInputs(false));  // Immediate update while typing
+        tempInput.addEventListener('change', () => updateNodeFromInputs(true));
+        tempInput.addEventListener('blur', () => updateNodeFromInputs(false));
     }
     
     if (timeUpBtn) {
         timeUpBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
+            const state = getNodeSettingsState();
+            if (!state) return;
+            const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            // Get old time string for finding scheduleNode
+            const oldHours = Math.floor(keyframe.time);
+            const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+            const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
             
-            // Parse time and add 15 minutes
-            const [hours, minutes] = node.time.split(':').map(Number);
-            let totalMinutes = hours * 60 + minutes + 15;
-            if (totalMinutes >= 1440) totalMinutes -= 1440; // Wrap at 24h
+            // Add 15 minutes to decimal time
+            let newDecimalTime = keyframe.time + 0.25; // 15 minutes = 0.25 hours
+            if (newDecimalTime >= 24) newDecimalTime -= 24; // Wrap at 24h
             
-            const newHours = Math.floor(totalMinutes / 60);
-            const newMinutes = totalMinutes % 60;
-            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            // Update keyframe time (decimal)
+            keyframe.time = newDecimalTime;
             
-            timeInput.value = node.time;
-            graph.render();
-            saveSchedule();
+            // Update corresponding scheduleNode time (string)
+            const newHours = Math.floor(newDecimalTime);
+            const newMinutes = Math.round((newDecimalTime - newHours) * 60);
+            const newTimeStr = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
+            if (scheduleNode) {
+                scheduleNode.time = newTimeStr;
+            }
+            
+            timeInput.value = newTimeStr;
+            
+            // Update UI immediately
+            timeline.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                timeline.keyframes = [...timeline.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
     if (timeDownBtn) {
         timeDownBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
+            const state = getNodeSettingsState();
+            if (!state) return;
+            const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            // Get old time string for finding scheduleNode
+            const oldHours = Math.floor(keyframe.time);
+            const oldMinutes = Math.round((keyframe.time - oldHours) * 60);
+            const oldTimeStr = `${String(oldHours).padStart(2, '0')}:${String(oldMinutes).padStart(2, '0')}`;
             
-            // Parse time and subtract 15 minutes
-            const [hours, minutes] = node.time.split(':').map(Number);
-            let totalMinutes = hours * 60 + minutes - 15;
-            if (totalMinutes < 0) totalMinutes += 1440; // Wrap at 0
+            // Subtract 15 minutes from decimal time
+            let newDecimalTime = keyframe.time - 0.25; // 15 minutes = 0.25 hours
+            if (newDecimalTime < 0) newDecimalTime += 24; // Wrap at 0
             
-            const newHours = Math.floor(totalMinutes / 60);
-            const newMinutes = totalMinutes % 60;
-            node.time = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            // Update keyframe time (decimal)
+            keyframe.time = newDecimalTime;
             
-            timeInput.value = node.time;
-            graph.render();
-            saveSchedule();
+            // Update corresponding scheduleNode time (string)
+            const newHours = Math.floor(newDecimalTime);
+            const newMinutes = Math.round((newDecimalTime - newHours) * 60);
+            const newTimeStr = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+            
+            const scheduleNode = currentSchedule.find(n => n.time === oldTimeStr);
+            if (scheduleNode) {
+                scheduleNode.time = newTimeStr;
+            }
+            
+            timeInput.value = newTimeStr;
+            
+            // Update UI immediately
+            timeline.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                timeline.keyframes = [...timeline.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
     if (tempUpBtn) {
         tempUpBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
-            
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const state = getNodeSettingsState();
+            if (!state) return;
+            const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
             // Increment based on inputTempStep setting
-            const multiplier = 1 / inputTempStep;
-            node.temp = Math.round((node.temp + inputTempStep) * multiplier) / multiplier;
+            keyframe.value = normalizeTemperature(keyframe.value + inputTempStep, inputTempStep);
             
-            tempInput.value = node.temp;
-            graph.render();
-            saveSchedule();
+            // Update corresponding scheduleNode.temp
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+            if (scheduleNode) {
+                scheduleNode.temp = keyframe.value;
+            }
+            
+            tempInput.value = String(keyframe.value);
+            
+            // Update UI immediately
+            timeline.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                timeline.keyframes = [...timeline.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     }
     
     if (tempDownBtn) {
         tempDownBtn.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
-            
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const state = getNodeSettingsState();
+            if (!state) return;
+            const { timeline, keyframe } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             // Check if no-change is enabled
             const tempNoChange = editorElement.querySelector('#temp-no-change');
             if (tempNoChange && tempNoChange.checked) return;
             
             // Decrement based on inputTempStep setting
-            const multiplier = 1 / inputTempStep;
-            node.temp = Math.round((node.temp - inputTempStep) * multiplier) / multiplier;
+            keyframe.value = normalizeTemperature(keyframe.value - inputTempStep, inputTempStep);
             
-            tempInput.value = node.temp;
-            graph.render();
-            saveSchedule();
+            // Update corresponding scheduleNode.temp
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+            if (scheduleNode) {
+                scheduleNode.temp = keyframe.value;
+            }
+            
+            tempInput.value = String(keyframe.value);
+            
+            // Update UI immediately
+            timeline.render();
+            
+            // Save in background (deferred to next event loop tick)
+            setTimeout(() => {
+                timeline.keyframes = [...timeline.keyframes]; // Trigger reactivity
+                saveSchedule();
+            }, 0);
         };
     };
     
@@ -2348,21 +3558,28 @@ function attachEditorEventListeners(editorElement) {
     const testFireBtn = editorElement.querySelector('#test-fire-event-btn');
     if (testFireBtn) {
         testFireBtn.onclick = async () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph || !currentGroup) return;
-            
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const state = getNodeSettingsState();
+            if (!state || !currentGroup) return;
+            const { keyframe } = state;
+
+            const hours = Math.floor(keyframe.time);
+            const minutes = Math.round((keyframe.time - hours) * 60);
+            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+            const scheduleNode = currentSchedule.find(n =>
+                n.time === timeStr ||
+                Math.abs(timeStringToDecimalHours(n.time) - keyframe.time) < 0.01
+            ) || {
+                time: timeStr,
+                temp: keyframe.value
+            };
+
+            const targetDay = currentDay || 'all_days';
             
             testFireBtn.disabled = true;
             try {
-                // Get current day
-                const now = new Date();
-                const currentDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now.getDay() === 0 ? 6 : now.getDay() - 1];
-                
-                await haAPI.testFireEvent(currentGroup, node, currentDay);
-                showToast(`Test event fired for node at ${node.time}`, 'success');
+                await haAPI.testFireEvent(currentGroup, scheduleNode, targetDay);
+                showToast(`Test event fired for node at ${scheduleNode.time}`, 'success');
             } catch (error) {
                 console.error('Failed to test fire event:', error);
                 showToast('Failed to fire test event: ' + error.message, 'error');
@@ -2376,11 +3593,26 @@ function attachEditorEventListeners(editorElement) {
     const deleteNode = editorElement.querySelector('#delete-node');
     if (deleteNode) {
         deleteNode.onclick = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (!isNaN(nodeIndex) && graph) {
-                graph.removeNodeByIndex(nodeIndex);
+            const state = getNodeSettingsState();
+            if (state) {
+                const { panel, nodeIndex, timeline } = state;
+
+                if (timeline.keyframes.length <= 1) {
+                    alert('Cannot delete the last node. A schedule must have at least one node.');
+                    return;
+                }
+
+                if (!confirm('Delete this node?')) return;
+
+                saveNodeSettingsUndoState(timeline);
+
+                // Remove keyframe at index
+                timeline.keyframes = timeline.keyframes.filter((_, i) => i !== nodeIndex);
                 panel.style.display = 'none';
+                
+                // Trigger keyframe-deleted event (canvas redraws automatically)
+                timeline.dispatchEvent(new CustomEvent('keyframe-deleted'));
+                
                 saveSchedule();
             }
         };
@@ -2390,12 +3622,11 @@ function attachEditorEventListeners(editorElement) {
     const tempNoChange = editorElement.querySelector('#temp-no-change');
     if (tempNoChange) {
         tempNoChange.onchange = () => {
-            const panel = editorElement.querySelector('#node-settings-panel');
-            const nodeIndex = parseInt(panel.dataset.nodeIndex);
-            if (isNaN(nodeIndex) || !graph) return;
-            
-            const node = graph.nodes[nodeIndex];
-            if (!node) return;
+            const state = getNodeSettingsState();
+            if (!state) return;
+            const { timeline, keyframe: node } = state;
+
+            saveNodeSettingsUndoState(timeline);
             
             if (tempNoChange.checked) {
                 // Set to no change
@@ -2415,7 +3646,7 @@ function attachEditorEventListeners(editorElement) {
                 tempDownBtn.disabled = false;
             }
             
-            graph.render();
+            timeline.render();
             saveSchedule();
         };
     }
@@ -2427,50 +3658,54 @@ function attachEditorEventListeners(editorElement) {
     const presetModeSelect = editorElement.querySelector('#node-preset-mode');
     
     const autoSaveNodeSettings = async () => {
-        const panel = editorElement.querySelector('#node-settings-panel');
-        if (!panel) return;
+        const state = getNodeSettingsState();
+        if (!state) return;
+        const { timeline, keyframe } = state;
         
-        const nodeIndex = parseInt(panel.dataset.nodeIndex);
-        if (isNaN(nodeIndex) || !graph) return;
+        // Find the corresponding node in currentSchedule by time
+        const hours = Math.floor(keyframe.time);
+        const minutes = Math.round((keyframe.time - hours) * 60);
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         
-        // Get the actual node from the graph
-        const node = graph.nodes[nodeIndex];
-        if (!node) return;
+        const scheduleNode = currentSchedule.find(n => n.time === timeStr);
+        if (!scheduleNode) return;
+
+        saveNodeSettingsUndoState(timeline);
         
         // Update or delete properties based on dropdown values
         if (hvacModeSelect && hvacModeSelect.closest('.setting-item').style.display !== 'none') {
             const hvacMode = hvacModeSelect.value;
             if (hvacMode) {
-                node.hvac_mode = hvacMode;
+                scheduleNode.hvac_mode = hvacMode;
             } else {
-                delete node.hvac_mode;
+                delete scheduleNode.hvac_mode;
             }
         }
         
         if (fanModeSelect && fanModeSelect.closest('.setting-item').style.display !== 'none') {
             const fanMode = fanModeSelect.value;
             if (fanMode) {
-                node.fan_mode = fanMode;
+                scheduleNode.fan_mode = fanMode;
             } else {
-                delete node.fan_mode;
+                delete scheduleNode.fan_mode;
             }
         }
         
         if (swingModeSelect && swingModeSelect.closest('.setting-item').style.display !== 'none') {
             const swingMode = swingModeSelect.value;
             if (swingMode) {
-                node.swing_mode = swingMode;
+                scheduleNode.swing_mode = swingMode;
             } else {
-                delete node.swing_mode;
+                delete scheduleNode.swing_mode;
             }
         }
         
         if (presetModeSelect && presetModeSelect.closest('.setting-item').style.display !== 'none') {
             const presetMode = presetModeSelect.value;
             if (presetMode) {
-                node.preset_mode = presetMode;
+                scheduleNode.preset_mode = presetMode;
             } else {
-                delete node.preset_mode;
+                delete scheduleNode.preset_mode;
             }
         }
         
@@ -2481,19 +3716,64 @@ function attachEditorEventListeners(editorElement) {
         
         if (valueAInput) {
             const val = valueAInput.value.trim();
-            node['A'] = val !== '' ? parseFloat(val) : null;
+            scheduleNode['A'] = val !== '' ? parseFloat(val) : null;
         }
         if (valueBInput) {
             const val = valueBInput.value.trim();
-            node['B'] = val !== '' ? parseFloat(val) : null;
+            scheduleNode['B'] = val !== '' ? parseFloat(val) : null;
         }
         if (valueCInput) {
             const val = valueCInput.value.trim();
-            node['C'] = val !== '' ? parseFloat(val) : null;
+            scheduleNode['C'] = val !== '' ? parseFloat(val) : null;
         }
         
-        // This will trigger save and force immediate update
-        graph.notifyChange(true);
+        // Trigger save - check if using canvas timeline or old graph
+        if (timeline.notifyChange) {
+            // Old SVG graph has notifyChange method
+            timeline.render();
+            timeline.notifyChange(true);
+        } else {
+            // Canvas timeline - save directly
+            graph = timeline;
+            handleGraphChange({ detail: { force: true } }, true);
+        }
+    };
+    
+    // Immediate UI update on input (no save)
+    const updateUIOnly = () => {
+        const state = getNodeSettingsState();
+        if (!state) return;
+        const { timeline, keyframe: node } = state;
+        
+        // Update value fields for immediate visual feedback
+        const valueAInput = editorElement.querySelector('#node-value-A');
+        const valueBInput = editorElement.querySelector('#node-value-B');
+        const valueCInput = editorElement.querySelector('#node-value-C');
+        
+        if (valueAInput) {
+            const val = valueAInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['A'] = parsed;
+            }
+        }
+        if (valueBInput) {
+            const val = valueBInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['B'] = parsed;
+            }
+        }
+        if (valueCInput) {
+            const val = valueCInput.value.trim();
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+                node['C'] = parsed;
+            }
+        }
+        
+        // Only update UI, don't trigger save
+        timeline.render();
     };
     
     // Attach change listeners to all dropdowns and value inputs
@@ -2505,55 +3785,41 @@ function attachEditorEventListeners(editorElement) {
     const valueAInput = editorElement.querySelector('#node-value-A');
     const valueBInput = editorElement.querySelector('#node-value-B');
     const valueCInput = editorElement.querySelector('#node-value-C');
-    if (valueAInput) valueAInput.addEventListener('change', autoSaveNodeSettings);
-    if (valueBInput) valueBInput.addEventListener('change', autoSaveNodeSettings);
-    if (valueCInput) valueCInput.addEventListener('change', autoSaveNodeSettings);
+    if (valueAInput) {
+        valueAInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueAInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
+    if (valueBInput) {
+        valueBInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueBInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
+    if (valueCInput) {
+        valueCInput.addEventListener('input', updateUIOnly);  // Immediate UI update while typing
+        valueCInput.addEventListener('change', autoSaveNodeSettings);  // Save when done
+    }
     
-    // Schedule mode radio buttons
-    const modeRadios = editorElement.querySelectorAll('input[name="schedule-mode"]');
-    modeRadios.forEach(radio => {
-        radio.addEventListener('change', async (e) => {
-            if (e.target.checked) {
-                const newMode = e.target.value;
-                await switchScheduleMode(newMode);
-            }
+    // Schedule mode dropdown
+    const modeDropdown = editorElement.querySelector('#main-schedule-mode-dropdown');
+    if (modeDropdown) {
+        modeDropdown.addEventListener('change', async (e) => {
+            const newMode = e.target.value;
+            await switchScheduleMode(newMode);
         });
-    });
-    
-    // Day selector buttons (for individual mode)
-    const dayButtons = editorElement.querySelectorAll('#day-selector .day-btn');
-    dayButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await switchDay(btn.dataset.day);
-        });
-    });
-    
-    // Weekday selector buttons (for 5/2 mode)
-    const weekdayButtons = editorElement.querySelectorAll('#weekday-selector .day-btn');
-    weekdayButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await switchDay(btn.dataset.day);
-        });
-    });
+    }
     
     // Graph quick action buttons
-    const graphCopyBtn = editorElement.querySelector('#graph-copy-btn');
+    const graphCopyBtn = editorElement.querySelector('#main-graph-copy-btn, #graph-copy-btn');
     if (graphCopyBtn) {
         graphCopyBtn.onclick = () => {
             copySchedule();
         };
     }
     
-    const graphPasteBtn = editorElement.querySelector('#graph-paste-btn');
+    const graphPasteBtn = editorElement.querySelector('#main-graph-paste-btn, #graph-paste-btn');
     if (graphPasteBtn) {
         graphPasteBtn.onclick = () => {
             pasteSchedule();
         };
-    }
-    
-    const graphUndoBtn = editorElement.querySelector('#graph-undo-btn');
-    if (graphUndoBtn && graph) {
-        graph.setUndoButton(graphUndoBtn);
     }
 }
 
@@ -2562,19 +3828,28 @@ let scheduleClipboard = null;
 
 // Update paste button state based on clipboard
 function updatePasteButtonState() {
-    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
-    if (pasteBtn) {
-        pasteBtn.disabled = !scheduleClipboard || scheduleClipboard.length === 0;
-    }
-    const graphPasteBtn = getDocumentRoot().querySelector('#graph-paste-btn');
-    if (graphPasteBtn) {
-        graphPasteBtn.disabled = !scheduleClipboard || scheduleClipboard.length === 0;
-    }
+    const hasClipboard = scheduleClipboard && scheduleClipboard.length > 0;
+    
+    // Update all paste buttons (handles both old IDs and new prefixed IDs)
+    const pasteButtons = [
+        '#paste-schedule-btn',
+        '#graph-paste-btn',
+        '#main-graph-paste-btn',
+        '#profile-graph-paste-btn',
+        '#default-graph-paste-btn'
+    ];
+    
+    pasteButtons.forEach(selector => {
+        const btn = getDocumentRoot().querySelector(selector);
+        if (btn) {
+            btn.disabled = !hasClipboard;
+        }
+    });
 }
 
 // Copy current schedule to clipboard
 function copySchedule() {
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     if (nodes && nodes.length > 0) {
         // Deep copy the nodes
         scheduleClipboard = nodes.map(n => ({...n}));
@@ -2583,7 +3858,7 @@ function copySchedule() {
         updatePasteButtonState();
         
         // Visual feedback
-        const copyBtn = getDocumentRoot().querySelector('#copy-schedule-btn');
+        const copyBtn = getDocumentRoot().querySelector('#main-graph-copy-btn, #profile-graph-copy-btn, #default-graph-copy-btn, #copy-schedule-btn, #graph-copy-btn');
         if (copyBtn) {
             const originalText = copyBtn.textContent;
             copyBtn.textContent = 'Copied!';
@@ -2603,14 +3878,17 @@ async function pasteSchedule() {
     // Deep copy from clipboard
     const nodes = scheduleClipboard.map(n => ({...n}));
     
+    // Update currentSchedule with pasted data
+    currentSchedule = nodes;
+    
     // Update graph
-    graph.setNodes(nodes);
+    setGraphNodes(nodes);
     
     // Save the pasted schedule
     await saveSchedule();
     
     // Visual feedback
-    const pasteBtn = getDocumentRoot().querySelector('#paste-schedule-btn');
+    const pasteBtn = getDocumentRoot().querySelector('#main-graph-paste-btn, #profile-graph-paste-btn, #default-graph-paste-btn, #paste-schedule-btn, #graph-paste-btn');
     if (pasteBtn) {
         const originalText = pasteBtn.textContent;
         pasteBtn.textContent = 'Pasted!';
@@ -2634,7 +3912,7 @@ async function clearScheduleForEntity(entityId) {
         
         // Update graph with default schedule
         if (graph) {
-            graph.setNodes(defaultSchedule);
+            setGraphNodes(defaultSchedule);
         }
         
         // Update current schedule reference
@@ -2688,7 +3966,7 @@ async function clearScheduleForGroup(groupName) {
         
         // Update graph with default schedule for current day
         if (graph) {
-            graph.setNodes(defaultSchedule);
+            setGraphNodes(defaultSchedule);
         }
         
         // Update current schedule reference
@@ -2701,40 +3979,33 @@ async function clearScheduleForGroup(groupName) {
     }
 }
 
+// Get schedule title with mode
+function getScheduleTitle() {
+    if (currentScheduleMode === 'all_days') {
+        return 'Schedule (All Days)';
+    } else if (currentScheduleMode === '5/2') {
+        const dayName = currentDay === 'weekday' ? 'Weekdays' : 'Weekend';
+        return `Schedule (${dayName})`;
+    } else {
+        const dayNames = {
+            'mon': 'Monday',
+            'tue': 'Tuesday', 
+            'wed': 'Wednesday',
+            'thu': 'Thursday',
+            'fri': 'Friday',
+            'sat': 'Saturday',
+            'sun': 'Sunday'
+        };
+        return `Schedule (${dayNames[currentDay] || currentDay})`;
+    }
+}
+
 // Update schedule mode UI to reflect current mode and day
 function updateScheduleModeUI() {
-    // Update mode radio buttons
-    const modeRadios = getDocumentRoot().querySelectorAll('input[name="schedule-mode"]');
-    modeRadios.forEach(radio => {
-        radio.checked = (radio.value === currentScheduleMode);
-    });
-    
-    // Show/hide appropriate day selectors
-    const daySelector = getDocumentRoot().querySelector('#day-selector');
-    const weekdaySelector = getDocumentRoot().querySelector('#weekday-selector');
-    
-    if (daySelector && weekdaySelector) {
-        // Hide both first
-        daySelector.classList.remove('visible');
-        weekdaySelector.classList.remove('visible');
-        
-        // Show the appropriate one
-        if (currentScheduleMode === 'individual') {
-            daySelector.classList.add('visible');
-        } else if (currentScheduleMode === '5/2') {
-            weekdaySelector.classList.add('visible');
-        }
-    }
-    
-    // Update active day button
-    if (currentScheduleMode === 'individual') {
-        getDocumentRoot().querySelectorAll('#day-selector .day-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.day === currentDay);
-        });
-    } else if (currentScheduleMode === '5/2') {
-        getDocumentRoot().querySelectorAll('#weekday-selector .day-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.day === currentDay);
-        });
+    // Update mode dropdown
+    const modeDropdown = getDocumentRoot().querySelector('#main-schedule-mode-dropdown');
+    if (modeDropdown) {
+        modeDropdown.value = currentScheduleMode;
     }
     
     // Update day/period selector above graph
@@ -2746,8 +4017,8 @@ function updateScheduleModeUI() {
 
 // Update the day/period selector above the graph
 function updateGraphDaySelector() {
-    const dayPeriodSelector = getDocumentRoot().querySelector('#day-period-selector');
-    const dayPeriodButtons = getDocumentRoot().querySelector('#day-period-buttons');
+    const dayPeriodSelector = getDocumentRoot().querySelector('#main-day-period-selector');
+    const dayPeriodButtons = getDocumentRoot().querySelector('#main-day-period-buttons');
     
     if (!dayPeriodSelector || !dayPeriodButtons) return;
     
@@ -2815,19 +4086,34 @@ function updateGraphDaySelector() {
 
 // Update the profile dropdown above the graph
 function updateGraphProfileDropdown() {
-    const graphProfileDropdown = getDocumentRoot().querySelector('#graph-profile-dropdown');
-    if (!graphProfileDropdown) {
-        return;
-    }
+    if (!currentGroup) return;
+    
+    // Find the group header's profile dropdown
+    const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${currentGroup}"]`);
+    if (!groupContainer) return;
+    
+    const profileDropdown = groupContainer.querySelector('.group-profile-dropdown');
+    if (!profileDropdown) return;
     
     // Get current active profile
-    const activeProfile = (currentGroup && allGroups[currentGroup]?.active_profile) || 'Default';
+    const activeProfile = (allGroups[currentGroup]?.active_profile) || 'Default';
     
     // Get all profiles
-    const profiles = (currentGroup && allGroups[currentGroup]?.profiles ? Object.keys(allGroups[currentGroup].profiles) : ['Default']);
+    const profiles = (allGroups[currentGroup]?.profiles ? Object.keys(allGroups[currentGroup].profiles) : ['Default']);
     
     // Update dropdown options
-    graphProfileDropdown.innerHTML = '';
+    profileDropdown.innerHTML = '';
+    
+    // Add placeholder option for profile editor dropdown
+    if (profileDropdown.id === 'profile-dropdown') {
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = 'Choose Profile to Edit';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        profileDropdown.appendChild(placeholderOption);
+    }
+    
     profiles.forEach(profileName => {
         const option = document.createElement('option');
         option.value = profileName;
@@ -2835,38 +4121,14 @@ function updateGraphProfileDropdown() {
         if (profileName === activeProfile) {
             option.selected = true;
         }
-        graphProfileDropdown.appendChild(option);
+        profileDropdown.appendChild(option);
     });
     
-    // Remove existing event listener by cloning
-    const newDropdown = graphProfileDropdown.cloneNode(true);
-    graphProfileDropdown.parentNode.replaceChild(newDropdown, graphProfileDropdown);
-    
-    // Set the value after cloning to ensure it's selected
-    newDropdown.value = activeProfile;
-    
-    // Add event listener for profile change
-    newDropdown.addEventListener('change', async (e) => {
-        const newProfile = e.target.value;
-        
-        try {
-            if (currentGroup) {
-                await haAPI.setActiveProfile(currentGroup, newProfile);
-                
-                // Reload group data from server
-                const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || groupsResult;
-                
-                // editGroupSchedule will call updateGraphProfileDropdown via updateGraphDaySelector
-                await editGroupSchedule(currentGroup);
-            }
-            
-            showToast(`Switched to profile: ${newProfile}`, 'success');
-        } catch (error) {
-            console.error('Failed to switch profile:', error);
-            showToast('Failed to switch profile', 'error');
-        }
-    });
+    // Don't set value for profile editor dropdown (keep placeholder selected)
+    if (profileDropdown.id !== 'profile-dropdown') {
+        // Ensure the active profile is selected for group selector
+        profileDropdown.value = activeProfile;
+    }
 }
 
 // Set previous day's last temperature for graph rendering
@@ -2877,7 +4139,7 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
     
     // In all_days mode, previous day is same as current day
     if (scheduleMode === 'all_days') {
-        graph.setPreviousDayLastTemp(null);
+        graph.previousDayEndValue = null;
         return;
     }
     
@@ -2910,46 +4172,68 @@ function setPreviousDayLastTempForGraph(groupData, currentDayParam) {
             const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
             if (nodesWithTemp.length > 0) {
                 const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
-                graph.setPreviousDayLastTemp(lastNode.temp);
+                // Set previous day end value for canvas timeline
+                graph.previousDayEndValue = lastNode.temp || lastNode.value;
                 return;
             }
         }
     }
     
-    // If no previous day data found, don't set it (will fall back to current day's last node)
-    graph.setPreviousDayLastTemp(null);
+    // If no previous day data found, clear it
+    graph.previousDayEndValue = null;
+}
+
+// Get previous day's last temperature value (for canvas graph)
+function getPreviousDayLastTemp(groupData, currentDayParam) {
+    if (!groupData || !groupData.schedules) return null;
+    
+    const scheduleMode = groupData.schedule_mode || 'all_days';
+    
+    // In all_days mode, previous day is same as current day
+    if (scheduleMode === 'all_days') {
+        return null;
+    }
+    
+    // Determine previous day based on schedule mode
+    let previousDayKey = null;
+    
+    if (scheduleMode === '5/2') {
+        // In weekday/weekend mode
+        if (currentDayParam === 'weekday') {
+            previousDayKey = 'weekend';
+        } else if (currentDayParam === 'weekend') {
+            previousDayKey = 'weekday';
+        }
+    } else if (scheduleMode === 'individual') {
+        // In 7-day mode, get actual previous day
+        const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const currentIndex = days.indexOf(currentDayParam);
+        if (currentIndex !== -1) {
+            previousDayKey = days[(currentIndex - 1 + 7) % 7];
+        }
+    }
+    
+    // Get previous day's schedule
+    if (previousDayKey && groupData.schedules[previousDayKey]) {
+        const previousDayNodes = groupData.schedules[previousDayKey];
+        if (previousDayNodes && previousDayNodes.length > 0) {
+            // Find the last node with a temperature (not noChange)
+            const nodesWithTemp = previousDayNodes.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
+            if (nodesWithTemp.length > 0) {
+                const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+                return lastNode.temp;
+            }
+        }
+    }
+    
+    return null;
 }
 
 // Update graph title to show which day is being edited
 function updateGraphTitle() {
-    const graphWrapper = getDocumentRoot().querySelector('.graph-wrapper');
-    let titleElement = graphWrapper.querySelector('.schedule-day-title');
-    
-    if (!titleElement) {
-        titleElement = document.createElement('div');
-        titleElement.className = 'schedule-day-title';
-        titleElement.style.marginBottom = '10px';
-        titleElement.style.fontSize = '0.9rem';
-        titleElement.style.color = 'var(--text-secondary)';
-        graphWrapper.insertBefore(titleElement, graphWrapper.firstChild);
-    }
-    
-    if (currentScheduleMode === 'all_days') {
-        titleElement.textContent = 'Schedule (All Days)';
-    } else if (currentScheduleMode === '5/2') {
-        const dayName = currentDay === 'weekday' ? 'Weekdays' : 'Weekend';
-        titleElement.textContent = `Schedule (${dayName})`;
-    } else {
-        const dayNames = {
-            'mon': 'Monday',
-            'tue': 'Tuesday', 
-            'wed': 'Wednesday',
-            'thu': 'Thursday',
-            'fri': 'Friday',
-            'sat': 'Saturday',
-            'sun': 'Sunday'
-        };
-        titleElement.textContent = `Schedule (${dayNames[currentDay] || currentDay})`;
+    // Update timeline title
+    if (graph && graph.title !== undefined) {
+        graph.title = getScheduleTitle();
     }
 }
 
@@ -2971,14 +4255,22 @@ async function switchScheduleMode(newMode) {
         currentDay = weekday;
     }
     
-    // Save the mode change to backend first
+    // Save the mode change to the active profile in backend
     if (currentGroup) {
-        const nodes = graph.getNodes();
-        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
+        const nodes = getGraphNodes();
+        const groupData = allGroups[currentGroup];
+        const activeProfile = groupData?.active_profile || 'Default';
+        
+        // Save with profile_name to ensure mode is saved to the active profile
+        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode, activeProfile);
         
         // Update local group data
         if (allGroups[currentGroup]) {
             allGroups[currentGroup].schedule_mode = currentScheduleMode;
+            // Also update the active profile's schedule_mode
+            if (allGroups[currentGroup].profiles && allGroups[currentGroup].profiles[activeProfile]) {
+                allGroups[currentGroup].profiles[activeProfile].schedule_mode = currentScheduleMode;
+            }
         }
     }
     
@@ -3019,7 +4311,7 @@ async function switchScheduleMode(newMode) {
         //
         
         // Update graph with new nodes
-        graph.setNodes(currentSchedule);
+        setGraphNodes(currentSchedule);
         
         // Set previous day's last temperature for graph rendering
         setPreviousDayLastTempForGraph(groupData, currentDay);
@@ -3027,6 +4319,7 @@ async function switchScheduleMode(newMode) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
+            flushPendingSaveIfNeeded();
         //
         }, 100);
         
@@ -3046,22 +4339,12 @@ async function switchDay(day) {
     // Switching day - no need to save since auto-save already persisted changes
     currentDay = day;
     
-    // Day updated
-    
     // Update UI first
     updateScheduleModeUI();
     
     // Reload schedule for selected day - update in place without recreating editor
     if (currentGroup) {
-        // Reload group data from backend to get latest saved state
-        // Reloading group data
-        const result = await haAPI.getGroups();
-        let groups = result?.response || result || {};
-        if (groups.groups && typeof groups.groups === 'object') {
-            groups = groups.groups;
-        }
-        allGroups = groups;
-        
+        // Use cached group data - no need to fetch from backend since auto-save keeps it in sync
         const groupData = allGroups[currentGroup];
         if (!groupData) return;
         
@@ -3084,10 +4367,9 @@ async function switchDay(day) {
         
         // Set loading flag to prevent auto-save during graph update
         isLoadingSchedule = true;
-        //
         
         // Update graph with new nodes
-        graph.setNodes(currentSchedule);
+        setGraphNodes(currentSchedule);
         
         // Set previous day's last temperature for graph rendering
         setPreviousDayLastTempForGraph(groupData, currentDay);
@@ -3095,7 +4377,7 @@ async function switchDay(day) {
         // Clear loading flag after a delay
         setTimeout(() => {
             isLoadingSchedule = false;
-        //
+            flushPendingSaveIfNeeded();
         }, 100);
         
         // Clear editing profile and hide indicator when returning to active profile
@@ -3121,7 +4403,7 @@ async function loadHistoryData(entityId) {
         const historyResult = await haAPI.getHistory(entityId, today, now);
         
         if (!historyResult || !historyResult[entityId]) {
-            graph.setHistoryData([]);
+            setGraphHistoryData([]);
             return;
         }
         
@@ -3162,17 +4444,17 @@ async function loadHistoryData(entityId) {
             }
         }
         
-        graph.setHistoryData(historyData);
+        setGraphHistoryData([historyData]);
     } catch (error) {
         console.error('Failed to load history data:', error);
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
     }
 }
 
 // Load history data for multiple entities (used for groups)
 async function loadGroupHistoryData(entityIds) {
     if (!entityIds || entityIds.length === 0) {
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
         return;
     }
     
@@ -3248,28 +4530,18 @@ async function loadGroupHistoryData(entityIds) {
             }
         }
         
-        graph.setHistoryData(allHistoryData);
+        setGraphHistoryData(allHistoryData);
     } catch (error) {
         console.error('Failed to load group history data:', error);
-        graph.setHistoryData([]);
+        setGraphHistoryData([]);
     }
 }
 
 // Save schedule (auto-save, no alerts)
 async function saveSchedule() {
-    console.debug('[SAVE] saveSchedule() called', {
-        timestamp: new Date().toISOString(),
-        isLoadingSchedule,
-        isSaveInProgress,
-        hasPendingTimeout: saveTimeout !== null,
-        currentGroup,
-        currentDay,
-        currentScheduleMode
-    });
-
     // Don't save if we're in the middle of loading a schedule
     if (isLoadingSchedule) {
-        console.debug('[SAVE] Skipped: isLoadingSchedule=true');
+        pendingSaveNeeded = true;
         return;
     }
     
@@ -3282,13 +4554,11 @@ async function saveSchedule() {
     
     // Clear any existing debounce timeout
     if (saveTimeout) {
-        console.debug('[SAVE] Clearing previous debounce timeout');
         clearTimeout(saveTimeout);
         saveTimeout = null;
     }
     
     // Debounce: wait for changes to settle before saving
-    console.debug(`[SAVE] Debouncing save for ${SAVE_DEBOUNCE_MS}ms`);
     saveTimeout = setTimeout(() => {
         saveTimeout = null;
         performSave();
@@ -3299,53 +4569,26 @@ async function saveSchedule() {
 async function performSave() {
     const saveStartTime = performance.now();
     
-    console.debug('[SAVE] performSave() executing', {
-        timestamp: new Date().toISOString(),
-        currentGroup,
-        currentDay,
-        currentScheduleMode
-    });
-    
     // Set save in progress flag
     isSaveInProgress = true;
     
     // Check if we're editing a group schedule
     if (currentGroup) {
-        const nodes = graph.getNodes();
-        console.debug('[SAVE] Group mode detected', {
-            groupName: currentGroup,
-            nodeCount: nodes.length,
-            day: currentDay,
-            scheduleMode: currentScheduleMode
-        });
-        
         try {
-            const enabled = getDocumentRoot().querySelector('#schedule-enabled').checked;
+            const nodes = getGraphNodes();
+            const enabledToggle = getDocumentRoot().querySelector('#schedule-enabled');
+            const enabled = enabledToggle
+                ? enabledToggle.checked
+                : (allGroups[currentGroup]?.enabled !== false);
             
             // Check if we're editing a non-active profile
             const groupData = allGroups[currentGroup];
             const activeProfile = groupData ? groupData.active_profile : null;
-            const needsProfileSwitch = editingProfile && editingProfile !== activeProfile;
-            
-            // Temporarily switch to editing profile if needed
-            if (needsProfileSwitch) {
-                console.debug('[SAVE] Switching profile', { from: activeProfile, to: editingProfile });
-                await haAPI.setActiveProfile(currentGroup, editingProfile);
-            }
+            const targetProfile = editingProfile && editingProfile !== activeProfile ? editingProfile : null;
             
             // Save to group schedule with day and mode
             const setGroupScheduleStart = performance.now();
-            console.debug('[SAVE] Calling setGroupSchedule', {
-                groupName: currentGroup,
-                nodeCount: nodes.length,
-                day: currentDay,
-                scheduleMode: currentScheduleMode,
-                timeSinceSaveStart: (setGroupScheduleStart - saveStartTime).toFixed(2) + 'ms'
-            });
-            await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
-            console.debug('[SAVE] setGroupSchedule succeeded', {
-                duration: (performance.now() - setGroupScheduleStart).toFixed(2) + 'ms'
-            });
+            await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode, targetProfile || undefined);
             
             // Update local cache immediately with the saved data
             if (allGroups[currentGroup]) {
@@ -3355,29 +4598,26 @@ async function performSave() {
                 allGroups[currentGroup].schedules[currentDay] = JSON.parse(JSON.stringify(nodes));
             }
             
-            // Switch back to original active profile if we changed it
-            if (needsProfileSwitch && activeProfile) {
-                console.debug('[SAVE] Switching profile back', { to: activeProfile });
-                await haAPI.setActiveProfile(currentGroup, activeProfile);
-            }
-            
-            // Update enabled state
-            if (enabled) {
-                console.debug('[SAVE] Calling enableGroup');
-                await haAPI.enableGroup(currentGroup);
-            } else {
-                console.debug('[SAVE] Calling disableGroup');
-                await haAPI.disableGroup(currentGroup);
+            // Update enabled state (do not fail schedule save if this secondary call fails)
+            try {
+                if (enabled) {
+                    await haAPI.enableGroup(currentGroup);
+                } else {
+                    await haAPI.disableGroup(currentGroup);
+                }
+            } catch (enableError) {
+                console.error('[SAVE] Schedule saved but failed to update enabled state:', {
+                    error: enableError,
+                    groupName: currentGroup,
+                    enabled
+                });
+                showToast('Schedule saved, but failed to update enabled state.', 'warning');
             }
             
             // Update local state
             if (allGroups[currentGroup]) {
                 allGroups[currentGroup].enabled = enabled;
             }
-            
-            console.debug('[SAVE] Group save completed successfully', {
-                totalDuration: (performance.now() - saveStartTime).toFixed(2) + 'ms'
-            });
         } catch (error) {
             console.error('[SAVE] Failed to auto-save group schedule:', {
                 error,
@@ -3387,13 +4627,12 @@ async function performSave() {
                 groupName: currentGroup,
                 timeSinceSaveStart: (performance.now() - saveStartTime).toFixed(2) + 'ms'
             });
+            showToast('Failed to save schedule. Check browser console for details.', 'error');
         } finally {
             isSaveInProgress = false;
-            console.debug('[SAVE] isSaveInProgress flag cleared');
             
             // If another save was requested while this one was in progress, trigger it now
             if (pendingSaveNeeded) {
-                console.debug('[SAVE] Pending save detected, triggering debounced save');
                 pendingSaveNeeded = false;
                 // Call saveSchedule (not performSave) to go through debouncing again
                 saveSchedule();
@@ -3404,20 +4643,11 @@ async function performSave() {
     
     // Note: Entity-only save path removed - all schedules (including single entities)
     // are now saved as groups via set_group_schedule above.
-    console.debug('[SAVE] No currentGroup set, nothing to save');
     isSaveInProgress = false;
 }
 
 // Handle graph changes - auto-save and sync if needed
 async function handleGraphChange(event, force = false) {
-    // Handle graph change
-    console.log('[GRAPH] handleGraphChange triggered', {
-        timestamp: new Date().toISOString(),
-        eventType: event?.type,
-        force,
-        currentGroup
-    });
-    
     // If event has detail.force, use that
     if (event && event.detail && event.detail.force !== undefined) {
         force = event.detail.force;
@@ -3431,7 +4661,7 @@ async function handleGraphChange(event, force = false) {
     // Check if we need to update thermostats immediately
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     // Find active node
     const sorted = [...nodes].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
@@ -3619,6 +4849,27 @@ async function handleGraphChange(event, force = false) {
     }
 }
 
+// Handle keyframe-timeline changes (canvas graph)
+function handleKeyframeTimelineChange(event) {
+    if (isLoadingSchedule) return;
+    
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Convert keyframes to schedule nodes
+    const nodes = keyframesToScheduleNodes(keyframes);
+    currentSchedule = nodes;
+    
+    // Trigger auto-save with debouncing
+    if (saveTimeout) {
+        clearTimeout(saveTimeout);
+    }
+    
+    saveTimeout = setTimeout(() => {
+        saveSchedule();
+    }, SAVE_DEBOUNCE_MS);
+}
+
 // Update scheduled temperature display
 function updateScheduledTemp() {
     const scheduledTempEl = getDocumentRoot().querySelector('#scheduled-temp');
@@ -3628,7 +4879,7 @@ function updateScheduledTemp() {
     
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     if (nodes.length > 0) {
         const temp = interpolateTemperature(nodes, currentTime);
@@ -3781,7 +5032,7 @@ function updateGroupMemberRow(entityId, entityState) {
     if (scheduledCell && currentGroup && graph) {
         const now = new Date();
         const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        const nodes = graph.getNodes();
+        const nodes = getGraphNodes();
         
         if (nodes.length > 0) {
             const scheduledTemp = interpolateTemperature(nodes, currentTime);
@@ -3801,7 +5052,7 @@ function updateAllGroupMemberScheduledTemps() {
     
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const nodes = graph.getNodes();
+    const nodes = getGraphNodes();
     
     rows.forEach(row => {
         const scheduledCell = row.children[3];
@@ -3962,20 +5213,48 @@ function setupEventListeners() {
     // Toggle ignored entities section
     const toggleIgnored = getDocumentRoot().querySelector('#toggle-ignored');
     const ignoredList = getDocumentRoot().querySelector('#ignored-entity-list');
-    if (toggleIgnored && ignoredList) {
+    const ignoredContainer = getDocumentRoot().querySelector('#ignored-container');
+    if (toggleIgnored && ignoredList && ignoredContainer) {
         toggleIgnored.addEventListener('click', () => {
-            const toggleIcon = toggleIgnored.querySelector('.toggle-icon');
+            const toggleIcon = toggleIgnored.querySelector('.group-toggle-icon');
             
             if (ignoredList.style.display === 'none') {
                 ignoredList.style.display = 'flex';
-                if (toggleIcon) toggleIcon.textContent = '▼';
+                ignoredContainer.classList.remove('collapsed');
+                ignoredContainer.classList.add('expanded');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
             } else {
                 ignoredList.style.display = 'none';
-                if (toggleIcon) toggleIcon.textContent = '▶';
+                ignoredContainer.classList.remove('expanded');
+                ignoredContainer.classList.add('collapsed');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(-90deg)';
             }
         });
     }
-    
+
+    // Toggle global profile editor section
+    const toggleGlobalProfiles = getDocumentRoot().querySelector('#toggle-global-profiles');
+    const globalProfileList = getDocumentRoot().querySelector('#global-profile-list');
+    const globalProfileContainer = getDocumentRoot().querySelector('#global-profile-container');
+    if (toggleGlobalProfiles && globalProfileList && globalProfileContainer) {
+        toggleGlobalProfiles.addEventListener('click', async () => {
+            const toggleIcon = toggleGlobalProfiles.querySelector('.group-toggle-icon');
+
+            if (globalProfileList.style.display === 'none') {
+                globalProfileList.style.display = 'block';
+                globalProfileContainer.classList.remove('collapsed');
+                globalProfileContainer.classList.add('expanded');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
+                await refreshGlobalProfileEditor();
+            } else {
+                globalProfileList.style.display = 'none';
+                globalProfileContainer.classList.remove('expanded');
+                globalProfileContainer.classList.add('collapsed');
+                if (toggleIcon) toggleIcon.style.transform = 'rotate(-90deg)';
+            }
+        });
+    }
+
     // Filter ignored entities
     const ignoredFilter = getDocumentRoot().querySelector('#ignored-filter');
     if (ignoredFilter) {
@@ -4320,220 +5599,434 @@ function setupEventListeners() {
         });
     }
     
+    // Edit group modal handlers
+    
+    // Edit group - cancel
+    const editGroupCancel = getDocumentRoot().querySelector('#edit-group-cancel');
+    if (editGroupCancel) {
+        editGroupCancel.addEventListener('click', () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            if (modal) {
+                modal.style.display = 'none';
+                delete modal.dataset.groupName;
+            }
+        });
+    }
+    
+    // Edit group - save (rename)
+    const editGroupSave = getDocumentRoot().querySelector('#edit-group-save');
+    if (editGroupSave) {
+        editGroupSave.addEventListener('click', async () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            const input = getDocumentRoot().querySelector('#edit-group-name');
+            const currentGroupName = modal?.dataset.groupName;
+            const newName = input?.value.trim();
+            
+            if (newName && newName !== '' && newName !== currentGroupName) {
+                try {
+                    await haAPI.renameGroup(currentGroupName, newName);
+                    showToast(`Renamed group to: ${newName}`, 'success');
+                    await loadGroups();
+                    
+                    if (modal) {
+                        modal.style.display = 'none';
+                        delete modal.dataset.groupName;
+                    }
+                } catch (error) {
+                    console.error('Failed to rename group:', error);
+                    showToast('Failed to rename group: ' + error.message, 'error');
+                }
+            } else if (newName === currentGroupName) {
+                // Name unchanged, just close
+                if (modal) {
+                    modal.style.display = 'none';
+                    delete modal.dataset.groupName;
+                }
+            }
+        });
+    }
+    
+    // Edit group - delete
+    const editGroupDelete = getDocumentRoot().querySelector('#edit-group-delete');
+    if (editGroupDelete) {
+        editGroupDelete.addEventListener('click', async () => {
+            const modal = getDocumentRoot().querySelector('#edit-group-modal');
+            const groupName = modal?.dataset.groupName;
+            
+            if (!groupName) {
+                console.error('No group name found in modal');
+                return;
+            }
+            
+            if (confirm(`Delete group "${groupName}"? All entities will be moved back to the entity list.`)) {
+                try {
+                    await haAPI.deleteGroup(groupName);
+                    showToast(`Deleted group: ${groupName}`, 'success');
+                    await loadGroups();
+                    await renderEntityList();
+                    
+                    if (modal) {
+                        modal.style.display = 'none';
+                        delete modal.dataset.groupName;
+                    }
+                } catch (error) {
+                    console.error('Failed to delete group:', error);
+                    showToast('Failed to delete group: ' + error.message, 'error');
+                }
+            }
+        });
+    }
+    
+    // Close edit group modal when clicking outside
+    const editGroupModal = getDocumentRoot().querySelector('#edit-group-modal');
+    if (editGroupModal) {
+        editGroupModal.addEventListener('click', (e) => {
+            if (e.target.id === 'edit-group-modal') {
+                editGroupModal.style.display = 'none';
+                delete editGroupModal.dataset.groupName;
+            }
+        });
+    }
+    
+    // Edit group input - handle Enter key
+    const editGroupInput = getDocumentRoot().querySelector('#edit-group-name');
+    if (editGroupInput) {
+        editGroupInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const saveBtn = getDocumentRoot().querySelector('#edit-group-save');
+                if (saveBtn) saveBtn.click();
+            } else if (e.key === 'Escape') {
+                const modal = getDocumentRoot().querySelector('#edit-group-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    delete modal.dataset.groupName;
+                }
+            }
+        });
+    }
+    
     // Initialize settings panel
     setupSettingsPanel();
 }
 
 // Handle node settings panel
-function handleNodeSettings(event) {
-    const { nodeIndex, node } = event.detail;
+async function handleNodeSettings(event) {
+    const { nodeIndex, node, timeline } = event.detail;
+    const timelineRef = timeline || graph;
+    if (!timelineRef) return;
+    graph = timelineRef;
+    nodeSettingsTimeline = timelineRef;
     
-    let entity;
-    let allHvacModes = [];
-    let allFanModes = [];
-    let allSwingModes = [];
-    let allPresetModes = [];
+    // Load the climate dialog component if not already loaded
+    await loadClimateDialog();
     
-    // Check if we're editing a group or individual entity
+    const keyframe = timelineRef.keyframes[nodeIndex];
+    if (!keyframe) return;
+    
+    // Find the schedule node
+    const scheduleNode = currentSchedule.find(n => n.time === node.time);
+    if (!scheduleNode) return;
+    
+    // Get the first entity to determine available features
+    const entityIds = currentGroup ? allGroups[currentGroup].entities : [currentEntityId];
+    const firstEntityId = entityIds[0];
+    const entity = climateEntities.find(e => e.entity_id === firstEntityId);
+    if (!entity) return;
+    
+    // Create friendly display name
+    let displayName;
     if (currentGroup) {
-        // For groups, aggregate capabilities from all entities in the group
-        const groupData = allGroups[currentGroup];
-        if (!groupData) return;
-        
-        const groupEntities = (groupData.entities || [])
-            .map(id => climateEntities.find(e => e.entity_id === id))
-            .filter(e => e);
-        
-        // For virtual groups (no entities), use empty mode arrays
-        if (groupEntities.length === 0) {
-            // Virtual schedule - no modes available
-            allHvacModes = [];
-            allFanModes = [];
-            allSwingModes = [];
-            allPresetModes = [];
-        } else {
-            // Use first entity for basic attributes
-            entity = groupEntities[0];
-            
-            // Aggregate all unique modes from all entities
-            const hvacModesSet = new Set();
-            const fanModesSet = new Set();
-            const swingModesSet = new Set();
-            const presetModesSet = new Set();
-            
-            groupEntities.forEach(e => {
-                if (e.attributes.hvac_modes) {
-                    e.attributes.hvac_modes.forEach(mode => hvacModesSet.add(mode));
-                }
-                if (e.attributes.fan_modes) {
-                    e.attributes.fan_modes.forEach(mode => fanModesSet.add(mode));
-                }
-                if (e.attributes.swing_modes) {
-                    e.attributes.swing_modes.forEach(mode => swingModesSet.add(mode));
-                }
-                if (e.attributes.preset_modes) {
-                    e.attributes.preset_modes.forEach(mode => presetModesSet.add(mode));
-                }
-            });
-            
-            allHvacModes = Array.from(hvacModesSet);
-            allFanModes = Array.from(fanModesSet);
-            allSwingModes = Array.from(swingModesSet);
-            allPresetModes = Array.from(presetModesSet);
+        displayName = currentGroup;
+    } else {
+        displayName = entity.attributes.friendly_name || entity.entity_id;
+    }
+    
+    // Create climate state object
+    const climateState = {
+        entity_id: displayName,
+        state: scheduleNode.hvac_mode ?? '',
+        attributes: {
+            supported_features: entity.attributes.supported_features,
+            hvac_modes: entity.attributes.hvac_modes || ['heat', 'cool', 'heat_cool', 'off'],
+            temperature: scheduleNode.temp,
+            target_temp_low: scheduleNode.target_temp_low,
+            target_temp_high: scheduleNode.target_temp_high,
+            min_temp: entity.attributes.min_temp,
+            max_temp: entity.attributes.max_temp,
+            temperature_step: inputTempStep,
+            humidity_step: humidityStep,
+            noChange: Boolean(scheduleNode.noChange),
+            fan_mode: scheduleNode.fan_mode ?? '',
+            fan_modes: entity.attributes.fan_modes,
+            preset_mode: scheduleNode.preset_mode ?? '',
+            preset_modes: entity.attributes.preset_modes,
+            swing_mode: scheduleNode.swing_mode ?? '',
+            swing_modes: entity.attributes.swing_modes,
+            swing_horizontal_mode: scheduleNode.swing_horizontal_mode ?? '',
+            swing_horizontal_modes: entity.attributes.swing_horizontal_modes,
+            target_humidity: scheduleNode.target_humidity,
+            min_humidity: entity.attributes.min_humidity,
+            max_humidity: entity.attributes.max_humidity,
+            aux_heat: scheduleNode.aux_heat
         }
-    } else {
-        // For individual entities
-        entity = climateEntities.find(e => e.entity_id === currentEntityId);
-        if (!entity) return;
-        
-        allHvacModes = entity.attributes.hvac_modes || [];
-        allFanModes = entity.attributes.fan_modes || [];
-        allSwingModes = entity.attributes.swing_modes || [];
-        allPresetModes = entity.attributes.preset_modes || [];
-    }
+    };
     
-    // Update panel content
+    // Get or create the dialog element in the panel
+    const container = getDocumentRoot().querySelector('#climate-dialog-container');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    const dialogEl = document.createElement('climate-control-dialog');
+    dialogEl.stateObj = climateState;
+    dialogEl.dataset.nodeIndex = nodeIndex;
+
+    let dialogUndoCaptured = false;
+    const dialogNodeLabel = `${node.time} (index ${nodeIndex})`;
+    debugLog(`[Dialog][State] open node=${dialogNodeLabel} undoCaptured=${dialogUndoCaptured} rev=undo-debug-v2`);
+    const logDialogChange = (name, payload) => {
+        try {
+            debugLog(`[Dialog][Change] ${name} node=${dialogNodeLabel} payload=${JSON.stringify(payload)}`);
+        } catch (error) {
+            debugLog(`[Dialog][Change] ${name} node=${dialogNodeLabel} payload=<unserializable>`, 'warning');
+        }
+    };
+
+    const captureDialogUndoState = ({ force = false, source = 'unknown' } = {}) => {
+        if (dialogUndoCaptured && !force) {
+            debugLog(`[Dialog][Undo] skip node=${dialogNodeLabel} reason=already-captured source=${source}`);
+            return;
+        }
+        if (dialogUndoCaptured && force) {
+            debugLog(`[Dialog][Undo] reset-before-capture node=${dialogNodeLabel} source=${source}`);
+            dialogUndoCaptured = false;
+        }
+        const undoSizeBefore = Array.isArray(timelineRef.undoStack) ? timelineRef.undoStack.length : 'n/a';
+        if (typeof timelineRef.saveUndoState === 'function') {
+            timelineRef.saveUndoState();
+            const undoSizeAfter = Array.isArray(timelineRef.undoStack) ? timelineRef.undoStack.length : 'n/a';
+            debugLog(`[Dialog][Undo] captured node=${dialogNodeLabel} stack=${undoSizeBefore}->${undoSizeAfter} source=${source}`);
+        } else {
+            debugLog(`[Dialog][Undo] saveUndoState unavailable for node=${dialogNodeLabel}`, 'warning');
+        }
+        dialogUndoCaptured = true;
+    };
+    const markDialogInteractionCommitted = () => {
+        debugLog(`[Dialog][Commit] node=${dialogNodeLabel}`);
+        dialogUndoCaptured = false;
+    };
+    
+    // Add event listeners for all the custom events
+    dialogEl.addEventListener('hvac-mode-changed', (e) => {
+        logDialogChange('hvac-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'hvac-mode-changed' });
+        if (e.detail.mode) {
+            scheduleNode.hvac_mode = e.detail.mode;
+            keyframe.hvac_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.hvac_mode;
+            keyframe.hvac_mode = null;
+        }
+        // Trigger Lit reactivity by reassigning the array
+        timelineRef.keyframes = [...timelineRef.keyframes];
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('temperature-changed', (e) => {
+        logDialogChange('temperature-changed', e.detail);
+        captureDialogUndoState({ source: 'temperature-changed' });
+        const normalizedTemp = normalizeTemperature(e.detail.temperature);
+        scheduleNode.temp = normalizedTemp;
+        scheduleNode.noChange = false;
+        keyframe.value = normalizedTemp;
+        keyframe.noChange = false;
+        // Trigger Lit reactivity by reassigning the array
+        timelineRef.keyframes = [...timelineRef.keyframes];
+    });
+    
+    dialogEl.addEventListener('target-temp-low-changed', (e) => {
+        logDialogChange('target-temp-low-changed', e.detail);
+        captureDialogUndoState({ source: 'target-temp-low-changed' });
+        const value = normalizeTemperature(e.detail.temperature);
+        scheduleNode.target_temp_low = value;
+        keyframe.target_temp_low = value;
+        scheduleNode.noChange = false;
+        keyframe.noChange = false;
+    });
+    
+    dialogEl.addEventListener('target-temp-high-changed', (e) => {
+        logDialogChange('target-temp-high-changed', e.detail);
+        captureDialogUndoState({ source: 'target-temp-high-changed' });
+        const value = normalizeTemperature(e.detail.temperature);
+        scheduleNode.target_temp_high = value;
+        keyframe.target_temp_high = value;
+        scheduleNode.noChange = false;
+        keyframe.noChange = false;
+    });
+
+    dialogEl.addEventListener('no-temp-change-changed', (e) => {
+        logDialogChange('no-temp-change-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'no-temp-change-changed' });
+        const noTempChangeEnabled = Boolean(e.detail.enabled);
+        scheduleNode.noChange = noTempChangeEnabled;
+        keyframe.noChange = noTempChangeEnabled;
+
+        if (noTempChangeEnabled) {
+            const lockedTemp = resolveNoChangeLockedTemp(currentSchedule, scheduleNode);
+            if (lockedTemp !== null) {
+                scheduleNode.temp = lockedTemp;
+                keyframe.value = lockedTemp;
+            }
+        }
+
+        timelineRef.keyframes = [...timelineRef.keyframes];
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('humidity-changed', (e) => {
+        logDialogChange('humidity-changed', e.detail);
+        captureDialogUndoState({ source: 'humidity-changed' });
+        scheduleNode.target_humidity = e.detail.humidity;
+        keyframe.target_humidity = e.detail.humidity;
+    });
+    
+    dialogEl.addEventListener('fan-mode-changed', (e) => {
+        logDialogChange('fan-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'fan-mode-changed' });
+        if (e.detail.mode) {
+            scheduleNode.fan_mode = e.detail.mode;
+            keyframe.fan_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.fan_mode;
+            keyframe.fan_mode = null;
+        }
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('preset-mode-changed', (e) => {
+        logDialogChange('preset-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'preset-mode-changed' });
+        if (e.detail.mode) {
+            scheduleNode.preset_mode = e.detail.mode;
+            keyframe.preset_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.preset_mode;
+            keyframe.preset_mode = null;
+        }
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('swing-mode-changed', (e) => {
+        logDialogChange('swing-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'swing-mode-changed' });
+        if (e.detail.mode) {
+            scheduleNode.swing_mode = e.detail.mode;
+            keyframe.swing_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.swing_mode;
+            keyframe.swing_mode = null;
+        }
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('swing-horizontal-mode-changed', (e) => {
+        logDialogChange('swing-horizontal-mode-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'swing-horizontal-mode-changed' });
+        if (e.detail.mode) {
+            scheduleNode.swing_horizontal_mode = e.detail.mode;
+            keyframe.swing_horizontal_mode = e.detail.mode;
+        } else {
+            delete scheduleNode.swing_horizontal_mode;
+            keyframe.swing_horizontal_mode = null;
+        }
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+    
+    dialogEl.addEventListener('aux-heat-changed', (e) => {
+        logDialogChange('aux-heat-changed', e.detail);
+        captureDialogUndoState({ force: true, source: 'aux-heat-changed' });
+        const value = e.detail.enabled ? 'on' : 'off';
+        scheduleNode.aux_heat = value;
+        keyframe.aux_heat = value;
+        saveSchedule();
+        markDialogInteractionCommitted();
+    });
+
+    const handleDialogSliderCommit = () => {
+        saveSchedule();
+        markDialogInteractionCommitted();
+    };
+
+    dialogEl.addEventListener('temperature-change-committed', (e) => logDialogChange('temperature-change-committed', e.detail));
+    dialogEl.addEventListener('target-temp-low-committed', (e) => logDialogChange('target-temp-low-committed', e.detail));
+    dialogEl.addEventListener('target-temp-high-committed', (e) => logDialogChange('target-temp-high-committed', e.detail));
+    dialogEl.addEventListener('humidity-committed', (e) => logDialogChange('humidity-committed', e.detail));
+
+    dialogEl.addEventListener('temperature-change-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('target-temp-low-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('target-temp-high-committed', handleDialogSliderCommit);
+    dialogEl.addEventListener('humidity-committed', handleDialogSliderCommit);
+    
+    container.appendChild(dialogEl);
+    
+    // Populate and update time dropdown with 15-minute increments
     const timeInput = getDocumentRoot().querySelector('#node-time-input');
-    const tempInput = getDocumentRoot().querySelector('#node-temp-input');
-    const tempNoChange = getDocumentRoot().querySelector('#temp-no-change');
-    const tempUpBtn = getDocumentRoot().querySelector('#temp-up');
-    const tempDownBtn = getDocumentRoot().querySelector('#temp-down');
-    
-    if (timeInput) timeInput.value = node.time;
-    
-    // Handle temperature and no-change checkbox
-    const isNoChange = node.noChange === true;
-    if (tempNoChange) tempNoChange.checked = isNoChange;
-    if (tempInput) {
-        tempInput.value = (node.temp !== null && node.temp !== undefined) ? node.temp : '';
-        tempInput.disabled = isNoChange;
-        tempInput.step = inputTempStep.toString(); // Set step dynamically
+    if (timeInput) {
+        // Clear existing options
+        timeInput.innerHTML = '';
+        
+        // Get all existing times in the schedule (excluding current node)
+        const existingTimes = new Set(currentSchedule.map(n => n.time));
+        
+        // Generate all 15-minute increment times (00:00, 00:15, 00:30, etc.)
+        for (let hour = 0; hour < 24; hour++) {
+            for (let minute = 0; minute < 60; minute += 15) {
+                const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                const option = document.createElement('option');
+                option.value = timeStr;
+                option.textContent = timeStr;
+                
+                // Check if this time is already used by a different node
+                const isCurrentNodeTime = timeStr === node.time;
+                const isAlreadyUsed = existingTimes.has(timeStr) && !isCurrentNodeTime;
+                
+                if (isAlreadyUsed) {
+                    option.disabled = true;
+                    option.textContent = `${timeStr} (in use)`;
+                }
+                
+                if (timeStr === node.time) {
+                    option.selected = true;
+                }
+                timeInput.appendChild(option);
+            }
+        }
+        
+        // Add 23:59 as final option
+        const lastOption = document.createElement('option');
+        lastOption.value = '23:59';
+        const isCurrentNodeTime = node.time === '23:59';
+        const isAlreadyUsed = existingTimes.has('23:59') && !isCurrentNodeTime;
+        
+        if (isAlreadyUsed) {
+            lastOption.disabled = true;
+            lastOption.textContent = '23:59 (in use)';
+        } else {
+            lastOption.textContent = '23:59';
+        }
+        
+        if (node.time === '23:59') {
+            lastOption.selected = true;
+        }
+        timeInput.appendChild(lastOption);
     }
-    if (tempUpBtn) {
-        tempUpBtn.disabled = isNoChange;
-        tempUpBtn.title = `+${inputTempStep}°`;
-    }
-    if (tempDownBtn) {
-        tempDownBtn.disabled = isNoChange;
-        tempDownBtn.title = `-${inputTempStep}°`;
-    }
-    
-    // Populate HVAC mode dropdown
-    const hvacModeSelect = getDocumentRoot().querySelector('#node-hvac-mode');
-    const hvacModeItem = hvacModeSelect.closest('.setting-item');
-    hvacModeSelect.innerHTML = '';
-    
-    if (allHvacModes.length > 0) {
-        hvacModeItem.style.display = '';
-        hvacModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.hvac_mode) noneOption.selected = true;
-        hvacModeSelect.appendChild(noneOption);
-        
-        allHvacModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.hvac_mode === mode) option.selected = true;
-            hvacModeSelect.appendChild(option);
-        });
-    } else {
-        hvacModeItem.style.display = 'none';
-    }
-    
-    // Populate fan mode dropdown if available
-    const fanModeSelect = getDocumentRoot().querySelector('#node-fan-mode');
-    const fanModeItem = fanModeSelect.closest('.setting-item');
-    fanModeSelect.innerHTML = '';
-    
-    if (allFanModes.length > 0) {
-        fanModeItem.style.display = '';
-        fanModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.fan_mode) noneOption.selected = true;
-        fanModeSelect.appendChild(noneOption);
-        
-        allFanModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.fan_mode === mode) option.selected = true;
-            fanModeSelect.appendChild(option);
-        });
-    } else {
-        fanModeItem.style.display = 'none';
-    }
-    
-    // Populate swing mode dropdown if available
-    const swingModeSelect = getDocumentRoot().querySelector('#node-swing-mode');
-    const swingModeItem = swingModeSelect.closest('.setting-item');
-    swingModeSelect.innerHTML = '';
-    
-    if (allSwingModes.length > 0) {
-        swingModeItem.style.display = '';
-        swingModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.swing_mode) noneOption.selected = true;
-        swingModeSelect.appendChild(noneOption);
-        
-        allSwingModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.swing_mode === mode) option.selected = true;
-            swingModeSelect.appendChild(option);
-        });
-    } else {
-        swingModeItem.style.display = 'none';
-    }
-    
-    // Populate preset mode dropdown if available
-    const presetModeSelect = getDocumentRoot().querySelector('#node-preset-mode');
-    const presetModeItem = presetModeSelect.closest('.setting-item');
-    presetModeSelect.innerHTML = '';
-    
-    if (allPresetModes.length > 0) {
-        presetModeItem.style.display = '';
-        presetModeSelect.disabled = false;
-        
-        // Add "No Change" option
-        const noneOption = document.createElement('option');
-        noneOption.value = '';
-        noneOption.textContent = '-- No Change --';
-        if (!node.preset_mode) noneOption.selected = true;
-        presetModeSelect.appendChild(noneOption);
-        
-        allPresetModes.forEach(mode => {
-            const option = document.createElement('option');
-            option.value = mode;
-            option.textContent = mode.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-            if (node.preset_mode === mode) option.selected = true;
-            presetModeSelect.appendChild(option);
-        });
-    } else {
-        presetModeItem.style.display = 'none';
-    }
-    
-    // Update value inputs
-    const valueAInput = getDocumentRoot().querySelector('#node-value-A');
-    const valueBInput = getDocumentRoot().querySelector('#node-value-B');
-    const valueCInput = getDocumentRoot().querySelector('#node-value-C');
-    
-    if (valueAInput) valueAInput.value = (node['A'] !== null && node['A'] !== undefined) ? node['A'] : '';
-    if (valueBInput) valueBInput.value = (node['B'] !== null && node['B'] !== undefined) ? node['B'] : '';
-    if (valueCInput) valueCInput.value = (node['C'] !== null && node['C'] !== undefined) ? node['C'] : '';
     
     // Show panel
     const panel = getDocumentRoot().querySelector('#node-settings-panel');
@@ -4575,12 +6068,166 @@ setInterval(() => {
     updateAllGroupMemberScheduledTemps();
 }, 60000);
 
+// Handle profile change events from backend
+async function handleProfileChanged(event) {
+    const { schedule_id: groupName, profile_name: newProfile } = event.data;
+    
+    if (!groupName || !newProfile) return;
+    
+    // Reload group data from server to get the new profile's schedules
+    const groupsResult = await haAPI.getGroups();
+    allGroups = groupsResult.groups || groupsResult;
+    
+    // Update the dropdown in the group header
+    const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${groupName}"]`);
+    if (groupContainer) {
+        const profileDropdown = groupContainer.querySelector('.group-profile-dropdown');
+        if (profileDropdown) {
+            profileDropdown.value = newProfile;
+        }
+    }
+    
+    // If this group is currently being edited, reload it to show the new profile's schedule
+    if (currentGroup === groupName) {
+        await editGroupSchedule(groupName);
+    }
+
+    await refreshGlobalProfileEditor();
+}
+
 // ===== Settings Panel =====
 
 // Default schedule settings
 let defaultScheduleSettings = [];
 
 let defaultScheduleGraph = null;
+
+// Initialize default schedule graph (called when settings panel is expanded)
+async function initializeDefaultScheduleGraph() {
+    // Load keyframe-timeline component
+    const canvasLoaded = await loadKeyframeTimeline();
+    if (!canvasLoaded) {
+        console.error('Failed to load keyframe-timeline component for default schedule');
+        return;
+    }
+    
+    // Initialize the default schedule graph (canvas timeline)
+    const container = getDocumentRoot().querySelector('#default-schedule-graph')?.parentElement;
+    if (container) {
+        // Remove existing element if present
+        const existingGraph = getDocumentRoot().querySelector('#default-schedule-graph');
+        if (existingGraph) {
+            existingGraph.remove();
+        }
+        
+        // Create timeline editor using reusable function
+        const editorInstance = createTimelineEditor({
+            idPrefix: 'default',
+            buttons: [
+                { id: 'graph-prev-btn', text: '◀', title: 'Previous keyframe' },
+                { id: 'graph-next-btn', text: '▶', title: 'Next keyframe' },
+                { id: 'graph-copy-btn', text: 'Copy', title: 'Copy schedule' },
+                { id: 'graph-paste-btn', text: 'Paste', title: 'Paste schedule', disabled: true },
+                { id: 'graph-undo-btn', text: 'Undo', title: 'Undo last change' },
+                { id: 'graph-clear-btn', text: 'Clear', title: 'Clear all nodes' }
+            ],
+            minValue: minTempSetting !== null ? minTempSetting : (temperatureUnit === '°F' ? 41 : 5),
+            maxValue: maxTempSetting !== null ? maxTempSetting : (temperatureUnit === '°F' ? 86 : 30),
+            snapValue: graphSnapStep,
+            title: '',
+            yAxisLabel: `Temperature (${temperatureUnit})`,
+            xAxisLabel: `Time of Day (24hr)`,
+            showCurrentTime: false,
+            tooltipMode: tooltipMode,
+            showHeader: false,
+            allowCollapse: false,
+            showModeDropdown: false
+        });
+        
+        const { container: timelineEditorContainer, timeline, controls } = editorInstance;
+        timeline.id = 'default-schedule-graph';
+        timeline.className = 'temperature-graph';
+        
+        container.appendChild(timelineEditorContainer);
+        
+        defaultScheduleGraph = timeline;
+        attachUndoStackDebugLogging(timeline, 'default');
+        
+        // Get button references
+        const undoBtn = controls.buttons['graph-undo-btn'];
+        const prevBtn = controls.buttons['graph-prev-btn'];
+        const nextBtn = controls.buttons['graph-next-btn'];
+        const copyBtn = controls.buttons['graph-copy-btn'];
+        const pasteBtn = controls.buttons['graph-paste-btn'];
+        const clearBtn = controls.buttons['graph-clear-btn'];
+        
+        // Attach copy/paste handlers for default timeline
+        if (copyBtn) {
+            copyBtn.onclick = () => copySchedule();
+        }
+        if (pasteBtn) {
+            pasteBtn.onclick = () => pasteSchedule();
+        }
+        
+        // Link external undo button to timeline's undo system
+        if (undoBtn && typeof timeline.setUndoButton === 'function') {
+            timeline.setUndoButton(undoBtn);
+        }
+        
+        // Link previous/next buttons to timeline navigation
+        if (prevBtn && typeof timeline.setPreviousButton === 'function') {
+            timeline.setPreviousButton(prevBtn);
+        }
+        
+        if (nextBtn && typeof timeline.setNextButton === 'function') {
+            timeline.setNextButton(nextBtn);
+        }
+        
+        // Link clear button to timeline's clear functionality
+        if (clearBtn && typeof timeline.setClearButton === 'function') {
+            timeline.setClearButton(clearBtn);
+        }
+        
+        // Link external undo button to timeline's undo system\n        const undoBtn = controls.buttons['graph-undo-btn'];\n        if (undoBtn && typeof timeline.setUndoButton === 'function') {\n            timeline.setUndoButton(undoBtn);\n        }\n        \n        // Convert defaultScheduleSettings nodes to keyframes and set them
+        // Always set keyframes, even if empty, to ensure timeline renders
+        if (defaultScheduleSettings && defaultScheduleSettings.length > 0) {
+            const keyframes = scheduleNodesToKeyframes(defaultScheduleSettings);
+            // Force reactivity by creating new array reference
+            defaultScheduleGraph.keyframes = [...keyframes];
+            
+            // Set previousDayEndValue to last temperature from default schedule (wraparound)
+            const nodesWithTemp = defaultScheduleSettings.filter(n => !n.noChange && n.temp !== null && n.temp !== undefined);
+            if (nodesWithTemp.length > 0) {
+                const lastNode = nodesWithTemp[nodesWithTemp.length - 1];
+                defaultScheduleGraph.previousDayEndValue = lastNode.temp;
+            } else {
+                // Use middle of range if no temperature nodes exist
+                const midValue = (timeline.minValue + timeline.maxValue) / 2;
+                defaultScheduleGraph.previousDayEndValue = midValue;
+            }
+        } else {
+            // Set empty keyframes array to ensure timeline renders
+            defaultScheduleGraph.keyframes = [];
+            // Use middle of range as default when no schedule exists
+            const midValue = (timeline.minValue + timeline.maxValue) / 2;
+            defaultScheduleGraph.previousDayEndValue = midValue;
+        }
+        
+        // Attach event listener for changes (canvas uses 'keyframe-moved' and 'keyframe-deleted')
+        timeline.addEventListener('keyframe-moved', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-added', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-deleted', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframe-restored', handleDefaultScheduleChange);
+        timeline.addEventListener('keyframes-cleared', handleDefaultScheduleChange);
+        
+        // Real-time updates during dragging
+        timeline.addEventListener('nodeSettingsUpdate', handleDefaultScheduleUpdate);
+        
+        // Attach node settings listener (canvas uses 'keyframe-selected')
+        timeline.addEventListener('keyframe-selected', handleDefaultNodeSettings);
+    }
+}
+
 // Global min/max settings (populated from loadSettings)
 let minTempSetting = null;
 let maxTempSetting = null;
@@ -4651,22 +6298,8 @@ async function checkWorkdayIntegration(settings) {
         
         // If hass not ready yet, wait a bit and retry
         if (!hassObj || !hassObj.states) {
-            console.debug('[Climate Scheduler] Waiting for hass connection...');
             await new Promise(resolve => setTimeout(resolve, 1000));
             hassObj = haAPI?.hass;
-        }
-        
-        // Debug logging
-        console.debug('[Climate Scheduler] Checking for Workday integration');
-        console.debug('[Climate Scheduler] haAPI available:', !!haAPI);
-        console.debug('[Climate Scheduler] hass object available:', !!hassObj);
-        console.debug('[Climate Scheduler] hass.states available:', !!hassObj?.states);
-        console.debug('[Climate Scheduler] binary_sensor.workday_sensor:', hassObj?.states?.['binary_sensor.workday_sensor']);
-        
-        // List all binary_sensor.workday* entities for debugging
-        if (hassObj?.states) {
-            const workdayEntities = Object.keys(hassObj.states).filter(id => id.startsWith('binary_sensor.workday'));
-            console.debug('[Climate Scheduler] Found workday entities:', workdayEntities);
         }
         
         const hasWorkday = hassObj?.states?.['binary_sensor.workday_sensor'] !== undefined;
@@ -4787,6 +6420,8 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
+        // Graph type setting is no longer used - canvas timeline is the only option
+        // Legacy code removed
         // Load derivative sensor setting
         if (settings && typeof settings.create_derivative_sensors !== 'undefined') {
             const checkbox = getDocumentRoot().querySelector('#create-derivative-sensors');
@@ -4808,7 +6443,6 @@ async function loadSettings() {
             const minInput = getDocumentRoot().querySelector('#min-temp');
             if (minInput) {
                 minInput.value = minTemp;
-                console.debug('Loaded min_temp:', minTemp, 'Input found:', !!minInput);
             } else {
                 console.warn('min-temp input not found in DOM during loadSettings');
             }
@@ -4822,7 +6456,6 @@ async function loadSettings() {
             const maxInput = getDocumentRoot().querySelector('#max-temp');
             if (maxInput) {
                 maxInput.value = maxTemp;
-                console.debug('Loaded max_temp:', maxTemp, 'Input found:', !!maxInput);
             } else {
                 console.warn('max-temp input not found in DOM during loadSettings');
             }
@@ -4838,14 +6471,16 @@ async function loadSettings() {
         }
         // If graphs already exist, update their ranges
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            if (defaultScheduleGraph && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.minValue = minTempSetting;
+                defaultScheduleGraph.maxValue = maxTempSetting;
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && minTempSetting !== null && maxTempSetting !== null) {
+                graph.minValue = minTempSetting;
+                graph.maxValue = maxTempSetting;
             }
         } catch (err) {
-            console.debug('Failed to apply min/max to graphs:', err);
+            console.warn('Failed to apply min/max to graphs:', err);
         }
     } catch (error) {
         console.error('Failed to load settings:', error);
@@ -4892,14 +6527,16 @@ async function saveSettings() {
             maxTempSetting = parseFloat(settings.max_temp);
         }
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            if (defaultScheduleGraph && minTempSetting !== null && maxTempSetting !== null) {
+                defaultScheduleGraph.minValue = minTempSetting;
+                defaultScheduleGraph.maxValue = maxTempSetting;
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && minTempSetting !== null && maxTempSetting !== null) {
+                graph.minValue = minTempSetting;
+                graph.maxValue = maxTempSetting;
             }
         } catch (err) {
-            console.debug('Failed to apply min/max to graphs after save:', err);
+            console.warn('Failed to apply min/max to graphs after save:', err);
         }
         // Settings saved
         return true;
@@ -4911,53 +6548,82 @@ async function saveSettings() {
 
 // Handle default schedule graph changes
 function handleDefaultScheduleChange(event) {
-    defaultScheduleSettings = event.detail.nodes;
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Convert keyframes to schedule nodes
+    defaultScheduleSettings = keyframesToScheduleNodes(keyframes);
+    
+    // Update previousDayEndValue to reflect the last temperature (wraparound)
+    if (keyframes.length > 0) {
+        const lastKeyframe = keyframes[keyframes.length - 1];
+        timeline.previousDayEndValue = lastKeyframe.value;
+    }
+    
     // Auto-save when default schedule is modified
     saveSettings();
+}
+
+// Handle real-time updates during dragging (no save)
+function handleDefaultScheduleUpdate(event) {
+    const timeline = event.currentTarget;
+    const keyframes = timeline.keyframes || [];
+    
+    // Update previousDayEndValue in real-time to reflect the last temperature (wraparound)
+    if (keyframes.length > 0) {
+        const lastKeyframe = keyframes[keyframes.length - 1];
+        timeline.previousDayEndValue = lastKeyframe.value;
+    }
 }
 
 // Setup settings panel event listeners
 async function setupSettingsPanel() {
     await loadSettings();
     
-    // Initialize the default schedule graph
-    const svgElement = getDocumentRoot().querySelector('#default-schedule-graph');
-    if (svgElement) {
-        defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
-        defaultScheduleGraph.setTooltipMode(tooltipMode);
-
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof defaultScheduleGraph.setMinMax === 'function') {
-            defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
-        }
-        defaultScheduleGraph.setNodes(defaultScheduleSettings);
-        
-        // Attach event listener for changes
-        svgElement.addEventListener('nodesChanged', handleDefaultScheduleChange);
-        
-        // Attach node settings listener
-        svgElement.addEventListener('nodeSettings', handleDefaultNodeSettings);
-        
-        // Attach node settings update listener (for drag updates)
-        svgElement.addEventListener('nodeSettingsUpdate', (event) => {
-            const { nodeIndex, node } = event.detail;
-            const panel = getDocumentRoot().querySelector('#default-node-settings-panel');
-            
-            // Only update if this node's panel is currently showing
-            if (panel && panel.style.display !== 'none' && panel.dataset.nodeIndex == nodeIndex) {
-                getDocumentRoot().querySelector('#default-node-time').textContent = node.time;
-                getDocumentRoot().querySelector('#default-node-temp').textContent = `${node.temp}${temperatureUnit}`;
-            }
-        });
-    }
-    
     // Toggle collapse
     const toggle = getDocumentRoot().querySelector('#settings-toggle');
     if (toggle) {
-        toggle.addEventListener('click', () => {
+        toggle.addEventListener('click', async () => {
             const panel = getDocumentRoot().querySelector('#settings-panel');
-            panel.classList.toggle('collapsed');
+            const indicator = toggle.querySelector('.collapse-indicator');
+            
+            if (panel.classList.contains('collapsed')) {
+                panel.classList.remove('collapsed');
+                panel.classList.add('expanded');
+                if (indicator) indicator.style.transform = 'rotate(0deg)';
+                
+                // Initialize the default schedule graph when expanding
+                // Check if graph variable points to an element that's still in the DOM
+                const graphStillValid = defaultScheduleGraph && getDocumentRoot().contains(defaultScheduleGraph);
+                if (!graphStillValid) {
+                    await initializeDefaultScheduleGraph();
+                }
+            } else {
+                panel.classList.remove('expanded');
+                panel.classList.add('collapsed');
+                if (indicator) indicator.style.transform = 'rotate(-90deg)';
+            }
         });
+    }
+
+    // Global instructions toggle
+    const instructionsToggle = getDocumentRoot().querySelector('#global-instructions-toggle');
+    const instructionsContent = getDocumentRoot().querySelector('#global-graph-instructions');
+    if (instructionsToggle && instructionsContent) {
+        instructionsToggle.onclick = () => {
+            const isCollapsed = instructionsContent.classList.contains('collapsed');
+            const icon = instructionsToggle.querySelector('.toggle-icon');
+
+            if (isCollapsed) {
+                instructionsContent.classList.remove('collapsed');
+                instructionsContent.style.display = 'block';
+                if (icon) icon.style.transform = 'rotate(90deg)';
+            } else {
+                instructionsContent.classList.add('collapsed');
+                instructionsContent.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        };
     }
     
     // Tooltip mode selector
@@ -4966,17 +6632,27 @@ async function setupSettingsPanel() {
         tooltipModeSelect.addEventListener('change', (e) => {
             tooltipMode = e.target.value;
             
-            // Update all graph instances
-            if (graph) {
-                graph.setTooltipMode(tooltipMode);
-            }
+            // Update all canvas timeline instances
             if (defaultScheduleGraph) {
-                defaultScheduleGraph.setTooltipMode(tooltipMode);
+                defaultScheduleGraph.tooltipMode = tooltipMode;
+            }
+            if (graph) {
+                graph.tooltipMode = tooltipMode;
             }
             
             // Auto-save the setting
             saveSettings();
         });
+    }
+    
+    // Graph type selector removed - canvas timeline is now the only option
+    const graphTypeSelect = getDocumentRoot().querySelector('#graph-type');
+    if (graphTypeSelect) {
+        // Hide the selector since we only support canvas now
+        const graphTypeContainer = graphTypeSelect.closest('.setting-row, .setting-item, .config-row');
+        if (graphTypeContainer) {
+            graphTypeContainer.style.display = 'none';
+        }
     }
     
     // Debug panel toggle
@@ -5076,6 +6752,17 @@ async function setupSettingsPanel() {
             if (tempDownBtn) tempDownBtn.title = `-${inputTempStep}°`;
         });
     }
+
+    // Humidity slider step setting
+    const humidityStepSelect = getDocumentRoot().querySelector('#humidity-step');
+    if (humidityStepSelect) {
+        humidityStepSelect.value = humidityStep.toString();
+        humidityStepSelect.addEventListener('change', (e) => {
+            humidityStep = parseFloat(e.target.value);
+            localStorage.setItem('humidityStep', humidityStep);
+            showToast(`Humidity slider step set to ${humidityStep}%`, 'success');
+        });
+    }
     
     // Min/Max temperature inputs - auto-save on change
     const minTempInput = getDocumentRoot().querySelector('#min-temp');
@@ -5114,7 +6801,7 @@ async function setupSettingsPanel() {
                 defaultScheduleSettings = [];
                 
                 if (defaultScheduleGraph) {
-                    defaultScheduleGraph.setNodes(defaultScheduleSettings);
+                    defaultScheduleGraph.keyframes = [];
                 }
                 
                 const success = await saveSettings();
@@ -5154,7 +6841,7 @@ async function setupSettingsPanel() {
                 defaultScheduleSettings = [];
                 
                 if (defaultScheduleGraph) {
-                    defaultScheduleGraph.setNodes(defaultScheduleSettings);
+                    defaultScheduleGraph.keyframes = [];
                 }
                 
                 const success = await saveSettings();
@@ -5177,6 +6864,51 @@ async function setupSettingsPanel() {
     }
     
     // Cleanup derivative sensors button
+    // Run diagnostics button
+    const runDiagnosticsBtn = getDocumentRoot().querySelector('#run-diagnostics-btn');
+    if (runDiagnosticsBtn) {
+        runDiagnosticsBtn.addEventListener('click', async () => {
+            try {
+                runDiagnosticsBtn.textContent = '🔍 Running diagnostics...';
+                runDiagnosticsBtn.disabled = true;
+                
+                const result = await haAPI.runDiagnostics();
+                
+                // Create a downloadable JSON file
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `climate-scheduler-diagnostics-${timestamp}.json`;
+                const jsonString = JSON.stringify(result, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create a temporary download link and trigger it
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = filename;
+                downloadLink.style.display = 'none';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                
+                // Clean up the URL object
+                setTimeout(() => URL.revokeObjectURL(url), 100);
+                
+                showToast(`Diagnostics saved to ${filename}`, 'success', 4000);
+                
+                runDiagnosticsBtn.textContent = '✓ Diagnostics Complete!';
+                setTimeout(() => {
+                    runDiagnosticsBtn.textContent = 'Run Diagnostics';
+                    runDiagnosticsBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to run diagnostics:', error);
+                showToast('Failed to run diagnostics: ' + error.message, 'error');
+                runDiagnosticsBtn.textContent = 'Run Diagnostics';
+                runDiagnosticsBtn.disabled = false;
+            }
+        });
+    }
+    
     const cleanupBtn = getDocumentRoot().querySelector('#cleanup-derivative-sensors-btn');
     if (cleanupBtn) {
         cleanupBtn.addEventListener('click', async () => {
@@ -5286,6 +7018,115 @@ async function setupSettingsPanel() {
                 showToast('Failed to cleanup orphaned entities', 'error');
                 cleanupClimateBtn.textContent = 'Cleanup Orphaned Entities';
                 cleanupClimateBtn.disabled = false;
+            }
+        });
+    }
+
+    const cleanupStorageBtn = getDocumentRoot().querySelector('#cleanup-storage-btn');
+    if (cleanupStorageBtn) {
+        cleanupStorageBtn.addEventListener('click', async () => {
+            try {
+                cleanupStorageBtn.textContent = '🔍 Dry run...';
+                cleanupStorageBtn.disabled = true;
+
+                const preview = await haAPI.cleanupUnmonitoredStorage(true);
+                const wouldRemoveGroups = preview?.would_remove_groups || [];
+                const wouldRemoveEntityRefs = preview?.would_remove_entity_references || [];
+                const wouldRemoveProfiles = preview?.would_remove_profiles || [];
+                const wouldRemoveAdvanceHistory = preview?.would_remove_advance_history || [];
+
+                const totalPlanned =
+                    wouldRemoveGroups.length +
+                    wouldRemoveEntityRefs.length +
+                    wouldRemoveProfiles.length +
+                    wouldRemoveAdvanceHistory.length;
+
+                if (!preview?.would_change || totalPlanned === 0) {
+                    showToast('Dry run complete: no stale storage entries to remove.', 'success', 5000);
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                    return;
+                }
+
+                if (cleanupAutoDownloadReports) {
+                    const previewTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const previewFilename = `climate-scheduler-cleanup-preview-${previewTimestamp}.json`;
+                    const previewBlob = new Blob([JSON.stringify(preview, null, 2)], { type: 'application/json' });
+                    const previewUrl = URL.createObjectURL(previewBlob);
+                    const previewDownloadLink = document.createElement('a');
+                    previewDownloadLink.href = previewUrl;
+                    previewDownloadLink.download = previewFilename;
+                    previewDownloadLink.style.display = 'none';
+                    document.body.appendChild(previewDownloadLink);
+                    previewDownloadLink.click();
+                    document.body.removeChild(previewDownloadLink);
+                    setTimeout(() => URL.revokeObjectURL(previewUrl), 100);
+                    showToast(`Dry-run preview saved to ${previewFilename}`, 'info', 5000);
+                }
+
+                const summaryParts = [];
+                if (wouldRemoveGroups.length > 0) summaryParts.push(`${wouldRemoveGroups.length} groups`);
+                if (wouldRemoveEntityRefs.length > 0) summaryParts.push(`${wouldRemoveEntityRefs.length} entity references`);
+                if (wouldRemoveProfiles.length > 0) summaryParts.push(`${wouldRemoveProfiles.length} profiles`);
+                if (wouldRemoveAdvanceHistory.length > 0) summaryParts.push(`${wouldRemoveAdvanceHistory.length} advance-history entries`);
+
+                const groupPreview = wouldRemoveGroups
+                    .slice(0, 5)
+                    .map(item => item?.group)
+                    .filter(Boolean)
+                    .join(', ');
+
+                const confirmMessage =
+                    `Dry run found changes:\n\n` +
+                    `Will remove: ${summaryParts.join(', ')}.\n` +
+                    (groupPreview ? `\nGroups: ${groupPreview}${wouldRemoveGroups.length > 5 ? ', ...' : ''}\n` : '\n') +
+                    `\nProceed with cleanup?`;
+
+                const confirmed = confirm(confirmMessage);
+                if (!confirmed) {
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                    return;
+                }
+
+                cleanupStorageBtn.textContent = '🧹 Cleaning storage...';
+                const result = await haAPI.cleanupUnmonitoredStorage(false);
+
+                if (cleanupAutoDownloadReports) {
+                    const resultTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const resultFilename = `climate-scheduler-cleanup-result-${resultTimestamp}.json`;
+                    const resultBlob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+                    const resultUrl = URL.createObjectURL(resultBlob);
+                    const resultDownloadLink = document.createElement('a');
+                    resultDownloadLink.href = resultUrl;
+                    resultDownloadLink.download = resultFilename;
+                    resultDownloadLink.style.display = 'none';
+                    document.body.appendChild(resultDownloadLink);
+                    resultDownloadLink.click();
+                    document.body.removeChild(resultDownloadLink);
+                    setTimeout(() => URL.revokeObjectURL(resultUrl), 100);
+                    showToast(`Cleanup result saved to ${resultFilename}`, 'info', 5000);
+                }
+
+                if (result?.message) {
+                    showToast(result.message, 'success', 5000);
+                } else {
+                    showToast('Storage cleanup complete', 'success');
+                }
+
+                await loadGroups();
+                await renderEntityList();
+
+                cleanupStorageBtn.textContent = '✓ Cleanup Complete!';
+                setTimeout(() => {
+                    cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                    cleanupStorageBtn.disabled = false;
+                }, 3000);
+            } catch (error) {
+                console.error('Failed to cleanup storage:', error);
+                showToast('Failed to cleanup storage', 'error');
+                cleanupStorageBtn.textContent = 'Cleanup Unmonitored Storage';
+                cleanupStorageBtn.disabled = false;
             }
         });
     }
@@ -5429,7 +7270,7 @@ function handleDefaultNodeSettings(event) {
         if (isNaN(nodeIdx) || !defaultScheduleGraph) return;
         
         // Get the actual node from the graph
-        const targetNode = defaultScheduleGraph.nodes[nodeIdx];
+        const targetNode = defaultScheduleGraph.keyframes[nodeIdx];
         if (!targetNode) return;
         
         // Get fresh references
@@ -5479,8 +7320,8 @@ function handleDefaultNodeSettings(event) {
             }
         }
         
-        // Update the settings array
-        defaultScheduleSettings = defaultScheduleGraph.getNodes();
+        // Update the settings array (convert keyframes back to nodes)
+        defaultScheduleSettings = keyframesToScheduleNodes(defaultScheduleGraph.keyframes);
         
         // Auto-save to server
         await saveSettings();
@@ -5514,14 +7355,15 @@ function handleDefaultNodeSettings(event) {
         deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
         
         newDeleteBtn.addEventListener('click', () => {
-            if (defaultScheduleGraph.nodes.length <= 1) {
+            if (defaultScheduleGraph.keyframes.length <= 1) {
                 alert('Cannot delete the last node. A schedule must have at least one node.');
                 return;
             }
             
             if (confirm('Delete this node?')) {
-                defaultScheduleGraph.removeNodeByIndex(nodeIndex);
-                defaultScheduleSettings = defaultScheduleGraph.getNodes();
+                // Remove keyframe at index
+                defaultScheduleGraph.keyframes = defaultScheduleGraph.keyframes.filter((_, i) => i !== nodeIndex);
+                defaultScheduleSettings = keyframesToScheduleNodes(defaultScheduleGraph.keyframes);
                 panel.style.display = 'none';
             }
         });
@@ -5540,7 +7382,7 @@ async function loadAdvanceHistory(entityId) {
     try {
         const status = await haAPI.getAdvanceStatus(entityId);
         if (status && status.history && graph) {
-            graph.setAdvanceHistory(status.history);
+            graph.advanceHistory = status.history;
         }
     } catch (error) {
         console.error('Failed to load advance history:', error);

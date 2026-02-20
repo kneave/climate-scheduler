@@ -407,7 +407,7 @@ class HomeAssistantAPI {
         }
     }
     
-    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null) {
+    async setGroupSchedule(groupName, nodes, day = null, scheduleMode = null, profileName = null) {
         const callStartTime = performance.now();
         console.debug('[HA-API] setGroupSchedule called', {
             timestamp: new Date().toISOString(),
@@ -415,6 +415,7 @@ class HomeAssistantAPI {
             nodeCount: nodes?.length,
             day,
             scheduleMode,
+            profileName,
             usingHassObject: this.usingHassObject
         });
         
@@ -436,6 +437,9 @@ class HomeAssistantAPI {
         }
         if (scheduleMode) {
             serviceData.schedule_mode = scheduleMode;
+        }
+        if (profileName) {
+            serviceData.profile_name = profileName;
         }
         
         console.debug('[HA-API] Calling climate_scheduler.set_group_schedule', {
@@ -577,6 +581,18 @@ class HomeAssistantAPI {
             throw error;
         }
     }
+
+    async cleanupUnmonitoredStorage(deleteEntries = false) {
+        try {
+            const result = await this.callService('climate_scheduler', 'cleanup_unmonitored_storage', {
+                delete: deleteEntries
+            }, true);
+            return result?.response || result || {};
+        } catch (error) {
+            console.error('Failed to cleanup unmonitored storage:', error);
+            throw error;
+        }
+    }
     
     // Profile management methods
     async createProfile(scheduleId, profileName) {
@@ -620,6 +636,16 @@ class HomeAssistantAPI {
         }
     }
     
+    async runDiagnostics() {
+        try {
+            const result = await this.callService('climate_scheduler', 'diagnostics', {}, true);
+            return result;
+        } catch (error) {
+            console.error('Failed to run diagnostics:', error);
+            throw error;
+        }
+    }
+    
     onStateUpdate(callback) {
         this.stateUpdateCallbacks.push(callback);
     }
@@ -633,4 +659,15 @@ class HomeAssistantAPI {
             }
         });
     }
-}
+    
+    async subscribeToEvents(eventType, callback) {
+        if (this.usingHassObject && this.hass) {
+            // Use hass connection for event subscription
+            const conn = this.hass.connection;
+            if (conn && conn.subscribeEvents) {
+                return await conn.subscribeEvents(callback, eventType);
+            }
+        }
+        console.warn('Event subscription not available');
+        return null;
+    }}

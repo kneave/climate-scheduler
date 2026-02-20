@@ -31,22 +31,15 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
     ]
     
-    # Get all profiles with formatted labels
-    profile_options = []
-    for group_name, group_data in all_groups.items():
-        profiles = group_data.get("profiles", {})
-        for profile_name in profiles.keys():
-            # Format: value is just the profile name, label shows "GroupName: ProfileName"
-            if group_name.startswith("__entity_"):
-                entity_id = group_name.replace("__entity_", "")
-                display_name = entity_id
-            else:
-                display_name = group_name
-            
-            profile_options.append({
-                "value": profile_name,
-                "label": f"{display_name}: {profile_name}"
-            })
+    # Get global profile options
+    global_profiles = await storage.async_get_global_profiles()
+    profile_options = [
+        {
+            "value": profile_name,
+            "label": profile_name,
+        }
+        for profile_name in global_profiles.keys()
+    ]
     
     return {
         "recreate_all_sensors": {
@@ -549,7 +542,7 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
         
         "list_profiles": {
             "name": "List all profile names",
-            "description": "Get a list of all profiles across all entities and groups with group prefix for populating selectors",
+            "description": "Get a list of all global profiles for populating selectors",
         },
         
         "cleanup_derivative_sensors": {
@@ -561,6 +554,20 @@ async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
                     "required": False,
                     "default": False,
                     "example": False,
+                    "selector": {"boolean": {}},
+                }
+            },
+        },
+
+        "cleanup_unmonitored_storage": {
+            "name": "Cleanup unmonitored storage",
+            "description": "Remove stale schedules/profiles/entity references for unmonitored or missing entities from storage",
+            "fields": {
+                "delete": {
+                    "description": "When true, execute deletion; when false, return a preview only",
+                    "required": False,
+                    "default": False,
+                    "example": True,
                     "selector": {"boolean": {}},
                 }
             },
@@ -619,7 +626,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             vol.Required("schedule_id"): cv.string,
             vol.Required("nodes"): vol.Any(cv.string, list, dict),
             vol.Optional("day"): cv.string,
-            vol.Optional("schedule_mode"): cv.string
+            vol.Optional("schedule_mode"): cv.string,
+            vol.Optional("profile_name"): cv.string
         }),
         "enable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "disable_group": vol.Schema({vol.Required("schedule_id"): cv.string}),
@@ -643,6 +651,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "get_profiles": vol.Schema({vol.Required("schedule_id"): cv.string}),
         "create_profile": vol.Schema({vol.Required("schedule_id"): cv.string, vol.Required("profile_name"): cv.string}),
         "cleanup_derivative_sensors": vol.Schema({vol.Optional("confirm_delete_all", default=False): cv.boolean}),
+        "cleanup_unmonitored_storage": vol.Schema({vol.Optional("delete", default=False): cv.boolean}),
         "factory_reset": vol.Schema({vol.Required("confirm"): cv.boolean}),
         "reregister_card": vol.Schema({
             vol.Optional("resource_url"): cv.string,
@@ -914,21 +923,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if not name.startswith("__entity_") and not group_data.get("_is_single_entity_group", False)
     ]
 
-    # Build profile options with labels
-    profile_options = []
-    for group_name, group_data in all_groups.items():
-        profiles = group_data.get("profiles", {})
-        for profile_name in profiles.keys():
-            if group_name.startswith("__entity_"):
-                entity_id = group_name.replace("__entity_", "")
-                display_name = entity_id
-            else:
-                display_name = group_name
-
-            profile_options.append({
-                "value": profile_name,
-                "label": f"{display_name}: {profile_name}"
-            })
+    # Build global profile options
+    global_profiles = await storage.async_get_global_profiles()
+    profile_options = [
+        {
+            "value": profile_name,
+            "label": profile_name,
+        }
+        for profile_name in global_profiles.keys()
+    ]
     
     # Build dynamic selectors
     group_selector = selector.SelectSelector(
@@ -1135,24 +1138,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return {"groups": group_names}
     
     async def handle_list_profiles(call: ServiceCall) -> dict:
-        """Handle list_profiles service call - return list of all profiles with value/label format."""
-        groups = await storage.async_get_groups()
-        profiles_list = []
-        
-        for group_name, group_data in groups.items():
-            profiles = group_data.get("profiles", {})
-            for profile_name in profiles.keys():
-                if group_name.startswith("__entity_"):
-                    entity_id = group_name.replace("__entity_", "")
-                    display_name = entity_id
-                else:
-                    display_name = group_name
-                
-                profiles_list.append({
-                    "value": profile_name,
-                    "label": f"{display_name}: {profile_name}"
-                })
-        
+        """Handle list_profiles service call - return all global profiles."""
+        global_profiles = await storage.async_get_global_profiles()
+        profiles_list = [
+            {
+                "value": profile_name,
+                "label": profile_name,
+            }
+            for profile_name in global_profiles.keys()
+        ]
+
         return {"profiles": profiles_list}
     
     async def handle_set_group_schedule(call: ServiceCall) -> None:
@@ -1161,15 +1156,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         nodes = call.data["nodes"]
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
+        profile_name = call.data.get("profile_name")
         _LOGGER.debug(
-            "[BACKEND] set_group_schedule service called: group=%s, nodes=%d, day=%s, mode=%s",
+            "[BACKEND] set_group_schedule service called: group=%s, nodes=%d, day=%s, mode=%s, profile=%s",
             group_name,
             len(nodes) if isinstance(nodes, list) else "?",
             day,
-            schedule_mode
+            schedule_mode,
+            profile_name
         )
         try:
-            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode)
+            await storage.async_set_group_schedule(group_name, nodes, day, schedule_mode, profile_name)
             _LOGGER.debug(
                 "[BACKEND] set_group_schedule succeeded: group=%s",
                 group_name
@@ -1453,6 +1450,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             await storage.async_set_active_profile(target_id, profile_name)
             _LOGGER.info(f"Set active profile to '{profile_name}' for schedule '{target_id}'")
             
+            # Fire event for profile change
+            hass.bus.async_fire(
+                f"{DOMAIN}_profile_changed",
+                {
+                    "schedule_id": target_id,
+                    "profile_name": profile_name,
+                }
+            )
+            
             # Force immediate update - clear state for all entities in the group
             group_data = await storage.async_get_groups()
             if target_id in group_data and "entities" in group_data[target_id]:
@@ -1479,6 +1485,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle cleanup_derivative_sensors service call."""
         confirm_delete_all = call.data.get("confirm_delete_all", False)
         result = await storage.async_cleanup_derivative_sensors(confirm_delete_all)
+        return result
+
+    async def handle_cleanup_unmonitored_storage(call: ServiceCall) -> dict:
+        """Handle cleanup_unmonitored_storage service call."""
+        delete = call.data.get("delete", False)
+        result = await storage.async_cleanup_unmonitored_storage(delete=delete)
+
+        if delete:
+            coordinator.last_node_states.clear()
+            await coordinator.async_request_refresh()
+
         return result
     
     async def handle_factory_reset(call: ServiceCall) -> None:
@@ -1616,7 +1633,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "integration": {},
             "card_registration": {},
             "card_accessibility": {},
-            "recommendations": []
+            "storage": {},
+            "climate_entities": {},
+            "devices": {}
         }
         
         # Get integration version from manifest
@@ -1631,7 +1650,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         except Exception as e:
             result["integration"]["version"] = "error reading manifest"
             result["integration"]["error"] = str(e)
-            result["recommendations"].append("Unable to read manifest.json - integration may be corrupted")
         
         # Check if card is registered in Lovelace resources
         try:
@@ -1639,7 +1657,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if lovelace_data is None:
                 result["card_registration"]["status"] = "lovelace_unavailable"
                 result["card_registration"]["message"] = "Lovelace integration not available"
-                result["recommendations"].append("Lovelace is not available - this is unusual")
             else:
                 # Get resources based on HA version
                 from homeassistant.const import __version__ as ha_version
@@ -1656,12 +1673,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 if resources is None:
                     result["card_registration"]["status"] = "resources_unavailable"
                     result["card_registration"]["message"] = "Lovelace resources not available"
-                    result["recommendations"].append("Lovelace resources API not available")
                 elif not hasattr(resources, "store") or resources.store is None:
                     result["card_registration"]["status"] = "yaml_mode"
                     result["card_registration"]["message"] = "Lovelace is in YAML mode"
-                    result["recommendations"].append("You are using Lovelace YAML mode - you must manually add the card resource to your configuration")
-                    result["recommendations"].append("Add to your lovelace config: resources: [{url: /climate_scheduler/static/climate-scheduler-card.js, type: module}]")
                 else:
                     # Ensure resources are loaded
                     if not resources.loaded:
@@ -1689,19 +1703,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         result["card_registration"]["status"] = "registered"
                         result["card_registration"]["count"] = len(registered_cards)
                         result["card_registration"]["resources"] = registered_cards
-                        
-                        if len(registered_cards) > 1:
-                            result["recommendations"].append(f"Found {len(registered_cards)} card registrations - you may have duplicate entries")
-                            result["recommendations"].append("Run the climate_scheduler.reregister_card service to clean up and register a fresh entry")
                     else:
                         result["card_registration"]["status"] = "not_registered"
                         result["card_registration"]["message"] = "Card not found in Lovelace resources"
-                        result["recommendations"].append("Card is not registered! Run the climate_scheduler.reregister_card service to register it")
-                        result["recommendations"].append("Or try reloading the integration or restarting Home Assistant")
         except Exception as e:
             result["card_registration"]["status"] = "error"
             result["card_registration"]["error"] = str(e)
-            result["recommendations"].append(f"Error checking card registration: {e}")
         
         # Check if card file is accessible via URL
         try:
@@ -1740,29 +1747,118 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                                     result["card_accessibility"]["appears_valid"] = True
                                 else:
                                     result["card_accessibility"]["appears_valid"] = False
-                                    result["recommendations"].append("Card file is accessible but content doesn't look like Climate Scheduler card")
                             else:
                                 result["card_accessibility"]["status"] = "http_error"
                                 result["card_accessibility"]["http_status"] = response.status
-                                result["recommendations"].append(f"Card returned HTTP {response.status} - file may not be accessible")
                 finally:
                     await session.close()
             except asyncio.TimeoutError:
                 result["card_accessibility"]["status"] = "timeout"
                 result["card_accessibility"]["error"] = "Request timed out after 5 seconds"
-                result["recommendations"].append("Card request timed out - may indicate server issues")
         except Exception as e:
             result["card_accessibility"]["status"] = "error"
             result["card_accessibility"]["error"] = str(e)
-            result["recommendations"].append(f"Error checking card accessibility: {e}")
         
-        # Add general recommendations
-        if not result["recommendations"]:
-            result["recommendations"].append("Everything looks good! If you still can't find the card:")
-            result["recommendations"].append("1. Clear your browser cache (Ctrl+Shift+Delete)")
-            result["recommendations"].append("2. Do a hard refresh (Ctrl+Shift+R or Ctrl+F5)")
-            result["recommendations"].append("3. Try a different browser or incognito mode")
-            result["recommendations"].append("4. Check browser console for JavaScript errors (F12)")
+        # Get full storage data
+        try:
+            storage: ScheduleStorage = hass.data[DOMAIN]["storage"]
+            storage_data = await storage.async_get_groups()
+            
+            result["storage"]["status"] = "loaded"
+            result["storage"]["data"] = storage_data
+            result["storage"]["group_count"] = len(storage_data)
+            
+            # Count entities across all groups
+            total_entities = 0
+            for group_data in storage_data.values():
+                if isinstance(group_data.get("entities"), list):
+                    total_entities += len(group_data["entities"])
+            
+            result["storage"]["total_entities"] = total_entities
+            
+        except Exception as e:
+            result["storage"]["status"] = "error"
+            result["storage"]["error"] = str(e)
+        
+        # Get all climate entities detected by Home Assistant
+        try:
+            from homeassistant.helpers import entity_registry as er
+            
+            entity_reg = er.async_get(hass)
+            
+            # Get all climate entities
+            climate_entities = []
+            for entity in entity_reg.entities.values():
+                if entity.domain == "climate":
+                    climate_entities.append({
+                        "entity_id": entity.entity_id,
+                        "platform": entity.platform,
+                        "disabled": entity.disabled,
+                        "name": entity.name or entity.original_name,
+                        "device_id": entity.device_id,
+                    })
+            
+            result["climate_entities"]["status"] = "loaded"
+            result["climate_entities"]["count"] = len(climate_entities)
+            result["climate_entities"]["entities"] = climate_entities
+            
+            # Get states for climate entities
+            climate_states = []
+            for entity in climate_entities:
+                entity_id = entity["entity_id"]
+                state = hass.states.get(entity_id)
+                if state:
+                    climate_states.append({
+                        "entity_id": entity_id,
+                        "state": state.state,
+                        "available": state.state != "unavailable",
+                        "attributes": dict(state.attributes)  # Include all attributes
+                    })
+            
+            result["climate_entities"]["states"] = climate_states
+            result["climate_entities"]["available_count"] = sum(1 for s in climate_states if s["available"])
+            
+        except Exception as e:
+            result["climate_entities"]["status"] = "error"
+            result["climate_entities"]["error"] = str(e)
+        
+        # Get all devices associated with the integration
+        try:
+            from homeassistant.helpers import device_registry as dr
+            
+            device_reg = dr.async_get(hass)
+            
+            # Get all devices for this integration
+            integration_devices = []
+            for device in device_reg.devices.values():
+                # Check if device has any config entry that belongs to our integration
+                for entry_id in device.config_entries:
+                    entry = hass.config_entries.async_get_entry(entry_id)
+                    if entry and entry.domain == DOMAIN:
+                        integration_devices.append({
+                            "id": device.id,
+                            "name": device.name,
+                            "name_by_user": device.name_by_user,
+                            "manufacturer": device.manufacturer,
+                            "model": device.model,
+                            "sw_version": device.sw_version,
+                            "hw_version": device.hw_version,
+                            "config_entries": list(device.config_entries),
+                            "connections": list(device.connections),
+                            "identifiers": list(device.identifiers),
+                            "via_device_id": device.via_device_id,
+                            "disabled_by": device.disabled_by,
+                            "entry_type": device.entry_type,
+                        })
+                        break
+            
+            result["devices"]["status"] = "loaded"
+            result["devices"]["count"] = len(integration_devices)
+            result["devices"]["devices"] = integration_devices
+            
+        except Exception as e:
+            result["devices"]["status"] = "error"
+            result["devices"]["error"] = str(e)
         
         return result
     
@@ -1805,6 +1901,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "set_active_profile", handle_set_active_profile, service_schemas.get("set_active_profile"))
     hass.services.async_register(DOMAIN, "get_profiles", handle_get_profiles, service_schemas.get("get_profiles"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "cleanup_derivative_sensors", handle_cleanup_derivative_sensors, service_schemas.get("cleanup_derivative_sensors"), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "cleanup_unmonitored_storage", handle_cleanup_unmonitored_storage, service_schemas.get("cleanup_unmonitored_storage"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "factory_reset", handle_factory_reset, service_schemas.get("factory_reset"))
     hass.services.async_register(DOMAIN, "reregister_card", handle_reregister_card, service_schemas.get("reregister_card"), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "diagnostics", handle_diagnostics, service_schemas.get("diagnostics"), supports_response=SupportsResponse.ONLY)
