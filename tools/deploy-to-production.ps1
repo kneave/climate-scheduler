@@ -13,6 +13,29 @@ Write-Host ""
 
 # Build TypeScript first
 Write-Host "Building TypeScript files..." -ForegroundColor Yellow
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+if (-not $npmCmd) {
+    Write-Host "ERROR: npm is not available in PATH. Install Node.js and retry." -ForegroundColor Red
+    exit 1
+}
+
+$rollupBin = Join-Path $repoRoot "node_modules\.bin\rollup.cmd"
+if (-not (Test-Path $rollupBin)) {
+    Write-Host "Local Rollup binary not found. Installing project dependencies..." -ForegroundColor Yellow
+    if (Test-Path (Join-Path $repoRoot "package-lock.json")) {
+        npm ci
+    }
+    else {
+        npm install
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Failed to install npm dependencies required for frontend build" -ForegroundColor Red
+        exit 1
+    }
+}
+
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Build failed!" -ForegroundColor Red

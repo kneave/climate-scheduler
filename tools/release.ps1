@@ -726,6 +726,29 @@ else {
 # Build TypeScript files
 Write-Host "`n$(if ($DryRun) { '[DRY RUN] Would build' } else { 'Building' }) TypeScript files..." -ForegroundColor Yellow
 if (-not $DryRun) {
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmCmd) {
+        Write-Error "npm is not available in PATH. Install Node.js (which includes npm) and retry."
+        exit 1
+    }
+
+    $rollupBin = Join-Path $repoRoot "node_modules\.bin\rollup.cmd"
+    if (-not (Test-Path $rollupBin)) {
+        Write-Host "Local Rollup binary not found. Installing project dependencies..." -ForegroundColor Yellow
+        if (Test-Path (Join-Path $repoRoot "package-lock.json")) {
+            npm ci
+        }
+        else {
+            npm install
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install npm dependencies required for frontend build"
+            exit 1
+        }
+    }
+
     npm run build
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to build TypeScript files"
@@ -734,6 +757,7 @@ if (-not $DryRun) {
     Write-Host "Build complete" -ForegroundColor Green
 }
 else {
+    Write-Host "Would verify npm is available and install dependencies if needed" -ForegroundColor Cyan
     Write-Host "Would run: npm run build" -ForegroundColor Cyan
 }
 

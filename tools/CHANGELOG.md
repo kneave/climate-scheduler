@@ -4,6 +4,15 @@
 
 Pre-release (`develop`) entries for this release are archived in `tools/CHANGELOG-DEV.md`.
 
+### Breaking Change for Profile Automations!
+- Profiles have moved from Schedule level to global, existing profiles will be migrated and renamed.
+- If your "Upstairs" schedule had Home and Away profiles they will be "Upstairs - Home" and "Upstairs - Away" for example
+- If you have automations that use profile names you will need to update them!
+
+### Highlights
+- New Timeline system provides support for mobile devices, more work needs doing to improve the experience however, feedback and bug reports welcome
+- Profiles have moved from Schedule level to global
+
 ### Added
 - **Timeline-Based Editor**: Introduced a new timeline UI system across main schedule, default schedule, and profile editing flows
   - Keyframe timeline component with drag/edit interactions
