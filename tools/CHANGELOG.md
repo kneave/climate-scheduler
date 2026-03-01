@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+##
+
+## [1.15.1] - 2026-03-01
 
 ### Fixed
 - Profile mode switching no longer clears or effectively "deletes" profile schedules when transitioning between `all_days`, `5/2`, and `individual`.
@@ -10,6 +12,7 @@
 ### Changed
 - Legacy per-group profile snapshots now use `legacy: true` metadata instead of name suffix tagging (`[legacy]`).
 - Added one-time storage normalization to convert existing `<profile> [legacy]` keys to metadata format while preserving compatibility.
+mpatibility.
 
 ## [1.15.0] - 2026-02-20
 
@@ -524,6 +527,7 @@ Pre-release (`develop`) entries for this release are archived in `tools/CHANGELO
 ## [1.0.3] - 2025-11-29
 ### Fixed
 - Mobile app compatibility (works in landscape mode)
+
 
 
 
