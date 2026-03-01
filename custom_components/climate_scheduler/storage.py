@@ -154,6 +154,8 @@ class ScheduleStorage:
             await self._migrate_entities_to_groups()
             # Migrate per-group profiles to global profile registry
             await self._migrate_profiles_to_global()
+            # Normalize older tagged legacy profile names to metadata format
+            await self._migrate_legacy_profile_name_suffixes()
         # Ensure global profile structure exists and schedule/profile views are synchronized
         self._ensure_global_profiles_initialized()
         self._sync_group_profile_views()
@@ -416,13 +418,11 @@ class ScheduleStorage:
 
                 legacy_profiles = group_data.get("profiles", {})
                 active_profile = group_data.get("active_profile", "Default")
-                legacy_tag_suffix = " [legacy]"
 
                 preserved_legacy_profiles: Dict[str, Any] = {}
 
                 if isinstance(legacy_profiles, dict) and legacy_profiles:
                     name_map: Dict[str, str] = {}
-                    legacy_name_map: Dict[str, str] = {}
                     for profile_name, profile_data in legacy_profiles.items():
                         source_profile = profile_data if isinstance(profile_data, dict) else {}
                         new_profile_name = make_unique_profile_name(f"{group_name} - {profile_name}")
@@ -432,17 +432,16 @@ class ScheduleStorage:
                             "schedules": copy.deepcopy(source_profile.get("schedules", group_data.get("schedules", {"all_days": []})))
                         }
 
-                        legacy_name = profile_name if profile_name.endswith(legacy_tag_suffix) else f"{profile_name}{legacy_tag_suffix}"
-                        legacy_name_map[profile_name] = legacy_name
-                        preserved_legacy_profiles[legacy_name] = {
+                        preserved_legacy_profiles[profile_name] = {
                             "schedule_mode": source_profile.get("schedule_mode", group_data.get("schedule_mode", "all_days")),
-                            "schedules": copy.deepcopy(source_profile.get("schedules", group_data.get("schedules", {"all_days": []})))
+                            "schedules": copy.deepcopy(source_profile.get("schedules", group_data.get("schedules", {"all_days": []}))),
+                            "legacy": True,
                         }
 
                     group_data["profiles"] = preserved_legacy_profiles
-                    if active_profile in legacy_name_map:
-                        group_data["active_profile_legacy"] = legacy_name_map[active_profile]
-                        group_data["active_profile"] = legacy_name_map[active_profile]
+                    if active_profile in preserved_legacy_profiles:
+                        group_data["active_profile_legacy"] = active_profile
+                        group_data["active_profile"] = active_profile
 
                     mapped_active_profile = name_map.get(active_profile)
                     if mapped_active_profile:
@@ -456,10 +455,11 @@ class ScheduleStorage:
                         "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []}))
                     }
 
-                    legacy_default_name = f"Default{legacy_tag_suffix}"
+                    legacy_default_name = "Default"
                     preserved_legacy_profiles[legacy_default_name] = {
                         "schedule_mode": group_data.get("schedule_mode", "all_days"),
-                        "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []}))
+                        "schedules": copy.deepcopy(group_data.get("schedules", {"all_days": []})),
+                        "legacy": True,
                     }
                     group_data["profiles"] = preserved_legacy_profiles
                     group_data["active_profile_legacy"] = legacy_default_name
@@ -473,6 +473,71 @@ class ScheduleStorage:
             self._sync_group_profile_views()
             await self.async_save()
             _LOGGER.info("Migrated legacy per-group profiles to global profiles")
+
+    async def _migrate_legacy_profile_name_suffixes(self) -> None:
+        """Normalize legacy profile names from '<name> [legacy]' to '<name>' with metadata."""
+        groups = self._data.get("groups", {})
+        if not isinstance(groups, dict):
+            return
+
+        suffix = " [legacy]"
+        migrated = False
+
+        for group_data in groups.values():
+            if not isinstance(group_data, dict):
+                continue
+
+            profiles = group_data.get("profiles", {})
+            if not isinstance(profiles, dict) or not profiles:
+                continue
+
+            normalized_profiles: Dict[str, Any] = {}
+            name_map: Dict[str, str] = {}
+            group_changed = False
+
+            for profile_name, profile_data in profiles.items():
+                target_name = profile_name
+                source_profile = profile_data if isinstance(profile_data, dict) else {}
+
+                if isinstance(profile_name, str) and profile_name.endswith(suffix):
+                    base_name = profile_name[: -len(suffix)]
+                    candidate_name = base_name
+                    if candidate_name in normalized_profiles:
+                        # Avoid accidental overwrite if both names exist; keep original key.
+                        candidate_name = profile_name
+                    else:
+                        group_changed = True
+
+                    target_name = candidate_name
+
+                normalized_profile = copy.deepcopy(source_profile)
+                if profile_name != target_name and normalized_profile.get("legacy") is not True:
+                    normalized_profile["legacy"] = True
+                    group_changed = True
+
+                if target_name in normalized_profiles:
+                    # Collision fallback (non-suffix duplicate): preserve existing and keep incoming key.
+                    target_name = profile_name
+                    normalized_profile = copy.deepcopy(source_profile)
+
+                if target_name != profile_name:
+                    name_map[profile_name] = target_name
+
+                normalized_profiles[target_name] = normalized_profile
+
+            if group_changed:
+                group_data["profiles"] = normalized_profiles
+
+                for key in ("active_profile", "active_profile_legacy"):
+                    current_value = group_data.get(key)
+                    if isinstance(current_value, str) and current_value in name_map:
+                        group_data[key] = name_map[current_value]
+
+                migrated = True
+
+        if migrated:
+            await self.async_save()
+            _LOGGER.info("Normalized legacy profile name suffixes to metadata format")
 
     async def async_get_settings(self) -> Dict[str, Any]:
         """Return current global settings."""
@@ -1047,6 +1112,9 @@ class ScheduleStorage:
                     "schedules": copy.deepcopy(profile_schedules),
                 }
 
+                if profile_data.get("legacy") is True:
+                    valid_profiles[profile_name]["legacy"] = True
+
             if not valid_profiles:
                 valid_profiles["Default"] = {
                     "schedule_mode": group_data.get("schedule_mode", "all_days"),
@@ -1484,42 +1552,39 @@ class ScheduleStorage:
             raise ValueError(f"Group '{group_name}' does not exist")
         
         group_data = self._data["groups"][group_name]
-        
-        # Update schedule mode if provided
-        if schedule_mode is not None:
-            group_data["schedule_mode"] = schedule_mode
-        
-        # Ensure schedules dict exists
-        if "schedules" not in group_data:
-            group_data["schedules"] = {}
-        
-        # Determine which schedule to update
-        current_mode = group_data.get("schedule_mode", "all_days")
-        
-        if day is None:
-            # No day specified - update the primary schedule based on mode
-            if current_mode == "all_days":
-                group_data["schedules"]["all_days"] = nodes
-            elif current_mode == "5/2":
-                group_data["schedules"]["weekday"] = nodes
+
+        def apply_nodes_to_schedules(
+            schedules: Dict[str, Any],
+            mode: str,
+            schedule_nodes: List[Dict[str, Any]],
+            schedule_day: Optional[str],
+        ) -> Dict[str, Any]:
+            """Apply incoming nodes to a schedule dict using mode/day mapping semantics."""
+            updated = copy.deepcopy(schedules) if isinstance(schedules, dict) else {}
+
+            if schedule_day is None:
+                if mode == "all_days":
+                    updated["all_days"] = schedule_nodes
+                elif mode == "5/2":
+                    updated["weekday"] = schedule_nodes
+                else:
+                    updated["mon"] = schedule_nodes
+                return updated
+
+            if mode == "5/2":
+                if schedule_day == "weekday":
+                    updated["weekday"] = schedule_nodes
+                elif schedule_day == "weekend":
+                    updated["weekend"] = schedule_nodes
+                elif schedule_day in ["mon", "tue", "wed", "thu", "fri"]:
+                    updated["weekday"] = schedule_nodes
+                else:
+                    updated["weekend"] = schedule_nodes
             else:
-                group_data["schedules"]["mon"] = nodes
-        else:
-            # Specific day provided
-            if current_mode == "5/2":
-                # Map individual days to weekday/weekend, or use weekday/weekend directly
-                if day == "weekday":
-                    group_data["schedules"]["weekday"] = nodes
-                elif day == "weekend":
-                    group_data["schedules"]["weekend"] = nodes
-                elif day in ["mon", "tue", "wed", "thu", "fri"]:
-                    group_data["schedules"]["weekday"] = nodes
-                else:  # sat, sun
-                    group_data["schedules"]["weekend"] = nodes
-            else:
-                # Individual mode or all_days mode
-                group_data["schedules"][day] = nodes
-        
+                updated[schedule_day] = schedule_nodes
+
+            return updated
+
         # Determine which profile to save to (global profile namespace)
         self._ensure_global_profiles_initialized()
         global_profiles = self._data.get("profiles", {})
@@ -1534,21 +1599,51 @@ class ScheduleStorage:
         # Create profile if it doesn't exist (only for active profile flow)
         if target_profile not in global_profiles:
             global_profiles[target_profile] = {
-                "schedule_mode": current_mode,
+                "schedule_mode": group_data.get("schedule_mode", "all_days"),
                 "schedules": {}
             }
 
-        # Save to target profile
-        global_profiles[target_profile]["schedule_mode"] = current_mode
-        global_profiles[target_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
+        is_explicit_non_active_profile_save = bool(profile_name and profile_name != resolved_active_profile)
+
+        if is_explicit_non_active_profile_save:
+            target_mode = schedule_mode if schedule_mode is not None else global_profiles[target_profile].get("schedule_mode", "all_days")
+            target_schedules = apply_nodes_to_schedules(
+                global_profiles[target_profile].get("schedules", {}),
+                target_mode,
+                nodes,
+                day,
+            )
+
+            global_profiles[target_profile]["schedule_mode"] = target_mode
+            global_profiles[target_profile]["schedules"] = copy.deepcopy(target_schedules)
+        else:
+            # Active-profile save path updates group runtime state and mirrors to active global profile
+            if schedule_mode is not None:
+                group_data["schedule_mode"] = schedule_mode
+
+            current_mode = group_data.get("schedule_mode", "all_days")
+            group_data["schedules"] = apply_nodes_to_schedules(
+                group_data.get("schedules", {}),
+                current_mode,
+                nodes,
+                day,
+            )
+
+            global_profiles[target_profile]["schedule_mode"] = current_mode
+            global_profiles[target_profile]["schedules"] = copy.deepcopy(group_data["schedules"])
+
         self._data["profiles"] = global_profiles
 
-        # If saving to non-active profile, restore group's current schedule from active profile
-        if profile_name and profile_name != resolved_active_profile:
+        # Keep group runtime schedule aligned with active profile for non-active profile saves
+        if is_explicit_non_active_profile_save:
             active_profile = resolved_active_profile
             if active_profile in global_profiles:
                 group_data["schedule_mode"] = global_profiles[active_profile].get("schedule_mode", "all_days")
                 group_data["schedules"] = copy.deepcopy(global_profiles[active_profile].get("schedules", {}))
+
+            current_mode = global_profiles[target_profile].get("schedule_mode", "all_days")
+        else:
+            current_mode = group_data.get("schedule_mode", "all_days")
         
         _LOGGER.info(f"Saved group schedule to profile '{target_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
         _LOGGER.debug(f"Profile schedules after save: {global_profiles[target_profile]['schedules'].keys()}")
@@ -1727,9 +1822,17 @@ class ScheduleStorage:
                 prefix = f"{target_id} - "
                 if profile_name.startswith(prefix):
                     original_name = profile_name[len(prefix):]
-                    tagged_name = f"{original_name} [legacy]"
-                    if tagged_name in legacy_profiles:
-                        legacy_candidate = tagged_name
+
+                    # Preferred mapping: original legacy profile key with explicit metadata
+                    original_profile = legacy_profiles.get(original_name)
+                    if isinstance(original_profile, dict) and original_profile.get("legacy") is True:
+                        legacy_candidate = original_name
+                    else:
+                        # Backward compatibility for pre-metadata snapshots using name suffix tagging
+                        tagged_name = f"{original_name} [legacy]"
+                        tagged_profile = legacy_profiles.get(tagged_name)
+                        if isinstance(tagged_profile, dict):
+                            legacy_candidate = tagged_name
 
         if legacy_candidate:
             target_data["active_profile"] = legacy_candidate

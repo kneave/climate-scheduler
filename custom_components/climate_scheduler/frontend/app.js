@@ -13,6 +13,16 @@ function getDocumentRoot() {
     return window.climateSchedulerPanelRoot || document;
 }
 
+function normalizeGroupsPayload(result) {
+    let payload = result?.response || result || {};
+
+    if (payload && typeof payload === 'object' && payload.groups && typeof payload.groups === 'object') {
+        payload = payload.groups;
+    }
+
+    return (payload && typeof payload === 'object') ? payload : {};
+}
+
 let haAPI;
 let graph;
 let nodeSettingsTimeline = null;
@@ -324,16 +334,7 @@ async function loadAllSchedules() {
 async function loadGroups() {
     try {
         const result = await haAPI.getGroups();
-        
-        // Extract groups from response - may be wrapped in response.groups
-        let groups = result?.response || result || {};
-        
-        // If there's a 'groups' key, use that instead
-        if (groups.groups && typeof groups.groups === 'object') {
-            groups = groups.groups;
-        }
-        
-        allGroups = groups;
+        allGroups = normalizeGroupsPayload(result);
         
         // Render groups section
         renderGroups();
@@ -625,7 +626,7 @@ function createGroupContainer(groupName, groupData) {
             
             // Reload group data from server
             const groupsResult = await haAPI.getGroups();
-            allGroups = groupsResult.groups || groupsResult;
+            allGroups = normalizeGroupsPayload(groupsResult);
             
             // If this group is currently being edited, reload it
             if (currentGroup === groupName) {
@@ -956,6 +957,87 @@ function getScheduleNodesForDay(schedules, dayKey) {
     return nodes || [];
 }
 
+function cloneScheduleNodes(nodes) {
+    if (!Array.isArray(nodes)) return [];
+    return nodes.map(node => ({ ...node }));
+}
+
+// Mode-switch seeding: prefer the destination mode/day schedule first,
+// then fall back to current timeline or other populated periods.
+function getModeTransitionSeedNodes({ schedules, previousMode, previousDay, newMode, newDay, currentNodes }) {
+    const current = cloneScheduleNodes(currentNodes);
+
+    const scheduleMap = (schedules && typeof schedules === 'object') ? schedules : {};
+    const targetKeys = [];
+
+    if (newMode === 'all_days') {
+        targetKeys.push('all_days');
+    } else if (newMode === '5/2') {
+        if (newDay === 'weekday' || newDay === 'weekend') {
+            targetKeys.push(newDay);
+        }
+        targetKeys.push('weekday', 'weekend');
+    } else {
+        if (newDay) {
+            targetKeys.push(newDay);
+        }
+        targetKeys.push('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun');
+    }
+
+    const seenTargets = new Set();
+    for (const key of targetKeys) {
+        if (!key || seenTargets.has(key)) continue;
+        seenTargets.add(key);
+        const nodes = scheduleMap[key];
+        if (Array.isArray(nodes) && nodes.length > 0) {
+            return cloneScheduleNodes(nodes);
+        }
+    }
+
+    if (current.length > 0) {
+        return current;
+    }
+
+    const preferredKeys = [];
+    if (previousDay) {
+        preferredKeys.push(previousDay);
+    }
+
+    if (previousMode === 'individual') {
+        preferredKeys.push('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun');
+    } else if (previousMode === '5/2') {
+        preferredKeys.push('weekday', 'weekend');
+    } else {
+        preferredKeys.push('all_days');
+    }
+
+    if (newMode === 'all_days') {
+        preferredKeys.push('all_days');
+    } else if (newMode === '5/2') {
+        preferredKeys.push('weekday', 'weekend');
+    } else {
+        preferredKeys.push('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun');
+    }
+
+    const seen = new Set();
+    for (const key of preferredKeys) {
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const nodes = scheduleMap[key];
+        if (Array.isArray(nodes) && nodes.length > 0) {
+            return cloneScheduleNodes(nodes);
+        }
+    }
+
+    for (const nodes of Object.values(scheduleMap)) {
+        if (Array.isArray(nodes) && nodes.length > 0) {
+            return cloneScheduleNodes(nodes);
+        }
+    }
+
+    return [];
+}
+
 function getMainEditorDisplayedDay(scheduleMode) {
     if (scheduleMode === 'all_days') {
         return 'all_days';
@@ -973,6 +1055,49 @@ function getMainEditorDisplayedDay(scheduleMode) {
         return (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
     }
     return weekday;
+}
+
+function resolveModeTransitionDay(previousMode, previousDay, newMode) {
+    if (newMode === 'all_days') {
+        return 'all_days';
+    }
+
+    const now = new Date();
+    const todayIndividual = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+    const todayPeriod = (todayIndividual === 'sat' || todayIndividual === 'sun') ? 'weekend' : 'weekday';
+    const individualDays = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+
+    if (newMode === '5/2') {
+        if (previousMode === '5/2' && (previousDay === 'weekday' || previousDay === 'weekend')) {
+            return previousDay;
+        }
+
+        if (previousMode === 'individual') {
+            if (previousDay === 'sat' || previousDay === 'sun') {
+                return 'weekend';
+            }
+            if (individualDays.has(previousDay)) {
+                return 'weekday';
+            }
+        }
+
+        return todayPeriod;
+    }
+
+    if (previousMode === 'individual' && individualDays.has(previousDay)) {
+        return previousDay;
+    }
+
+    if (previousMode === '5/2') {
+        if (previousDay === 'weekend') {
+            return 'sat';
+        }
+        if (previousDay === 'weekday') {
+            return 'mon';
+        }
+    }
+
+    return todayIndividual;
 }
 
 function syncMainTimelineForActiveProfileEdit(targetGroup, editedProfileName) {
@@ -1814,7 +1939,7 @@ async function setupProfileHandlers(container, groupData) {
                             await haAPI.setGroupSchedule(targetGroup, updatedNodes, currentProfileDay, scheduleModeOverride, selectedProfile);
 
                             const refreshedGroupData = await haAPI.getGroups();
-                            allGroups = refreshedGroupData?.groups || refreshedGroupData?.response?.groups || refreshedGroupData || {};
+                            allGroups = normalizeGroupsPayload(refreshedGroupData);
 
                             syncMainTimelineForActiveProfileEdit(targetGroup, selectedProfile);
 
@@ -1884,21 +2009,35 @@ async function setupProfileHandlers(container, groupData) {
                         // Mode dropdown change handler
                         modeDropdown.addEventListener('change', async (e) => {
                             const newMode = e.target.value;
+                            const previousMode = profileScheduleMode;
+                            const previousDay = currentProfileDay;
+                            const previousNodes = syncProfileScheduleFromTimeline().map(n => ({ ...n }));
+
+                            if (!profileData.schedules) {
+                                profileData.schedules = {};
+                            }
+                            profileData.schedules[previousDay] = previousNodes.map(n => ({ ...n }));
+
+                            const profileScheduleSnapshot = JSON.parse(JSON.stringify(profileData.schedules));
                             profileScheduleMode = newMode;
                             
-                            // Determine new default day
-                            let newDay = currentProfileDay;
-                            if (newMode === 'all_days') {
-                                newDay = 'all_days';
-                            } else if (newMode === '5/2') {
-                                const now = new Date();
-                                const weekdayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
-                                newDay = (weekdayName === 'sat' || weekdayName === 'sun') ? 'weekend' : 'weekday';
-                            } else {
-                                const now = new Date();
-                                newDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
-                            }
-                            loadProfileDayIntoTimeline(newDay);
+                            // Determine destination day preserving current editing context when possible
+                            const newDay = resolveModeTransitionDay(previousMode, previousDay, newMode);
+
+                            const seedNodes = getModeTransitionSeedNodes({
+                                schedules: profileScheduleSnapshot,
+                                previousMode,
+                                previousDay,
+                                newMode,
+                                newDay,
+                                currentNodes: previousNodes
+                            });
+
+                            currentProfileDay = newDay;
+                            profileCurrentSchedule = seedNodes.map(n => ({ ...n }));
+                            profileData.schedules[currentProfileDay] = profileCurrentSchedule.map(n => ({ ...n }));
+                            timeline.keyframes = scheduleNodesToKeyframes(profileCurrentSchedule);
+                            setProfileEditingContext();
                             
                             // Update day/period buttons
                             updateDayPeriodButtons(newMode, newDay);
@@ -2069,7 +2208,7 @@ async function setupProfileHandlers(container, groupData) {
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || groupsResult;
+                allGroups = normalizeGroupsPayload(groupsResult);
                 
                 await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
@@ -2103,7 +2242,7 @@ async function setupProfileHandlers(container, groupData) {
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || groupsResult;
+                allGroups = normalizeGroupsPayload(groupsResult);
                 
                 await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
@@ -2136,7 +2275,7 @@ async function setupProfileHandlers(container, groupData) {
                 
                 // Reload group data from server to get updated profiles
                 const groupsResult = await haAPI.getGroups();
-                allGroups = groupsResult.groups || groupsResult;
+                allGroups = normalizeGroupsPayload(groupsResult);
                 
                 await loadProfiles(container, selectedTargetGroup);
                 updateGraphProfileDropdown();
@@ -4240,37 +4379,36 @@ function updateGraphTitle() {
 // Switch to a different schedule mode
 async function switchScheduleMode(newMode) {
     if (!currentGroup) return;
+
+    const previousMode = currentScheduleMode;
+    const previousDay = currentDay;
+    const previousNodes = cloneScheduleNodes(currentSchedule);
+    const scheduleSnapshot = allGroups[currentGroup]?.schedules
+        ? JSON.parse(JSON.stringify(allGroups[currentGroup].schedules))
+        : {};
     
     currentScheduleMode = newMode;
     
-    // Determine default day for new mode
-    const now = new Date();
-    const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
-    
-    if (newMode === 'all_days') {
-        currentDay = 'all_days';
-    } else if (newMode === '5/2') {
-        currentDay = (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
-    } else {
-        currentDay = weekday;
-    }
+    // Determine destination day preserving current editing context when possible
+    currentDay = resolveModeTransitionDay(previousMode, previousDay, newMode);
     
     // Save the mode change to the active profile in backend
     if (currentGroup) {
-        const nodes = getGraphNodes();
-        const groupData = allGroups[currentGroup];
-        const activeProfile = groupData?.active_profile || 'Default';
+        const nodes = getModeTransitionSeedNodes({
+            schedules: scheduleSnapshot,
+            previousMode,
+            previousDay,
+            newMode,
+            newDay: currentDay,
+            currentNodes: previousNodes
+        });
         
-        // Save with profile_name to ensure mode is saved to the active profile
-        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode, activeProfile);
+        // Save without explicit profile_name so backend resolves active global profile authoritatively
+        await haAPI.setGroupSchedule(currentGroup, nodes, currentDay, currentScheduleMode);
         
         // Update local group data
         if (allGroups[currentGroup]) {
             allGroups[currentGroup].schedule_mode = currentScheduleMode;
-            // Also update the active profile's schedule_mode
-            if (allGroups[currentGroup].profiles && allGroups[currentGroup].profiles[activeProfile]) {
-                allGroups[currentGroup].profiles[activeProfile].schedule_mode = currentScheduleMode;
-            }
         }
     }
     
@@ -4280,11 +4418,7 @@ async function switchScheduleMode(newMode) {
     // Reload group data from backend to get latest saved state
     if (currentGroup) {
         const result = await haAPI.getGroups();
-        let groups = result?.response || result || {};
-        if (groups.groups && typeof groups.groups === 'object') {
-            groups = groups.groups;
-        }
-        allGroups = groups;
+        allGroups = normalizeGroupsPayload(result);
         
         const groupData = allGroups[currentGroup];
         if (!groupData) return;
@@ -6076,7 +6210,7 @@ async function handleProfileChanged(event) {
     
     // Reload group data from server to get the new profile's schedules
     const groupsResult = await haAPI.getGroups();
-    allGroups = groupsResult.groups || groupsResult;
+    allGroups = normalizeGroupsPayload(groupsResult);
     
     // Update the dropdown in the group header
     const groupContainer = getDocumentRoot().querySelector(`.group-container[data-group-name="${groupName}"]`);
@@ -6257,10 +6391,7 @@ async function convertAllSchedules(fromUnit, toUnit) {
         
         // Convert group schedules
         const result = await haAPI.getGroups();
-        let groups = result?.response || result || {};
-        if (groups.groups && typeof groups.groups === 'object') {
-            groups = groups.groups;
-        }
+        const groups = normalizeGroupsPayload(result);
         
         for (const [groupName, groupData] of Object.entries(groups)) {
             if (groupData.schedules) {
