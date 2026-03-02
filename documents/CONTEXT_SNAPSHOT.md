@@ -30,11 +30,13 @@ Purpose: compact handoff for future Copilot sessions.
 - New timeline nodes default non-temperature settings to no-change (mode fields omitted until user sets them).
 - Profiles are global and shared across schedules; groups/selectors choose `active_profile` only.
 - Legacy per-schedule profiles are migrated to global names using `<schedule name> - <profile name>`.
-- Original per-schedule profiles are retained per group as tagged legacy snapshots (`[legacy]`) for downgrade safety.
+- Original per-schedule profiles are retained per group with `legacy: true` metadata for downgrade safety.
 - Profile editor is rendered in its own section above Unmonitored (not inside schedule settings panels).
 - Global profile editor auto-targets the currently open group (fallback to first monitored group).
 - Editing a global profile that is active for the open group updates the main timeline in realtime.
 - Enabling monitoring on entities/groups with empty schedules seeds a single `all_days` schedule from configured default schedule.
+- Mode switches to `all_days` preserve non-empty schedule data by seeding from existing populated periods when the currently visible period is empty.
+- Mode switches choose destination day/period from current editing context (not wall-clock day) when mapping between `individual` and `5/2`.
 
 ## High-Risk Areas
 

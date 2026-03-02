@@ -72,7 +72,7 @@ Global storage field:
 - profiles
 
 Legacy preservation fields (migration compatibility):
-- group `profiles` remains in-place and is retagged as `<profile> [legacy]`
+- group `profiles` remains in-place under original profile names and sets `legacy: true`
 - active_profile_legacy
 
 Naming:
@@ -133,7 +133,8 @@ storage async_load migrations:
 - day schedule migration
 - profiles migration
 - per-group profiles to global profiles migration (`<schedule name> - <profile name>`)
-- per-group originals preserved as tagged legacy copies (`<profile name> [legacy]`)
+- per-group originals preserved as legacy copies using `legacy: true` metadata
+- one-time normalization of legacy profile names from `<profile> [legacy]` to `<profile>` + `legacy: true`
 - entity-to-single-group migration
 
 ## Last Updated
