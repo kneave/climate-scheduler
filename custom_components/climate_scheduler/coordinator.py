@@ -1,4 +1,5 @@
 """Coordinator for Climate Scheduler."""
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -602,6 +603,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 settings = {}
             min_temp = settings.get("min_temp", MIN_TEMP)
             max_temp = settings.get("max_temp", MAX_TEMP)
+            update_delay = float(settings.get("update_delay", 0))
 
             # Get all groups and build a map of entities to their group schedules
             # Now ALL entities are in groups (either multi-entity or single-entity groups)
@@ -760,7 +762,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         "virtual": True
                     }
                     continue
-                
+
+                entity_updated = False
+
                 # Check if entity exists in Home Assistant first
                 state = self.hass.states.get(entity_id)
                 if state is None:
@@ -941,6 +945,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                                 service_data,
                                 blocking=True,
                             )
+                            entity_updated = True
                         except Exception as exc:
                             _LOGGER.error(f"Failed to set_temperature for {entity_id}: {exc}")
                             results[entity_id] = {
@@ -968,6 +973,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             },
                             blocking=True,
                         )
+                        entity_updated = True
                     elif "hvac_mode" in active_node and active_node["hvac_mode"] != "off":
                         _LOGGER.debug(f"HVAC mode {active_node['hvac_mode']} not supported by {entity_id}")
                 
@@ -983,6 +989,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                    entity_updated = True
                 elif "fan_mode" in active_node and fan_modes:
                     _LOGGER.debug(f"Fan mode {active_node['fan_mode']} not supported by {entity_id}")
                 
@@ -998,6 +1005,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                    entity_updated = True
                 elif "swing_mode" in active_node and swing_modes:
                     _LOGGER.debug(f"Swing mode {active_node['swing_mode']} not supported by {entity_id}")
                 
@@ -1013,6 +1021,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         },
                         blocking=True,
                     )
+                    entity_updated = True
                 elif "preset_mode" in active_node and preset_modes:
                     _LOGGER.debug(f"Preset mode {active_node['preset_mode']} not supported by {entity_id}")
                 
@@ -1055,7 +1064,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     "target_temp": target_temp,
                     "previous_temp": current_target,
                 }
-            
+
+                # Apply delay between entity updates if configured
+                if entity_updated and update_delay > 0:
+                    await asyncio.sleep(update_delay)
+
             return results
             
         except Exception as err:

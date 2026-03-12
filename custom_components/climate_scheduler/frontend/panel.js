@@ -442,6 +442,17 @@ class ClimateSchedulerPanel extends HTMLElement {
                                                     <input id="max-temp" type="number" step="0.1" placeholder="e.g. 30.0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
                                                 </div>
                                             </div>
+                                            <div style="display:flex; gap:12px; align-items:center;">
+                                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                                    <label for="graph-min-temp" style="font-weight:600;">Graph Min (<span id="graph-min-unit">°C</span>)</label>
+                                                    <input id="graph-min-temp" type="number" step="0.5" placeholder="e.g. 15" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                </div>
+                                                <div style="display:flex; flex-direction:column; gap:6px;">
+                                                    <label for="graph-max-temp" style="font-weight:600;">Graph Max (<span id="graph-max-unit">°C</span>)</label>
+                                                    <input id="graph-max-temp" type="number" step="0.5" placeholder="e.g. 25" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                                </div>
+                                            </div>
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Override the graph Y-axis range for more detail. Leave blank to use Min/Max Temp values above.</p>
                                         </div>
                                         <div class="setting-item" style="margin-top: 12px;">
                                             <label>
@@ -484,7 +495,16 @@ class ClimateSchedulerPanel extends HTMLElement {
                                             <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">When enabled, creates sensor.climate_scheduler_[name]_rate for each thermostat to track temperature change rate (°C/h)</p>
                                         </div>
                                     </div>
-                                    
+
+                                    <div class="settings-section">
+                                        <h4>Thermostat Update Delay</h4>
+                                        <div class="setting-item">
+                                            <label for="update-delay">Delay between updates (seconds):</label>
+                                            <input id="update-delay" type="number" step="0.5" min="0" max="30" placeholder="0" style="width:120px; padding:6px; background: var(--surface-light); color: var(--text-primary); border: 1px solid var(--border); border-radius:6px;" />
+                                            <p class="settings-description" style="margin-top: 5px; font-size: 0.85rem;">Add a pause between each thermostat command when updating multiple entities. Useful for integrations that can be overwhelmed by rapid successive commands. 0 = no delay.</p>
+                                        </div>
+                                    </div>
+
                                     <div class="settings-section">
                                         <h4>Workday Integration</h4>
                                         <p class="settings-description">Configure which days are workdays for 5/2 mode scheduling</p>

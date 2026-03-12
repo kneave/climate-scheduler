@@ -31,6 +31,7 @@ let currentGroup = null; // Currently selected group
 let currentEntityId = null; // Currently selected individual entity (legacy path, mostly unused now)
 let editingProfile = null; // Profile being edited (null means editing active profile)
 let tooltipMode = 'history'; // 'history' or 'cursor'
+let groupHeaderTemps = {}; // Per-group: { groupName: { entityId: { show: bool, displayName: str } } }
 let debugPanelEnabled = localStorage.getItem('debugPanelEnabled') === 'true'; // Debug panel visibility
 let graphSnapStep = parseFloat(localStorage.getItem('graphSnapStep')) || 0.5; // Temperature snap step for graph dragging
 let inputTempStep = parseFloat(localStorage.getItem('inputTempStep')) || 0.1; // Temperature step for input fields
@@ -141,13 +142,35 @@ async function initApp() {
         // Load all schedules from backend
         await loadAllSchedules();
         
+        // Load group header temps setting before rendering groups
+        try {
+            const settings = await haAPI.getSettings();
+            if (settings && settings.group_header_temps) {
+                groupHeaderTemps = settings.group_header_temps;
+                // Migrate old v1 boolean format ({ groupName: true/false }) to new per-entity format
+                for (const key of Object.keys(groupHeaderTemps)) {
+                    if (typeof groupHeaderTemps[key] !== 'object' || groupHeaderTemps[key] === null) {
+                        groupHeaderTemps[key] = {};
+                    }
+                }
+            }
+        } catch (e) {
+            console.debug('Failed to pre-load group header temps:', e);
+        }
+
         // Load groups
         await loadGroups();
         
         // Subscribe to state changes
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
-        
+
+        // Periodic refresh of group header temps (every 30s)
+        setInterval(async () => {
+            await loadClimateEntities();
+            refreshAllGroupHeaders();
+        }, 30000);
+
         // Set up UI event listeners
         setupEventListeners();
     } catch (error) {
@@ -445,6 +468,78 @@ const CLICK_DEBOUNCE_MS = 500;
 let isProcessingGroupClick = false;
 
 // Create a group container element
+// Safely find a .group-count element by group name (avoids CSS selector issues with special chars)
+function findGroupCountEl(groupName) {
+    const allCounts = getDocumentRoot().querySelectorAll('.group-count');
+    for (const el of allCounts) {
+        if (el.dataset.groupName === groupName) return el;
+    }
+    return null;
+}
+
+// Refresh all visible group header temp displays
+function refreshAllGroupHeaders() {
+    for (const [gName, gData] of Object.entries(allGroups)) {
+        const el = findGroupCountEl(gName);
+        if (el) renderGroupCount(el, gName, gData.entities);
+    }
+}
+
+// Render group header count: shows per-entity temps if any are flagged, otherwise "X entities"
+function renderGroupCount(el, gName, entities) {
+    const groupConfig = groupHeaderTemps[gName];
+    // Check if any entities are flagged to show
+    const shownEntities = (entities || []).filter(eid =>
+        groupConfig && groupConfig[eid] && groupConfig[eid].show
+    );
+    if (shownEntities.length === 0 || !entities || entities.length === 0) {
+        el.textContent = `${entities?.length || 0} entities`;
+        return;
+    }
+
+    el.innerHTML = '';
+
+    // Find shared target temp from any shown entity
+    let targetTemp = null;
+    for (const eid of shownEntities) {
+        const e = climateEntities.find(ce => ce.entity_id === eid);
+        if (e?.attributes?.temperature != null) { targetTemp = e.attributes.temperature; break; }
+    }
+
+    // Show target first
+    if (Number.isFinite(targetTemp)) {
+        const arrow = document.createElement('span');
+        arrow.className = 'header-target';
+        arrow.style.color = 'var(--text-secondary)';
+        arrow.textContent = `${targetTemp.toFixed(1)}° ← `;
+        el.appendChild(arrow);
+    }
+
+    shownEntities.forEach((eid, i) => {
+        const entity = climateEntities.find(e => e.entity_id === eid);
+        const ct = entity?.attributes?.current_temperature;
+        const isHeating = entity?.attributes?.hvac_action === 'heating';
+
+        const config = groupConfig[eid];
+        const displayName = config.displayName || entity?.attributes?.friendly_name || eid;
+
+        const tempSpan = document.createElement('span');
+        tempSpan.className = 'header-temp';
+        tempSpan.dataset.entityId = eid;
+        tempSpan.style.color = isHeating ? '#e67e22' : '';
+        tempSpan.style.fontWeight = isHeating ? '600' : '';
+        tempSpan.textContent = `${displayName}: ${Number.isFinite(ct) ? ct.toFixed(1) + '°' : '--'}`;
+        el.appendChild(tempSpan);
+
+        if (i < shownEntities.length - 1) {
+            const sep = document.createElement('span');
+            sep.textContent = ' | ';
+            sep.style.color = 'var(--text-secondary)';
+            el.appendChild(sep);
+        }
+    });
+}
+
 function createGroupContainer(groupName, groupData) {
     const container = document.createElement('div');
     container.className = 'group-container collapsed';
@@ -472,8 +567,10 @@ function createGroupContainer(groupName, groupData) {
     
     const count = document.createElement('span');
     count.className = 'group-count';
-    count.textContent = `${groupData.entities?.length || 0} entities`;
-    
+    count.dataset.groupName = groupName;
+
+    renderGroupCount(count, groupName, groupData.entities);
+
     leftSide.appendChild(toggleIcon);
     leftSide.appendChild(title);
     leftSide.appendChild(count);
@@ -539,6 +636,12 @@ function createGroupContainer(groupName, groupData) {
         if (newName && newName.trim() !== '' && newName !== groupName) {
             try {
                 await haAPI.renameGroup(groupName, newName.trim());
+                // Migrate groupHeaderTemps key
+                if (groupHeaderTemps[groupName]) {
+                    groupHeaderTemps[newName.trim()] = groupHeaderTemps[groupName];
+                    delete groupHeaderTemps[groupName];
+                    await haAPI.saveSettings({ group_header_temps: groupHeaderTemps });
+                }
                 showToast(`Renamed group to: ${newName}`, 'success');
                 await loadGroups();
             } catch (error) {
@@ -675,9 +778,11 @@ async function editGroupSchedule(groupName, day = null) {
     if (svgElement) {
         graph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
         graph.setTooltipMode(tooltipMode);
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof graph.setMinMax === 'function') {
-            graph.setMinMax(minTempSetting, maxTempSetting);
+        // Apply configured graph range (or fall back to min/max temp)
+        const displayMin = graphMinTemp !== null ? graphMinTemp : minTempSetting;
+        const displayMax = graphMaxTemp !== null ? graphMaxTemp : maxTempSetting;
+        if (displayMin !== null && displayMax !== null && typeof graph.setMinMax === 'function') {
+            graph.setMinMax(displayMin, displayMax);
         }
         
         // Attach graph event listeners (permanent listeners)
@@ -785,7 +890,7 @@ async function editGroupSchedule(groupName, day = null) {
     updateScheduleModeUI();
     
     // Load history data for all entities in the group
-    await loadGroupHistoryData(groupData.entities);
+    await loadGroupHistoryData(groupData.entities, groupName);
     
     // Load advance history for the first entity in the group
     if (groupData.entities && groupData.entities.length > 0) {
@@ -1386,8 +1491,80 @@ function createGroupMembersTable(entityIds) {
         row.dataset.entityId = entityId;
         
         const nameCell = document.createElement('span');
-        nameCell.textContent = entity.attributes?.friendly_name || entityId;
-        
+
+        const gName = currentGroup;
+        const entityConfig = groupHeaderTemps[gName]?.[entityId];
+        const friendlyName = entity.attributes?.friendly_name || entityId;
+        const displayName = entityConfig?.displayName || friendlyName;
+
+        const nameText = document.createElement('span');
+        nameText.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        nameText.textContent = displayName;
+        nameCell.appendChild(nameText);
+
+        if (displayName !== friendlyName) {
+            const origName = document.createElement('span');
+            origName.textContent = friendlyName;
+            origName.style.cssText = 'font-size: 0.8em; color: var(--text-secondary); opacity: 0.7;';
+            nameCell.appendChild(origName);
+        }
+
+        const editNameBtn = document.createElement('button');
+        editNameBtn.textContent = '✎';
+        editNameBtn.title = 'Edit display name';
+        editNameBtn.style.cssText = 'background: none; border: none; cursor: pointer; color: var(--text-secondary); font-size: 0.9rem; padding: 0 2px; flex-shrink: 0;';
+        editNameBtn.onclick = (e) => {
+            e.stopPropagation();
+            // Replace name text with inline input
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = entityConfig?.displayName || '';
+            input.placeholder = friendlyName;
+            input.style.cssText = 'width: 100%; padding: 2px 4px; font-size: inherit; border: 1px solid var(--primary-color, #4CAF50); border-radius: 3px; background: var(--surface-light, #fff); color: var(--text-primary);';
+
+            nameText.style.display = 'none';
+            editNameBtn.style.display = 'none';
+            nameCell.insertBefore(input, nameText);
+            input.focus();
+            input.select();
+
+            let saved = false;
+            const save = async () => {
+                if (saved) return;
+                saved = true;
+                const groupName = currentGroup;
+                const val = input.value.trim();
+                if (input.parentNode) input.remove();
+                nameText.style.display = '';
+                editNameBtn.style.display = '';
+                nameText.textContent = val || friendlyName;
+
+                if (groupName) {
+                    if (!groupHeaderTemps[groupName] || typeof groupHeaderTemps[groupName] !== 'object') groupHeaderTemps[groupName] = {};
+                    if (!groupHeaderTemps[groupName][entityId]) {
+                        groupHeaderTemps[groupName][entityId] = { show: false, displayName: '' };
+                    }
+                    groupHeaderTemps[groupName][entityId].displayName = val;
+                    const countEl = findGroupCountEl(groupName);
+                    if (countEl) {
+                        renderGroupCount(countEl, groupName, allGroups[groupName]?.entities);
+                    }
+                    try {
+                        await haAPI.saveSettings({ group_header_temps: groupHeaderTemps });
+                    } catch (err) {
+                        console.error('Failed to save display name:', err);
+                    }
+                }
+            };
+
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+                if (ev.key === 'Escape') { saved = true; if (input.parentNode) input.remove(); nameText.style.display = ''; editNameBtn.style.display = ''; }
+            });
+            input.addEventListener('blur', () => save());
+        };
+        nameCell.appendChild(editNameBtn);
+
         const currentCell = document.createElement('span');
         const currentTemp = entity.attributes?.current_temperature;
         currentCell.textContent = (Number.isFinite(currentTemp)) ? `${currentTemp.toFixed(1)}${temperatureUnit}` : '--';
@@ -1436,9 +1613,47 @@ function createGroupMembersTable(entityIds) {
             }
         };
         
+        const showBtn = document.createElement('button');
+        showBtn.className = 'btn-icon-small show-entity-btn';
+        showBtn.innerHTML = 'S';
+        showBtn.title = 'Show/hide in group header';
+        const isShown = entityConfig?.show;
+        if (isShown) {
+            showBtn.style.background = '#e67e22';
+            showBtn.style.color = '#fff';
+        }
+        showBtn.onclick = async (e) => {
+            e.stopPropagation();
+            const groupName = currentGroup;
+            if (!groupName) return;
+
+            if (!groupHeaderTemps[groupName] || typeof groupHeaderTemps[groupName] !== 'object') groupHeaderTemps[groupName] = {};
+            if (!groupHeaderTemps[groupName][entityId]) {
+                groupHeaderTemps[groupName][entityId] = { show: false, displayName: '' };
+            }
+
+            const nowShown = !groupHeaderTemps[groupName][entityId].show;
+            groupHeaderTemps[groupName][entityId].show = nowShown;
+            showBtn.style.background = nowShown ? '#e67e22' : '';
+            showBtn.style.color = nowShown ? '#fff' : '';
+
+            // Re-render header count for this group
+            const countEl = findGroupCountEl(groupName);
+            if (countEl) {
+                renderGroupCount(countEl, groupName, allGroups[groupName]?.entities);
+            }
+
+            try {
+                await haAPI.saveSettings({ group_header_temps: groupHeaderTemps });
+            } catch (err) {
+                console.error('Failed to save header temps setting:', err);
+            }
+        };
+
         actionCell.appendChild(moveBtn);
+        actionCell.appendChild(showBtn);
         actionCell.appendChild(removeBtn);
-        
+
         row.appendChild(nameCell);
         row.appendChild(currentCell);
         row.appendChild(targetCell);
@@ -2179,6 +2394,8 @@ function attachEditorEventListeners(editorElement) {
                         await loadAdvanceHistory(groupData.entities[0]);
                     }
                 }
+                await loadClimateEntities();
+                refreshAllGroupHeaders();
             } catch (error) {
                 console.error('Failed to advance/cancel schedule:', error);
                 showToast('Failed: ' + error.message, 'error');
@@ -2205,6 +2422,8 @@ function attachEditorEventListeners(editorElement) {
                         if (groupData.entities.length > 0) {
                             await loadAdvanceHistory(groupData.entities[0]);
                         }
+                        await loadClimateEntities();
+                        refreshAllGroupHeaders();
                         showToast('Advance history cleared for all entities in group', 'success');
                     }
                 }
@@ -3268,7 +3487,7 @@ async function loadHistoryData(entityId) {
 }
 
 // Load history data for multiple entities (used for groups)
-async function loadGroupHistoryData(entityIds) {
+async function loadGroupHistoryData(entityIds, groupName) {
     if (!entityIds || entityIds.length === 0) {
         graph.setHistoryData([]);
         return;
@@ -3335,7 +3554,7 @@ async function loadGroupHistoryData(entityIds) {
                     if (historyData.length > 0) {
                         allHistoryData.push({
                             entityId: entityId,
-                            entityName: entity?.attributes?.friendly_name || entityId,
+                            entityName: groupHeaderTemps[groupName]?.[entityId]?.displayName || entity?.attributes?.friendly_name || entityId,
                             data: historyData,
                             color: defaultColors[i % defaultColors.length]
                         });
@@ -3476,6 +3695,7 @@ async function performSave() {
             console.debug('[SAVE] Group save completed successfully', {
                 totalDuration: (performance.now() - saveStartTime).toFixed(2) + 'ms'
             });
+            refreshAllGroupHeaders();
         } catch (error) {
             console.error('[SAVE] Failed to auto-save group schedule:', {
                 error,
@@ -3820,6 +4040,9 @@ function handleStateUpdate(data) {
         updateEntityCard(entityId, newState);
     }
     
+    // Update group header temps if this entity is in a group with temps shown
+    updateGroupHeaderTemp(entityId, newState);
+
     // Update current entity status if selected
     if (entityId === currentEntityId) {
         updateEntityStatus(newState);
@@ -3853,6 +4076,34 @@ function updateEntityCard(entityId, entityState) {
     if (targetTempEl) {
         const tt = entityState.attributes.temperature;
         targetTempEl.textContent = Number.isFinite(tt) ? `${tt.toFixed(1)}${temperatureUnit}` : '--';
+    }
+}
+
+// Update a group header temp span when an entity state changes
+function updateGroupHeaderTemp(entityId, entityState) {
+    for (const [gName, gData] of Object.entries(allGroups)) {
+        if (!groupHeaderTemps[gName]?.[entityId]?.show) continue;
+        if (!gData.entities || !gData.entities.includes(entityId)) continue;
+
+        const config = groupHeaderTemps[gName][entityId];
+        const displayName = config.displayName || entityState?.attributes?.friendly_name || entityId;
+        const countEl = findGroupCountEl(gName);
+        const tempSpan = countEl ? countEl.querySelector(`.header-temp[data-entity-id="${entityId}"]`) : null;
+        if (!tempSpan) continue;
+
+        const ct = entityState?.attributes?.current_temperature;
+        const isHeating = entityState?.attributes?.hvac_action === 'heating';
+        tempSpan.textContent = `${displayName}: ${Number.isFinite(ct) ? ct.toFixed(1) + '°' : '--'}`;
+        tempSpan.style.color = isHeating ? '#e67e22' : '';
+        tempSpan.style.fontWeight = isHeating ? '600' : '';
+
+        // Update the shared target arrow
+        const targetTemp = entityState?.attributes?.temperature;
+        const targetSpan = countEl.querySelector('.header-target');
+        if (targetSpan && Number.isFinite(targetTemp)) {
+            targetSpan.textContent = `${targetTemp.toFixed(1)}° ← `;
+        }
+        break;
     }
 }
 
@@ -4777,6 +5028,8 @@ let defaultScheduleGraph = null;
 // Global min/max settings (populated from loadSettings)
 let minTempSetting = null;
 let maxTempSetting = null;
+let graphMinTemp = null;
+let graphMaxTemp = null;
 
 // Convert all schedules from one unit to another
 async function convertAllSchedules(fromUnit, toUnit) {
@@ -4980,6 +5233,17 @@ async function loadSettings() {
                 tooltipSelect.value = tooltipMode;
             }
         }
+        // Load group header temps setting
+        if (settings && settings.group_header_temps) {
+            groupHeaderTemps = settings.group_header_temps;
+            // Migrate old v1 boolean format to new per-entity format
+            for (const key of Object.keys(groupHeaderTemps)) {
+                if (typeof groupHeaderTemps[key] !== 'object' || groupHeaderTemps[key] === null) {
+                    groupHeaderTemps[key] = {};
+                }
+            }
+        }
+
         // Load derivative sensor setting
         if (settings && typeof settings.create_derivative_sensors !== 'undefined') {
             const checkbox = getDocumentRoot().querySelector('#create-derivative-sensors');
@@ -4987,7 +5251,15 @@ async function loadSettings() {
                 checkbox.checked = settings.create_derivative_sensors;
             }
         }
-        
+
+        // Load update delay setting
+        if (settings && typeof settings.update_delay !== 'undefined') {
+            const delayInput = getDocumentRoot().querySelector('#update-delay');
+            if (delayInput) {
+                delayInput.value = settings.update_delay;
+            }
+        }
+
         // Check for Workday integration and load setting
         await checkWorkdayIntegration(settings);
         
@@ -5020,22 +5292,49 @@ async function loadSettings() {
                 console.warn('max-temp input not found in DOM during loadSettings');
             }
         }
+        // Load graph display range if present
+        graphMinTemp = null;
+        graphMaxTemp = null;
+        if (settings && typeof settings.graph_min_temp !== 'undefined') {
+            let gMin = parseFloat(settings.graph_min_temp);
+            if (storedTemperatureUnit && storedTemperatureUnit !== temperatureUnit) {
+                gMin = convertTemperature(gMin, storedTemperatureUnit, temperatureUnit);
+            }
+            graphMinTemp = gMin;
+            const gMinInput = getDocumentRoot().querySelector('#graph-min-temp');
+            if (gMinInput) gMinInput.value = gMin;
+        }
+        if (settings && typeof settings.graph_max_temp !== 'undefined') {
+            let gMax = parseFloat(settings.graph_max_temp);
+            if (storedTemperatureUnit && storedTemperatureUnit !== temperatureUnit) {
+                gMax = convertTemperature(gMax, storedTemperatureUnit, temperatureUnit);
+            }
+            graphMaxTemp = gMax;
+            const gMaxInput = getDocumentRoot().querySelector('#graph-max-temp');
+            if (gMaxInput) gMaxInput.value = gMax;
+        }
         // Update unit labels (if present)
         try {
             const minUnitEl = getDocumentRoot().querySelector('#min-unit');
             const maxUnitEl = getDocumentRoot().querySelector('#max-unit');
             if (minUnitEl) minUnitEl.textContent = temperatureUnit;
             if (maxUnitEl) maxUnitEl.textContent = temperatureUnit;
+            const gMinUnitEl = getDocumentRoot().querySelector('#graph-min-unit');
+            const gMaxUnitEl = getDocumentRoot().querySelector('#graph-max-unit');
+            if (gMinUnitEl) gMinUnitEl.textContent = temperatureUnit;
+            if (gMaxUnitEl) gMaxUnitEl.textContent = temperatureUnit;
         } catch (err) {
             // ignore
         }
-        // If graphs already exist, update their ranges
+        // If graphs already exist, update their ranges (graph range overrides min/max if set)
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            const displayMin = graphMinTemp !== null ? graphMinTemp : minTempSetting;
+            const displayMax = graphMaxTemp !== null ? graphMaxTemp : maxTempSetting;
+            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && displayMin !== null && displayMax !== null) {
+                defaultScheduleGraph.setMinMax(displayMin, displayMax);
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && typeof graph.setMinMax === 'function' && displayMin !== null && displayMax !== null) {
+                graph.setMinMax(displayMin, displayMax);
             }
         } catch (err) {
             console.debug('Failed to apply min/max to graphs:', err);
@@ -5057,6 +5356,11 @@ async function saveSettings() {
         const maxInput = getDocumentRoot().querySelector('#max-temp');
         if (minInput && minInput.value !== '') settings.min_temp = parseFloat(minInput.value);
         if (maxInput && maxInput.value !== '') settings.max_temp = parseFloat(maxInput.value);
+        // Read graph display range inputs
+        const gMinInput = getDocumentRoot().querySelector('#graph-min-temp');
+        const gMaxInput = getDocumentRoot().querySelector('#graph-max-temp');
+        if (gMinInput && gMinInput.value !== '') settings.graph_min_temp = parseFloat(gMinInput.value);
+        if (gMaxInput && gMaxInput.value !== '') settings.graph_max_temp = parseFloat(gMaxInput.value);
         
         // Read derivative sensor checkbox
         const derivativeCheckbox = getDocumentRoot().querySelector('#create-derivative-sensors');
@@ -5075,7 +5379,16 @@ async function saveSettings() {
         if (selectedWorkdays.length > 0) {
             settings.workdays = selectedWorkdays;
         }
-        
+
+        // Read update delay
+        const delayInput = getDocumentRoot().querySelector('#update-delay');
+        if (delayInput && delayInput.value !== '') settings.update_delay = parseFloat(delayInput.value);
+
+        // Preserve group header temps
+        if (Object.keys(groupHeaderTemps).length > 0) {
+            settings.group_header_temps = groupHeaderTemps;
+        }
+
         await haAPI.saveSettings(settings);
         // Update runtime globals and graphs
         if (typeof settings.min_temp !== 'undefined') {
@@ -5084,12 +5397,16 @@ async function saveSettings() {
         if (typeof settings.max_temp !== 'undefined') {
             maxTempSetting = parseFloat(settings.max_temp);
         }
+        graphMinTemp = typeof settings.graph_min_temp !== 'undefined' ? parseFloat(settings.graph_min_temp) : null;
+        graphMaxTemp = typeof settings.graph_max_temp !== 'undefined' ? parseFloat(settings.graph_max_temp) : null;
         try {
-            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+            const displayMin = graphMinTemp !== null ? graphMinTemp : minTempSetting;
+            const displayMax = graphMaxTemp !== null ? graphMaxTemp : maxTempSetting;
+            if (defaultScheduleGraph && typeof defaultScheduleGraph.setMinMax === 'function' && displayMin !== null && displayMax !== null) {
+                defaultScheduleGraph.setMinMax(displayMin, displayMax);
             }
-            if (graph && typeof graph.setMinMax === 'function' && minTempSetting !== null && maxTempSetting !== null) {
-                graph.setMinMax(minTempSetting, maxTempSetting);
+            if (graph && typeof graph.setMinMax === 'function' && displayMin !== null && displayMax !== null) {
+                graph.setMinMax(displayMin, displayMax);
             }
         } catch (err) {
             console.debug('Failed to apply min/max to graphs after save:', err);
@@ -5119,9 +5436,11 @@ async function setupSettingsPanel() {
         defaultScheduleGraph = new TemperatureGraph(svgElement, temperatureUnit, graphSnapStep, serverTimeZone);
         defaultScheduleGraph.setTooltipMode(tooltipMode);
 
-        // Apply configured min/max if available
-        if (minTempSetting !== null && maxTempSetting !== null && typeof defaultScheduleGraph.setMinMax === 'function') {
-            defaultScheduleGraph.setMinMax(minTempSetting, maxTempSetting);
+        // Apply configured graph range (or fall back to min/max temp)
+        const dsDisplayMin = graphMinTemp !== null ? graphMinTemp : minTempSetting;
+        const dsDisplayMax = graphMaxTemp !== null ? graphMaxTemp : maxTempSetting;
+        if (dsDisplayMin !== null && dsDisplayMax !== null && typeof defaultScheduleGraph.setMinMax === 'function') {
+            defaultScheduleGraph.setMinMax(dsDisplayMin, dsDisplayMax);
         }
         defaultScheduleGraph.setNodes(defaultScheduleSettings);
         
@@ -5298,7 +5617,50 @@ async function setupSettingsPanel() {
             await saveSettings();
         });
     }
-    
+
+    // Graph display range inputs
+    const graphMinInput = getDocumentRoot().querySelector('#graph-min-temp');
+    const graphMaxInput = getDocumentRoot().querySelector('#graph-max-temp');
+    if (graphMinInput) {
+        graphMinInput.addEventListener('change', async (e) => {
+            if (e.target.value !== '') {
+                const v = parseFloat(e.target.value);
+                if (Number.isNaN(v)) {
+                    alert('Graph minimum temperature must be a number');
+                    return;
+                }
+            }
+            await saveSettings();
+        });
+    }
+    if (graphMaxInput) {
+        graphMaxInput.addEventListener('change', async (e) => {
+            if (e.target.value !== '') {
+                const v = parseFloat(e.target.value);
+                if (Number.isNaN(v)) {
+                    alert('Graph maximum temperature must be a number');
+                    return;
+                }
+            }
+            await saveSettings();
+        });
+    }
+
+    // Update delay input
+    const updateDelayInput = getDocumentRoot().querySelector('#update-delay');
+    if (updateDelayInput) {
+        updateDelayInput.addEventListener('change', async (e) => {
+            if (e.target.value !== '') {
+                const v = parseFloat(e.target.value);
+                if (Number.isNaN(v) || v < 0) {
+                    alert('Delay must be a non-negative number');
+                    return;
+                }
+            }
+            await saveSettings();
+        });
+    }
+
     // Reset button
     const resetBtn = getDocumentRoot().querySelector('#reset-defaults');
     if (resetBtn) {
