@@ -46,10 +46,29 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
 
         # Start coordinator updates
         _LOGGER.info(f"Starting coordinator with {UPDATE_INTERVAL_SECONDS}s update interval")
-        await coordinator.async_refresh()
-        _LOGGER.info("Forcing initial temperature sync for all entities")
-        await coordinator.force_update_all()
-        coordinator._initial_setup = False  # Enable update delays for normal operation
+
+        # Run initial sync in background so setup doesn't block waiting for climate entities
+        async def _initial_sync():
+            """Run initial sync after setup completes."""
+            import asyncio
+            _LOGGER.info("[DEBUG] _initial_sync: waiting 5s for climate entities to be ready")
+            await asyncio.sleep(5)
+            _LOGGER.info("[DEBUG] _initial_sync: starting async_refresh()")
+            try:
+                await coordinator.async_refresh()
+                _LOGGER.info("[DEBUG] _initial_sync: async_refresh() complete")
+            except Exception as e:
+                _LOGGER.error("[DEBUG] _initial_sync: async_refresh() failed: %s", e)
+            _LOGGER.info("[DEBUG] _initial_sync: starting force_update_all()")
+            try:
+                await coordinator.force_update_all()
+                _LOGGER.info("[DEBUG] _initial_sync: force_update_all() complete")
+            except Exception as e:
+                _LOGGER.error("[DEBUG] _initial_sync: force_update_all() failed: %s", e)
+            coordinator._initial_setup = False
+            _LOGGER.info("[DEBUG] _initial_sync: all done, _initial_setup=False")
+
+        hass.async_create_task(_initial_sync())
 
         # Schedule periodic updates
         async def _scheduled_update(now):
