@@ -102,6 +102,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self.override_until = {}  # Track entities with advance override (entity_id -> time)
         self.advance_history = {}  # Track advance events (entity_id -> list of {activated_at, target_time, cancelled_at})
         self._workday_available = None  # Cache for workday integration availability
+        self._initial_setup = True  # Skip delays during initial startup
 
     async def async_config_entry_first_refresh(self) -> None:
         """Handle the first refresh."""
@@ -1066,7 +1067,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 }
 
                 # Apply delay between entity updates if configured
-                if entity_updated and update_delay > 0:
+                if entity_updated and update_delay > 0 and not self._initial_setup:
                     await asyncio.sleep(update_delay)
 
             return results

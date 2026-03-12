@@ -49,6 +49,7 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         await coordinator.async_refresh()
         _LOGGER.info("Forcing initial temperature sync for all entities")
         await coordinator.force_update_all()
+        coordinator._initial_setup = False  # Enable update delays for normal operation
 
         # Schedule periodic updates
         async def _scheduled_update(now):
