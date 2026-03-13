@@ -786,7 +786,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         continue
                     else:
                         # Override expired, mark as completed in history
-                                _LOGGER.debug(f"Override expired for {entity_id}, resuming normal scheduling")
+                        _LOGGER.debug(f"Override expired for {entity_id}, resuming normal scheduling")
                         history_updated = False
                         if entity_id in self.advance_history and self.advance_history[entity_id]:
                             # Find the most recent uncompleted advance
