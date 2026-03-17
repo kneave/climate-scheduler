@@ -563,17 +563,18 @@ class TemperatureGraph {
                 }
             }
 
-            // Add small dots at each history point
+            // Add dots at each history point - red when heating
             data.forEach(point => {
                 const x = this.timeToX(point.time);
                 const y = this.tempToY(point.temp);
+                const isHeating = point.runningState === 'heating';
 
                 const dot = this.createSVGElement('circle', {
                     cx: x,
                     cy: y,
-                    r: 2,
-                    fill: color,
-                    opacity: 0.5,
+                    r: isHeating ? 3 : 2,
+                    fill: isHeating ? '#ff0000' : color,
+                    opacity: isHeating ? 0.8 : 0.5,
                     style: 'pointer-events: none;'
                 });
 
