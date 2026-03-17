@@ -535,7 +535,10 @@ class TemperatureGraph {
             const data = entityHistory.data;
 
             // Build segments grouped by running state for varying line thickness
+            const hasRunningState = data.some(p => p.runningState);
+            console.log(`[Graph] Entity ${entityHistory.entityId || entityIndex}: ${data.length} points, hasRunningState: ${hasRunningState}`, data.slice(0, 3));
             const segments = this.buildRunningStateSegments(data);
+            console.log(`[Graph] ${segments.length} segments:`, segments.map(s => `${s.state}(${s.points.length}pts)`));
 
             for (const segment of segments) {
                 let pathData = '';

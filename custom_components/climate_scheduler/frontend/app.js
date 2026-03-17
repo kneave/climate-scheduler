@@ -3431,7 +3431,11 @@ function deriveRunningStateEntityId(climateEntityId) {
 }
 
 function parseRunningStateHistory(historyResult, entityId) {
-    if (!historyResult || !historyResult[entityId]) return [];
+    if (!historyResult || !historyResult[entityId]) {
+        console.log(`[RunningState] No history data for ${entityId}`, historyResult);
+        return [];
+    }
+    console.log(`[RunningState] Parsing ${historyResult[entityId].length} entries for ${entityId}`);
     const states = [];
     for (const entry of historyResult[entityId]) {
         const state = entry.s || entry.state;
@@ -3448,6 +3452,7 @@ function parseRunningStateHistory(historyResult, entityId) {
         states.push({ timestamp, state });
     }
     states.sort((a, b) => a.timestamp - b.timestamp);
+    console.log(`[RunningState] Parsed ${states.length} states for ${entityId}`, states.slice(0, 3));
     return states;
 }
 
