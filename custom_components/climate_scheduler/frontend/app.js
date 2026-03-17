@@ -3424,6 +3424,46 @@ async function switchDay(day) {
     }
 }
 
+// Running state helpers for graph line thickness
+function deriveRunningStateEntityId(climateEntityId) {
+    const name = climateEntityId.replace('climate.', '');
+    return `sensor.${name}_running_state`;
+}
+
+function parseRunningStateHistory(historyResult, entityId) {
+    if (!historyResult || !historyResult[entityId]) return [];
+    const states = [];
+    for (const entry of historyResult[entityId]) {
+        const state = entry.s || entry.state;
+        const lastUpdated = entry.lu || entry.last_updated;
+        if (!state || !lastUpdated) continue;
+        let timestamp;
+        if (typeof lastUpdated === 'string') {
+            timestamp = new Date(lastUpdated);
+        } else if (typeof lastUpdated === 'number') {
+            timestamp = lastUpdated > 10000000000 ? new Date(lastUpdated) : new Date(lastUpdated * 1000);
+        } else {
+            continue;
+        }
+        states.push({ timestamp, state });
+    }
+    states.sort((a, b) => a.timestamp - b.timestamp);
+    return states;
+}
+
+function getRunningStateAtTime(runningStates, targetTime) {
+    if (!runningStates || runningStates.length === 0) return null;
+    let result = null;
+    for (const entry of runningStates) {
+        if (entry.timestamp <= targetTime) {
+            result = entry.state;
+        } else {
+            break;
+        }
+    }
+    return result;
+}
+
 // Load history data for current day
 async function loadHistoryData(entityId) {
     try {
@@ -3434,25 +3474,32 @@ async function loadHistoryData(entityId) {
         // Get current time
         const now = new Date();
         
-        // Fetch history from Home Assistant
-        const historyResult = await haAPI.getHistory(entityId, today, now);
-        
+        // Fetch climate history and running state history in parallel
+        const runningStateEntityId = deriveRunningStateEntityId(entityId);
+        const [historyResult, runningStateResult] = await Promise.all([
+            haAPI.getHistory(entityId, today, now),
+            haAPI.getHistory(runningStateEntityId, today, now).catch(() => null)
+        ]);
+
         if (!historyResult || !historyResult[entityId]) {
             graph.setHistoryData([]);
             return;
         }
-        
+
+        // Parse running state history
+        const runningStates = parseRunningStateHistory(runningStateResult, runningStateEntityId);
+
         // Process history data - extract current_temperature
         const historyData = [];
         const stateHistory = historyResult[entityId] || [];
-        
+
         for (const state of stateHistory) {
             // Handle both abbreviated format (a, lu) and full format (attributes, last_updated)
             const attributes = state.a || state.attributes;
             const lastUpdated = state.lu || state.last_updated;
-            
+
             if (!attributes) continue;
-            
+
             const temp = parseFloat(attributes.current_temperature);
             if (!isNaN(temp)) {
                 // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
@@ -3461,24 +3508,25 @@ async function loadHistoryData(entityId) {
                     stateTime = new Date(lastUpdated);
                 } else if (typeof lastUpdated === 'number') {
                     // Check if it's in seconds or milliseconds
-                    stateTime = lastUpdated > 10000000000 
-                        ? new Date(lastUpdated) 
+                    stateTime = lastUpdated > 10000000000
+                        ? new Date(lastUpdated)
                         : new Date(lastUpdated * 1000);
                 } else {
                     continue; // Skip if we can't parse the time
                 }
-                
+
                 const hours = stateTime.getHours().toString().padStart(2, '0');
                 const minutes = stateTime.getMinutes().toString().padStart(2, '0');
                 const timeStr = `${hours}:${minutes}`;
-                
+
                 historyData.push({
                     time: timeStr,
-                    temp: temp
+                    temp: temp,
+                    runningState: getRunningStateAtTime(runningStates, stateTime)
                 });
             }
         }
-        
+
         graph.setHistoryData(historyData);
     } catch (error) {
         console.error('Failed to load history data:', error);
@@ -3510,19 +3558,27 @@ async function loadGroupHistoryData(entityIds, groupName) {
             const entity = climateEntities.find(e => e.entity_id === entityId);
             
             try {
-                const historyResult = await haAPI.getHistory(entityId, today, now);
-                
+                // Fetch climate history and running state history in parallel
+                const runningStateEntityId = deriveRunningStateEntityId(entityId);
+                const [historyResult, runningStateResult] = await Promise.all([
+                    haAPI.getHistory(entityId, today, now),
+                    haAPI.getHistory(runningStateEntityId, today, now).catch(() => null)
+                ]);
+
+                // Parse running state history
+                const runningStates = parseRunningStateHistory(runningStateResult, runningStateEntityId);
+
                 if (historyResult && historyResult[entityId]) {
                     const historyData = [];
                     const stateHistory = historyResult[entityId] || [];
-                    
+
                     for (const state of stateHistory) {
                         // Handle both abbreviated format (a, lu) and full format (attributes, last_updated)
                         const attributes = state.a || state.attributes;
                         const lastUpdated = state.lu || state.last_updated;
-                        
+
                         if (!attributes) continue;
-                        
+
                         const temp = parseFloat(attributes.current_temperature);
                         if (!isNaN(temp)) {
                             // Parse last_updated - could be ISO string, Unix timestamp, or Unix timestamp in milliseconds
@@ -3531,26 +3587,27 @@ async function loadGroupHistoryData(entityIds, groupName) {
                                 utcTime = new Date(lastUpdated);
                             } else if (typeof lastUpdated === 'number') {
                                 // Check if it's in seconds or milliseconds
-                                utcTime = lastUpdated > 10000000000 
-                                    ? new Date(lastUpdated) 
+                                utcTime = lastUpdated > 10000000000
+                                    ? new Date(lastUpdated)
                                     : new Date(lastUpdated * 1000);
                             } else {
                                 continue; // Skip if we can't parse the time
                             }
-                            
+
                             // Convert to server timezone
                             const stateTime = utcToServerDate(utcTime, serverTimeZone);
                             const hours = stateTime.getHours().toString().padStart(2, '0');
                             const minutes = stateTime.getMinutes().toString().padStart(2, '0');
                             const timeStr = `${hours}:${minutes}`;
-                            
+
                             historyData.push({
                                 time: timeStr,
-                                temp: temp
+                                temp: temp,
+                                runningState: getRunningStateAtTime(runningStates, utcTime)
                             });
                         }
                     }
-                    
+
                     if (historyData.length > 0) {
                         allHistoryData.push({
                             entityId: entityId,

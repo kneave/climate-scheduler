@@ -530,54 +530,74 @@ class TemperatureGraph {
         // Draw each entity's history
         this.historyData.forEach((entityHistory, entityIndex) => {
             if (!entityHistory.data || entityHistory.data.length === 0) return;
-            
+
             const color = entityHistory.color || defaultColors[entityIndex % defaultColors.length];
-            
-            // Create path for this entity's history line
-            let pathData = '';
-            
-            for (let i = 0; i < entityHistory.data.length; i++) {
-                const point = entityHistory.data[i];
-                const x = this.timeToX(point.time);
-                const y = this.tempToY(point.temp);
-                
-                if (i === 0) {
-                    pathData += `M ${x} ${y}`;
-                } else {
-                    pathData += ` L ${x} ${y}`;
-                }
-            }
-            
-            if (pathData) {
-                const path = this.createSVGElement('path', {
-                    d: pathData,
-                    stroke: color,
-                    'stroke-width': 2,
-                    fill: 'none',
-                    opacity: 0.6
-                });
-                g.appendChild(path);
-                
-                // Add small dots at each history point
-                entityHistory.data.forEach(point => {
+            const data = entityHistory.data;
+
+            // Build segments grouped by running state for varying line thickness
+            const segments = this.buildRunningStateSegments(data);
+
+            for (const segment of segments) {
+                let pathData = '';
+                for (let i = 0; i < segment.points.length; i++) {
+                    const point = segment.points[i];
                     const x = this.timeToX(point.time);
                     const y = this.tempToY(point.temp);
-                    
-                    const dot = this.createSVGElement('circle', {
-                        cx: x,
-                        cy: y,
-                        r: 2,
-                        fill: color,
-                        opacity: 0.5,
-                        style: 'pointer-events: none;'
+                    pathData += (i === 0) ? `M ${x} ${y}` : ` L ${x} ${y}`;
+                }
+                if (pathData) {
+                    const strokeWidth = segment.state === 'heating' ? 3.5
+                        : segment.state === 'idle' ? 1
+                        : 2;
+                    const path = this.createSVGElement('path', {
+                        d: pathData,
+                        stroke: color,
+                        'stroke-width': strokeWidth,
+                        fill: 'none',
+                        opacity: 0.6
                     });
-                    
-                    g.appendChild(dot);
-                });
+                    g.appendChild(path);
+                }
             }
+
+            // Add small dots at each history point
+            data.forEach(point => {
+                const x = this.timeToX(point.time);
+                const y = this.tempToY(point.temp);
+
+                const dot = this.createSVGElement('circle', {
+                    cx: x,
+                    cy: y,
+                    r: 2,
+                    fill: color,
+                    opacity: 0.5,
+                    style: 'pointer-events: none;'
+                });
+
+                g.appendChild(dot);
+            });
         });
     }
     
+    buildRunningStateSegments(data) {
+        if (data.length === 0) return [];
+        const segments = [];
+        let current = { state: data[0].runningState || null, points: [data[0]] };
+
+        for (let i = 1; i < data.length; i++) {
+            const state = data[i].runningState || null;
+            if (state === current.state) {
+                current.points.push(data[i]);
+            } else {
+                segments.push(current);
+                // Overlap: include last point of previous segment for visual continuity
+                current = { state: state, points: [data[i - 1], data[i]] };
+            }
+        }
+        segments.push(current);
+        return segments;
+    }
+
     drawHistoryLegend(g) {
         if (!this.historyData || this.historyData.length <= 1) return; // No legend needed for single entity
         
