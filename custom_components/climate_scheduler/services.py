@@ -992,7 +992,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_clear_schedule(call: ServiceCall) -> None:
         """Handle clear_schedule service call."""
         entity_id = call.data["schedule_id"]
-        await storage.async_clear_schedule(entity_id)
+        await storage.async_set_schedule(entity_id, [])
         await coordinator.async_request_refresh()
     
     async def _enable_target(target_id: str) -> None:

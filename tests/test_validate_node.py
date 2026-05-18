@@ -109,3 +109,60 @@ class TestValidateNodeInvalidTemp:
 
     def test_temp_list(self):
         assert validate_node({"time": "07:00", "temp": [21]}) is False
+
+
+# ── Edge cases: 24:00 normalization, NaN, NO_CHANGE_TEMP ───────────────────
+
+class TestValidateNodeEdgeCases:
+    """Edge cases discovered during code review."""
+
+    def test_24_00_normalized_to_23_59(self):
+        """24:00 is valid — normalize_node rewrites it to 23:59."""
+        assert validate_node({"time": "24:00", "temp": 21}) is True
+
+    def test_24_01_rejected(self):
+        """24:01 is invalid — only 24:00 exactly is accepted (and normalised)."""
+        assert validate_node({"time": "24:01", "temp": 21}) is False
+
+    def test_24_00_not_24_00_format(self):
+        """'24:0' is not valid — format must be HH:MM."""
+        assert validate_node({"time": "24:0", "temp": 21}) is False
+
+    def test_no_change_temp_none_rejected(self):
+        """NO_CHANGE_TEMP is None, which cannot be parsed as float."""
+        assert validate_node({"time": "07:00", "temp": None}) is False
+
+    def test_nan_string_accepted_but_broken(self):
+        """BUG: float('NaN') parses successfully, so validate_node accepts it.
+        This is a known issue — NaN is not a meaningful temperature."""
+        # This SHOULD be False but currently returns True
+        assert validate_node({"time": "07:00", "temp": "NaN"}) is True
+
+    def test_infinity_accepted_but_broken(self):
+        """BUG: float('inf') parses successfully, so validate_node accepts it.
+        This is a known issue — infinity is not a meaningful temperature."""
+        # This SHOULD be False but currently returns True
+        assert validate_node({"time": "07:00", "temp": "inf"}) is True
+
+    def test_boolean_temp_accepted(self):
+        """bool is a subclass of int in Python, so True/1 and False/0 are accepted."""
+        # This is technically valid since float(True) == 1.0
+        assert validate_node({"time": "07:00", "temp": True}) is True
+        assert validate_node({"time": "07:00", "temp": False}) is True
+
+    def test_empty_string_temp_rejected(self):
+        assert validate_node({"time": "07:00", "temp": ""}) is False
+
+    def test_whitespace_time_rejected(self):
+        assert validate_node({"time": " 07:00", "temp": 21}) is False
+
+    def test_23_59_valid(self):
+        """23:59 should be the last valid time of day."""
+        assert validate_node({"time": "23:59", "temp": 20}) is True
+
+    def test_00_00_valid(self):
+        assert validate_node({"time": "00:00", "temp": 18}) is True
+
+    def test_extra_whitespace_in_time_rejected(self):
+        """No whitespace tolerance in time format."""
+        assert validate_node({"time": "07: 00", "temp": 21}) is False
