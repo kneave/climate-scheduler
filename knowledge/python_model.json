@@ -1,0 +1,6052 @@
+{
+  "schema": "climate-scheduler-python-model-v1",
+  "modules": [
+    {
+      "file": "custom_components/climate_scheduler/__init__.py",
+      "lines": 406,
+      "docstring": "The Climate Scheduler integration.",
+      "imports": [
+        ".services",
+        "aiohttp.web",
+        "asyncio",
+        "const.DOMAIN",
+        "const.UPDATE_INTERVAL_SECONDS",
+        "coordinator.HeatingSchedulerCoordinator",
+        "datetime.datetime",
+        "datetime.timedelta",
+        "homeassistant.components.http.HomeAssistantView",
+        "homeassistant.components.http.StaticPathConfig",
+        "homeassistant.config_entries",
+        "homeassistant.config_entries.ConfigEntry",
+        "homeassistant.const.__version__",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.helpers.event.async_track_time_interval",
+        "homeassistant.helpers.typing.ConfigType",
+        "homeassistant.util.json",
+        "json",
+        "logging",
+        "pathlib.Path",
+        "services.async_get_services",
+        "storage.ScheduleStorage",
+        "time"
+      ],
+      "functions": [
+        {
+          "name": "_async_setup_common",
+          "line": 25,
+          "end_line": 130,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Common setup for storage, coordinator, services and panel.",
+          "calls": [
+            "HeatingSchedulerCoordinator",
+            "ScheduleStorage",
+            "_LOGGER.info",
+            "_LOGGER.warning",
+            "_register_frontend_resources",
+            "async_track_time_interval",
+            "coordinator.async_refresh",
+            "coordinator.async_request_refresh",
+            "coordinator.force_update_all",
+            "get",
+            "service_module.async_setup_services",
+            "services.has_service",
+            "storage.async_load",
+            "timedelta"
+          ],
+          "assignments": [
+            "coordinator",
+            "expected_services",
+            "missing",
+            "storage"
+          ]
+        },
+        {
+          "name": "_register_frontend_resources",
+          "line": 133,
+          "end_line": 309,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Register the bundled frontend card as a Lovelace resource.",
+          "calls": [
+            "Path",
+            "StaticPathConfig",
+            "_LOGGER.debug",
+            "_LOGGER.error",
+            "_LOGGER.info",
+            "_LOGGER.warning",
+            "any",
+            "data.get",
+            "entry.get",
+            "entry_url.split",
+            "existing_entry.get",
+            "frontend_path.exists",
+            "get",
+            "ha_version.split",
+            "hasattr",
+            "hass.async_add_executor_job",
+            "http.async_register_static_paths",
+            "int",
+            "json.loads",
+            "list",
+            "lovelace_data.get",
+            "manifest.get",
+            "resources.async_create_item",
+            "resources.async_delete_item",
+            "resources.async_items",
+            "resources.async_load",
+            "services.async_call",
+            "str",
+            "time.time"
+          ],
+          "assignments": [
+            "base_url",
+            "card_already_registered",
+            "entry_base_url",
+            "entry_url",
+            "existing_entry",
+            "frontend_path",
+            "frontend_version",
+            "lovelace_data",
+            "manifest",
+            "manifest_path",
+            "manifest_text",
+            "old_card_patterns",
+            "removed_old",
+            "resources",
+            "should_cache",
+            "url",
+            "version_number",
+            "version_parts"
+          ]
+        },
+        {
+          "name": "async_setup",
+          "line": 312,
+          "end_line": 321,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "config",
+              "annotation": "ConfigType"
+            }
+          ],
+          "returns": "bool",
+          "decorators": [],
+          "docstring": "Set up via YAML by importing into a config entry, else no-op.",
+          "calls": [
+            "flow.async_init",
+            "hass.async_create_task"
+          ],
+          "assignments": []
+        },
+        {
+          "name": "async_setup_entry",
+          "line": 324,
+          "end_line": 371,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "entry",
+              "annotation": "ConfigEntry"
+            }
+          ],
+          "returns": "bool",
+          "decorators": [],
+          "docstring": "Set up Climate Scheduler from a config entry.",
+          "calls": [
+            "Path",
+            "_LOGGER.info",
+            "_LOGGER.warning",
+            "_async_setup_common",
+            "_delayed_reload",
+            "asyncio.sleep",
+            "config_entries.async_forward_entry_setups",
+            "config_entries.async_reload",
+            "config_entries.async_update_entry",
+            "data.get",
+            "dict",
+            "hass.async_add_executor_job",
+            "hass.async_create_task",
+            "json.loads",
+            "manifest.get"
+          ],
+          "assignments": [
+            "current_version",
+            "is_first_install",
+            "is_upgrade",
+            "manifest",
+            "manifest_path",
+            "manifest_text",
+            "new_data",
+            "stored_version"
+          ]
+        },
+        {
+          "name": "async_unload_entry",
+          "line": 374,
+          "end_line": 404,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "entry",
+              "annotation": "ConfigEntry"
+            }
+          ],
+          "returns": "bool",
+          "decorators": [],
+          "docstring": "Unload a config entry.",
+          "calls": [
+            "_LOGGER.debug",
+            "_LOGGER.info",
+            "config_entries.async_entries",
+            "config_entries.async_unload_platforms",
+            "data.pop",
+            "len",
+            "services.async_remove"
+          ],
+          "assignments": [
+            "entries",
+            "unload_ok"
+          ]
+        }
+      ],
+      "classes": [],
+      "top_level_calls": [
+        "HeatingSchedulerCoordinator",
+        "Path",
+        "ScheduleStorage",
+        "StaticPathConfig",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "_async_setup_common",
+        "_delayed_reload",
+        "_register_frontend_resources",
+        "any",
+        "async_track_time_interval",
+        "asyncio.sleep",
+        "config_entries.async_entries",
+        "config_entries.async_forward_entry_setups",
+        "config_entries.async_reload",
+        "config_entries.async_unload_platforms",
+        "config_entries.async_update_entry",
+        "coordinator.async_refresh",
+        "coordinator.async_request_refresh",
+        "coordinator.force_update_all",
+        "data.get",
+        "data.pop",
+        "dict",
+        "entry.get",
+        "entry_url.split",
+        "existing_entry.get",
+        "flow.async_init",
+        "frontend_path.exists",
+        "get",
+        "ha_version.split",
+        "hasattr",
+        "hass.async_add_executor_job",
+        "hass.async_create_task",
+        "http.async_register_static_paths",
+        "int",
+        "json.loads",
+        "len",
+        "list",
+        "lovelace_data.get",
+        "manifest.get",
+        "resources.async_create_item",
+        "resources.async_delete_item",
+        "resources.async_items",
+        "resources.async_load",
+        "service_module.async_setup_services",
+        "services.async_call",
+        "services.async_remove",
+        "services.has_service",
+        "storage.async_load",
+        "str",
+        "time.time",
+        "timedelta"
+      ],
+      "top_level_assignments": [
+        "base_url",
+        "card_already_registered",
+        "coordinator",
+        "current_version",
+        "entries",
+        "entry_base_url",
+        "entry_url",
+        "existing_entry",
+        "expected_services",
+        "frontend_path",
+        "frontend_version",
+        "is_first_install",
+        "is_upgrade",
+        "lovelace_data",
+        "manifest",
+        "manifest_path",
+        "manifest_text",
+        "missing",
+        "new_data",
+        "old_card_patterns",
+        "removed_old",
+        "resources",
+        "should_cache",
+        "storage",
+        "stored_version",
+        "unload_ok",
+        "url",
+        "version_number",
+        "version_parts"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/climate.py",
+      "lines": 482,
+      "docstring": "Climate platform for Climate Scheduler.",
+      "imports": [
+        "asyncio",
+        "const.DOMAIN",
+        "coordinator.HeatingSchedulerCoordinator",
+        "datetime.datetime",
+        "datetime.time",
+        "datetime.timedelta",
+        "homeassistant.components.climate.ClimateEntity",
+        "homeassistant.components.climate.ClimateEntityFeature",
+        "homeassistant.components.climate.HVACAction",
+        "homeassistant.components.climate.HVACMode",
+        "homeassistant.config_entries.ConfigEntry",
+        "homeassistant.const.ATTR_TEMPERATURE",
+        "homeassistant.const.UnitOfTemperature",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.core.callback",
+        "homeassistant.helpers.entity_platform.AddEntitiesCallback",
+        "homeassistant.helpers.update_coordinator.CoordinatorEntity",
+        "homeassistant.util.unit_conversion.TemperatureConverter",
+        "logging",
+        "storage.ScheduleStorage",
+        "typing.Any",
+        "typing.Dict",
+        "typing.List",
+        "typing.Optional"
+      ],
+      "functions": [
+        {
+          "name": "async_setup_entry",
+          "line": 29,
+          "end_line": 81,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "config_entry",
+              "annotation": "ConfigEntry"
+            },
+            {
+              "name": "async_add_entities",
+              "annotation": "AddEntitiesCallback"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Set up Climate Scheduler climate entities from a config entry.",
+          "calls": [
+            "ClimateSchedulerGroupEntity",
+            "_LOGGER.info",
+            "async_add_entities",
+            "entities.append",
+            "group_data.get",
+            "groups.items",
+            "len",
+            "storage.async_get_groups",
+            "storage.async_save"
+          ],
+          "assignments": [
+            "entities",
+            "entity_count",
+            "groups",
+            "groups_normalized",
+            "has_flag",
+            "is_single_entity"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "ClimateSchedulerGroupEntity",
+          "line": 84,
+          "end_line": 481,
+          "bases": [
+            "CoordinatorEntity",
+            "ClimateEntity"
+          ],
+          "decorators": [],
+          "docstring": "Climate entity representing a schedule group.",
+          "class_attrs": [
+            "_attr_has_entity_name"
+          ],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 89,
+              "end_line": 141,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "coordinator",
+                  "annotation": "HeatingSchedulerCoordinator"
+                },
+                {
+                  "name": "storage",
+                  "annotation": "ScheduleStorage"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "group_data",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the climate entity.",
+              "calls": [
+                "__init__",
+                "group_data.get",
+                "group_name.lower",
+                "list",
+                "profiles.keys",
+                "replace",
+                "super"
+              ],
+              "assignments": [
+                "profiles",
+                "self._attr_has_entity_name",
+                "self._attr_hvac_modes",
+                "self._attr_max_temp",
+                "self._attr_min_temp",
+                "self._attr_name",
+                "self._attr_preset_mode",
+                "self._attr_preset_modes",
+                "self._attr_supported_features",
+                "self._attr_target_temp_step",
+                "self._attr_temperature_unit",
+                "self._attr_unique_id",
+                "self._group_name",
+                "self._storage"
+              ]
+            },
+            {
+              "name": "async_added_to_hass",
+              "line": 143,
+              "end_line": 163,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "When entity is added to hass, set temperature unit from system config.",
+              "calls": [
+                "_LOGGER.debug",
+                "async_added_to_hass",
+                "attributes.get",
+                "self._update_state",
+                "states.get",
+                "super"
+              ],
+              "assignments": [
+                "first_member",
+                "member_step",
+                "self._attr_target_temp_step",
+                "self._attr_temperature_unit"
+              ]
+            },
+            {
+              "name": "unique_id",
+              "line": 166,
+              "end_line": 168,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "str",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return unique ID.",
+              "calls": [],
+              "assignments": []
+            },
+            {
+              "name": "device_info",
+              "line": 171,
+              "end_line": 178,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": null,
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return device info to link this entity to the Climate Scheduler integration.",
+              "calls": [],
+              "assignments": []
+            },
+            {
+              "name": "_handle_coordinator_update",
+              "line": 181,
+              "end_line": 193,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [
+                "callback"
+              ],
+              "docstring": "Handle updated data from the coordinator.",
+              "calls": [
+                "_data.get",
+                "get",
+                "group_data.get",
+                "list",
+                "profiles.keys",
+                "self._update_state",
+                "self.async_write_ha_state"
+              ],
+              "assignments": [
+                "group_data",
+                "profiles",
+                "self._attr_hvac_mode",
+                "self._attr_preset_mode",
+                "self._attr_preset_modes",
+                "self._enabled"
+              ]
+            },
+            {
+              "name": "_update_state",
+              "line": 195,
+              "end_line": 327,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Update entity state from member entities and schedule.",
+              "calls": [
+                "_LOGGER.debug",
+                "_data.get",
+                "_storage._time_to_minutes",
+                "_storage.get_active_node",
+                "active_node.get",
+                "attributes.get",
+                "datetime.now",
+                "days_of_week.index",
+                "float",
+                "get",
+                "group_data.get",
+                "len",
+                "lower",
+                "member_targets.append",
+                "round",
+                "schedules.get",
+                "sorted",
+                "states.get",
+                "strftime",
+                "sum",
+                "temps.append",
+                "time"
+              ],
+              "assignments": [
+                "active_node",
+                "active_setpoint",
+                "carryover_node",
+                "cooling_count",
+                "current_day",
+                "current_day_index",
+                "current_minutes",
+                "current_time",
+                "days_of_week",
+                "group_data",
+                "heating_count",
+                "hvac_action",
+                "last_prev_node",
+                "member_targets",
+                "nodes",
+                "prev_day",
+                "prev_day_nodes",
+                "schedule_mode",
+                "schedules",
+                "self._active_node",
+                "self._attr_current_temperature",
+                "self._attr_hvac_action",
+                "self._attr_target_temperature",
+                "self._member_temps",
+                "self._next_node",
+                "sorted_nodes",
+                "sorted_prev_nodes",
+                "state",
+                "temp",
+                "temp_map",
+                "temps"
+              ]
+            },
+            {
+              "name": "_map_hvac_mode",
+              "line": 329,
+              "end_line": 340,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "mode_str",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "HVACMode",
+              "decorators": [],
+              "docstring": "Map string hvac_mode to HVACMode enum.",
+              "calls": [
+                "mapping.get",
+                "mode_str.lower"
+              ],
+              "assignments": [
+                "mapping"
+              ]
+            },
+            {
+              "name": "extra_state_attributes",
+              "line": 343,
+              "end_line": 371,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return entity specific state attributes.",
+              "calls": [
+                "_active_node.get",
+                "_next_node.get",
+                "len"
+              ],
+              "assignments": [
+                "attrs"
+              ]
+            },
+            {
+              "name": "async_set_temperature",
+              "line": 373,
+              "end_line": 439,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "**kwargs"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set new target temperature for all member entities.",
+              "calls": [
+                "_LOGGER.error",
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "_data.get",
+                "_storage.get_next_node",
+                "asyncio.sleep",
+                "datetime.now",
+                "delayed_update",
+                "get",
+                "group_data.get",
+                "hass.async_create_task",
+                "kwargs.get",
+                "lower",
+                "map",
+                "next_node_time_str.split",
+                "replace",
+                "schedules.get",
+                "self._update_state",
+                "self.async_write_ha_state",
+                "services.async_call",
+                "strftime",
+                "time",
+                "timedelta"
+              ],
+              "assignments": [
+                "current_day",
+                "current_time",
+                "group_data",
+                "next_node",
+                "next_node_time_str",
+                "nodes",
+                "override_until",
+                "schedule_data",
+                "schedules",
+                "self._attr_target_temperature",
+                "temperature"
+              ]
+            },
+            {
+              "name": "async_set_hvac_mode",
+              "line": 441,
+              "end_line": 450,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hvac_mode",
+                  "annotation": "HVACMode"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set HVAC mode - AUTO (active) or OFF (idle).",
+              "calls": [
+                "_LOGGER.warning",
+                "self.async_turn_off",
+                "self.async_turn_on"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_set_preset_mode",
+              "line": 452,
+              "end_line": 463,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "preset_mode",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set the preset mode (profile) for this group.",
+              "calls": [
+                "_LOGGER.error",
+                "_LOGGER.info",
+                "_storage.async_set_active_profile",
+                "coordinator.async_request_refresh"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_turn_on",
+              "line": 465,
+              "end_line": 472,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Enable the schedule.",
+              "calls": [
+                "_LOGGER.info",
+                "_storage.async_set_enabled",
+                "self.async_write_ha_state"
+              ],
+              "assignments": [
+                "self._enabled"
+              ]
+            },
+            {
+              "name": "async_turn_off",
+              "line": 474,
+              "end_line": 481,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Disable the schedule.",
+              "calls": [
+                "_LOGGER.info",
+                "_storage.async_set_enabled",
+                "self.async_write_ha_state"
+              ],
+              "assignments": [
+                "self._enabled"
+              ]
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "ClimateSchedulerGroupEntity",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "__init__",
+        "_active_node.get",
+        "_data.get",
+        "_next_node.get",
+        "_storage._time_to_minutes",
+        "_storage.async_set_active_profile",
+        "_storage.async_set_enabled",
+        "_storage.get_active_node",
+        "_storage.get_next_node",
+        "active_node.get",
+        "async_add_entities",
+        "async_added_to_hass",
+        "asyncio.sleep",
+        "attributes.get",
+        "coordinator.async_request_refresh",
+        "datetime.now",
+        "days_of_week.index",
+        "delayed_update",
+        "entities.append",
+        "float",
+        "get",
+        "group_data.get",
+        "group_name.lower",
+        "groups.items",
+        "hass.async_create_task",
+        "kwargs.get",
+        "len",
+        "list",
+        "lower",
+        "map",
+        "mapping.get",
+        "member_targets.append",
+        "mode_str.lower",
+        "next_node_time_str.split",
+        "profiles.keys",
+        "replace",
+        "round",
+        "schedules.get",
+        "self._update_state",
+        "self.async_turn_off",
+        "self.async_turn_on",
+        "self.async_write_ha_state",
+        "services.async_call",
+        "sorted",
+        "states.get",
+        "storage.async_get_groups",
+        "storage.async_save",
+        "strftime",
+        "sum",
+        "super",
+        "temps.append",
+        "time",
+        "timedelta"
+      ],
+      "top_level_assignments": [
+        "active_node",
+        "active_setpoint",
+        "attrs",
+        "carryover_node",
+        "cooling_count",
+        "current_day",
+        "current_day_index",
+        "current_minutes",
+        "current_time",
+        "days_of_week",
+        "entities",
+        "entity_count",
+        "first_member",
+        "group_data",
+        "groups",
+        "groups_normalized",
+        "has_flag",
+        "heating_count",
+        "hvac_action",
+        "is_single_entity",
+        "last_prev_node",
+        "mapping",
+        "member_step",
+        "member_targets",
+        "next_node",
+        "next_node_time_str",
+        "nodes",
+        "override_until",
+        "prev_day",
+        "prev_day_nodes",
+        "profiles",
+        "schedule_data",
+        "schedule_mode",
+        "schedules",
+        "self._active_node",
+        "self._attr_current_temperature",
+        "self._attr_has_entity_name",
+        "self._attr_hvac_action",
+        "self._attr_hvac_mode",
+        "self._attr_hvac_modes",
+        "self._attr_max_temp",
+        "self._attr_min_temp",
+        "self._attr_name",
+        "self._attr_preset_mode",
+        "self._attr_preset_modes",
+        "self._attr_supported_features",
+        "self._attr_target_temp_step",
+        "self._attr_target_temperature",
+        "self._attr_temperature_unit",
+        "self._attr_unique_id",
+        "self._enabled",
+        "self._group_name",
+        "self._member_temps",
+        "self._next_node",
+        "self._storage",
+        "sorted_nodes",
+        "sorted_prev_nodes",
+        "state",
+        "temp",
+        "temp_map",
+        "temperature",
+        "temps"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/config_flow.py",
+      "lines": 29,
+      "docstring": null,
+      "imports": [
+        "__future__.annotations",
+        "const.DOMAIN",
+        "homeassistant.config_entries",
+        "homeassistant.core.HomeAssistant",
+        "voluptuous"
+      ],
+      "functions": [],
+      "classes": [
+        {
+          "name": "ClimateSchedulerConfigFlow",
+          "line": 10,
+          "end_line": 28,
+          "bases": [
+            "config_entries.ConfigFlow"
+          ],
+          "decorators": [],
+          "docstring": null,
+          "class_attrs": [
+            "VERSION"
+          ],
+          "methods": [
+            {
+              "name": "async_step_user",
+              "line": 13,
+              "end_line": 22,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "user_input",
+                  "annotation": "dict | None",
+                  "default": "None"
+                }
+              ],
+              "returns": null,
+              "decorators": [],
+              "docstring": null,
+              "calls": [
+                "self._async_current_entries",
+                "self.async_abort",
+                "self.async_create_entry",
+                "self.async_show_form",
+                "vol.Schema"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_step_import",
+              "line": 24,
+              "end_line": 28,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "user_input",
+                  "annotation": "dict | None",
+                  "default": "None"
+                }
+              ],
+              "returns": null,
+              "decorators": [],
+              "docstring": null,
+              "calls": [
+                "self._async_current_entries",
+                "self.async_abort",
+                "self.async_create_entry"
+              ],
+              "assignments": []
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "self._async_current_entries",
+        "self.async_abort",
+        "self.async_create_entry",
+        "self.async_show_form",
+        "vol.Schema"
+      ],
+      "top_level_assignments": []
+    },
+    {
+      "file": "custom_components/climate_scheduler/const.py",
+      "lines": 24,
+      "docstring": "Constants for the Climate Scheduler integration.",
+      "imports": [],
+      "functions": [],
+      "classes": [],
+      "top_level_calls": [],
+      "top_level_assignments": []
+    },
+    {
+      "file": "custom_components/climate_scheduler/coordinator.py",
+      "lines": 1128,
+      "docstring": "Coordinator for Climate Scheduler.",
+      "imports": [
+        "const.DEFAULT_WORKDAYS",
+        "const.DOMAIN",
+        "const.MAX_TEMP",
+        "const.MIN_TEMP",
+        "const.NO_CHANGE_TEMP",
+        "const.SETTING_USE_WORKDAY",
+        "const.SETTING_WORKDAYS",
+        "datetime.datetime",
+        "datetime.timedelta",
+        "homeassistant.const.ATTR_TEMPERATURE",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.helpers.update_coordinator.DataUpdateCoordinator",
+        "homeassistant.helpers.update_coordinator.UpdateFailed",
+        "homeassistant.util.dt",
+        "logging",
+        "storage.ScheduleStorage",
+        "typing.Any",
+        "typing.Dict",
+        "typing.List",
+        "typing.Optional"
+      ],
+      "functions": [],
+      "classes": [
+        {
+          "name": "HeatingSchedulerCoordinator",
+          "line": 17,
+          "end_line": 1127,
+          "bases": [
+            "DataUpdateCoordinator"
+          ],
+          "decorators": [],
+          "docstring": "Coordinator to manage heating schedule updates.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "async_advance_schedule",
+              "line": 23,
+              "end_line": 25,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Service wrapper: advance a single climate entity to its next node.",
+              "calls": [
+                "self.advance_to_next_node"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_advance_group",
+              "line": 27,
+              "end_line": 29,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Service wrapper: advance all entities in a group to their next node.",
+              "calls": [
+                "self.advance_group_to_next_node"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_cancel_advance",
+              "line": 31,
+              "end_line": 33,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Service wrapper: cancel an active advance override for an entity.",
+              "calls": [
+                "self.cancel_advance"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_get_advance_status",
+              "line": 35,
+              "end_line": 83,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "dict",
+              "decorators": [],
+              "docstring": "Return advance override status for a climate entity or a group schedule_id.",
+              "calls": [
+                "advance_history.get",
+                "dt_util.now",
+                "group.get",
+                "last.get",
+                "latest_until.isoformat",
+                "override_until.get",
+                "storage.async_get_group",
+                "until.isoformat"
+              ],
+              "assignments": [
+                "advance_time",
+                "advanced_node",
+                "group",
+                "history",
+                "is_advanced",
+                "last",
+                "latest_until",
+                "member_ids",
+                "now",
+                "original_node",
+                "until"
+              ]
+            },
+            {
+              "name": "__init__",
+              "line": 85,
+              "end_line": 103,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                },
+                {
+                  "name": "storage",
+                  "annotation": "ScheduleStorage"
+                },
+                {
+                  "name": "update_interval",
+                  "annotation": "timedelta"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the coordinator.",
+              "calls": [
+                "__init__",
+                "super"
+              ],
+              "assignments": [
+                "self._workday_available",
+                "self.advance_history",
+                "self.last_node_states",
+                "self.last_node_times",
+                "self.override_until",
+                "self.storage"
+              ]
+            },
+            {
+              "name": "async_config_entry_first_refresh",
+              "line": 105,
+              "end_line": 113,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Handle the first refresh.",
+              "calls": [
+                "_LOGGER.debug",
+                "async_config_entry_first_refresh",
+                "self._check_workday_integration",
+                "storage.async_get_advance_history",
+                "super"
+              ],
+              "assignments": [
+                "self.advance_history"
+              ]
+            },
+            {
+              "name": "_check_workday_integration",
+              "line": 115,
+              "end_line": 129,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Check if the Workday integration is available.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.info",
+                "states.get"
+              ],
+              "assignments": [
+                "self._workday_available",
+                "workday_state"
+              ]
+            },
+            {
+              "name": "is_workday_enabled",
+              "line": 131,
+              "end_line": 144,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Return whether Workday integration should be used for 5/2 scheduling.",
+              "calls": [
+                "_LOGGER.debug",
+                "self.is_workday_available",
+                "settings.get",
+                "storage.async_get_settings"
+              ],
+              "assignments": [
+                "settings",
+                "use_workday"
+              ]
+            },
+            {
+              "name": "get_workdays",
+              "line": 146,
+              "end_line": 158,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "List[str]",
+              "decorators": [],
+              "docstring": "Return list of days considered workdays from settings.",
+              "calls": [
+                "DEFAULT_WORKDAYS.copy",
+                "_LOGGER.debug",
+                "_LOGGER.warning",
+                "isinstance",
+                "settings.get",
+                "storage.async_get_settings"
+              ],
+              "assignments": [
+                "settings",
+                "workdays"
+              ]
+            },
+            {
+              "name": "is_workday",
+              "line": 160,
+              "end_line": 170,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "day",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Check if a given day (e.g., 'mon', 'tue') is a workday.",
+              "calls": [
+                "d.lower",
+                "day.lower",
+                "self.get_workdays"
+              ],
+              "assignments": [
+                "workdays"
+              ]
+            },
+            {
+              "name": "is_workday_available",
+              "line": 172,
+              "end_line": 176,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Return whether the Workday integration is available.",
+              "calls": [
+                "self._check_workday_integration"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "force_update_all",
+              "line": 178,
+              "end_line": 185,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Force update all thermostats to their scheduled temperatures.",
+              "calls": [
+                "_LOGGER.info",
+                "last_node_states.clear",
+                "last_node_times.clear",
+                "self.async_request_refresh"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "advance_to_next_node",
+              "line": 187,
+              "end_line": 468,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Manually advance a specific entity to its next scheduled node.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "_time_to_minutes",
+                "append",
+                "attributes.get",
+                "bus.async_fire",
+                "days_of_week.index",
+                "dt_util.now",
+                "get",
+                "group_data.get",
+                "groups.items",
+                "isoformat",
+                "lower",
+                "map",
+                "max",
+                "min",
+                "next_day_schedule.get",
+                "next_node.get",
+                "next_node_time_str.split",
+                "now.strftime",
+                "now.time",
+                "replace",
+                "schedule_data.get",
+                "services.async_call",
+                "settings.get",
+                "sorted",
+                "states.get",
+                "storage.async_get_group_schedule",
+                "storage.async_get_groups",
+                "storage.async_get_settings",
+                "storage.async_save_advance_history",
+                "str",
+                "time_str.split",
+                "timedelta"
+              ],
+              "assignments": [
+                "clamped_temp",
+                "current_day",
+                "current_day_index",
+                "current_minutes",
+                "current_temperature",
+                "current_time",
+                "days_of_week",
+                "fan_modes",
+                "group_entities",
+                "group_name",
+                "group_type",
+                "groups",
+                "hvac_modes",
+                "is_no_change",
+                "is_preset_only",
+                "is_single",
+                "max_temp",
+                "min_temp",
+                "next_day",
+                "next_day_nodes",
+                "next_day_schedule",
+                "next_node",
+                "next_node_day",
+                "next_node_time_str",
+                "node_minutes",
+                "node_signature",
+                "nodes",
+                "now",
+                "override_until",
+                "preset_modes",
+                "schedule_data",
+                "schedule_mode",
+                "settings",
+                "sorted_nodes",
+                "state",
+                "swing_modes",
+                "target_hvac_mode",
+                "target_temp"
+              ]
+            },
+            {
+              "name": "cancel_advance",
+              "line": 470,
+              "end_line": 511,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Cancel an active advance override for an entity or a group schedule_id.",
+              "calls": [
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "_cancel_single",
+                "dt_util.now",
+                "group.get",
+                "isoformat",
+                "latest.get",
+                "len",
+                "self.async_request_refresh",
+                "storage.async_get_group",
+                "storage.async_save_advance_history"
+              ],
+              "assignments": [
+                "group",
+                "latest",
+                "member_ids"
+              ]
+            },
+            {
+              "name": "clear_advance_history",
+              "line": 513,
+              "end_line": 523,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Clear advance history for an entity.",
+              "calls": [
+                "_LOGGER.info",
+                "storage.async_save_advance_history"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "get_advance_history",
+              "line": 525,
+              "end_line": 538,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "hours",
+                  "annotation": "int",
+                  "default": "24"
+                }
+              ],
+              "returns": "List[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get advance history for an entity within the last N hours.",
+              "calls": [
+                "datetime.fromisoformat",
+                "dt_util.now",
+                "history.append",
+                "timedelta"
+              ],
+              "assignments": [
+                "activated",
+                "cutoff",
+                "history"
+              ]
+            },
+            {
+              "name": "advance_group_to_next_node",
+              "line": 540,
+              "end_line": 617,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Advance all entities in a group to their next scheduled node.",
+              "calls": [
+                "_LOGGER.info",
+                "append",
+                "dt_util.now",
+                "first_success_next_node.get",
+                "group_data.get",
+                "isoformat",
+                "len",
+                "override_until.get",
+                "result.get",
+                "self.advance_to_next_node",
+                "storage.async_get_groups",
+                "storage.async_save_advance_history",
+                "str"
+              ],
+              "assignments": [
+                "entity_ids",
+                "error_count",
+                "first_success_entity_id",
+                "first_success_next_node",
+                "group_data",
+                "groups",
+                "member_until",
+                "result",
+                "results",
+                "success_count"
+              ]
+            },
+            {
+              "name": "get_override_status",
+              "line": 619,
+              "end_line": 628,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Get override status for an entity.",
+              "calls": [
+                "dt_util.now",
+                "override_time.isoformat"
+              ],
+              "assignments": [
+                "override_time"
+              ]
+            },
+            {
+              "name": "_async_update_data",
+              "line": 630,
+              "end_line": 1127,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Update heating schedules.",
+              "calls": [
+                "UpdateFailed",
+                "_LOGGER.debug",
+                "_LOGGER.error",
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "active_node.get",
+                "all_groups.get",
+                "attributes.get",
+                "bus.async_fire",
+                "days_of_week.index",
+                "dt_util.now",
+                "entity_group_schedules.items",
+                "get",
+                "group_data.get",
+                "group_schedule.get",
+                "groups.items",
+                "isoformat",
+                "last_node_states.get",
+                "last_node_times.get",
+                "last_prev_node.get",
+                "len",
+                "lower",
+                "now.strftime",
+                "now.time",
+                "prev_day_schedule.get",
+                "reversed",
+                "services.async_call",
+                "settings.get",
+                "sorted",
+                "states.get",
+                "storage._time_to_minutes",
+                "storage.async_get_group_schedule",
+                "storage.async_get_groups",
+                "storage.async_get_settings",
+                "storage.async_save",
+                "storage.async_save_advance_history",
+                "storage.get_active_node",
+                "str"
+              ],
+              "assignments": [
+                "active_node",
+                "all_groups",
+                "carryover_node",
+                "clamped_temp",
+                "current_day",
+                "current_day_index",
+                "current_minutes",
+                "current_target",
+                "current_target_for_reapply",
+                "current_temperature",
+                "current_time",
+                "days_of_week",
+                "entities_list",
+                "entity_group_schedules",
+                "fan_modes",
+                "first_node_minutes",
+                "group_entities",
+                "group_schedule",
+                "group_type",
+                "groups",
+                "groups_migrated",
+                "history_updated",
+                "hvac_modes",
+                "is_first_run",
+                "is_no_change",
+                "is_preset_only",
+                "is_single",
+                "last_node",
+                "last_node_time",
+                "last_prev_node",
+                "max_temp",
+                "min_temp",
+                "node_signature",
+                "node_state_changed",
+                "node_time",
+                "node_time_changed",
+                "nodes",
+                "now",
+                "override_time",
+                "preset_modes",
+                "prev_day",
+                "prev_day_schedule",
+                "prev_nodes",
+                "results",
+                "schedule_mode",
+                "service_data",
+                "settings",
+                "sorted_nodes",
+                "sorted_prev_nodes",
+                "state",
+                "supported_features",
+                "swing_modes",
+                "target_hvac_mode",
+                "target_temp",
+                "target_temp_high",
+                "target_temp_low",
+                "temp_to_apply",
+                "virtual_key"
+              ]
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "DEFAULT_WORKDAYS.copy",
+        "UpdateFailed",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "__init__",
+        "_cancel_single",
+        "_time_to_minutes",
+        "active_node.get",
+        "advance_history.get",
+        "all_groups.get",
+        "append",
+        "async_config_entry_first_refresh",
+        "attributes.get",
+        "bus.async_fire",
+        "d.lower",
+        "datetime.fromisoformat",
+        "day.lower",
+        "days_of_week.index",
+        "dt_util.now",
+        "entity_group_schedules.items",
+        "first_success_next_node.get",
+        "get",
+        "group.get",
+        "group_data.get",
+        "group_schedule.get",
+        "groups.items",
+        "history.append",
+        "isinstance",
+        "isoformat",
+        "last.get",
+        "last_node_states.clear",
+        "last_node_states.get",
+        "last_node_times.clear",
+        "last_node_times.get",
+        "last_prev_node.get",
+        "latest.get",
+        "latest_until.isoformat",
+        "len",
+        "lower",
+        "map",
+        "max",
+        "min",
+        "next_day_schedule.get",
+        "next_node.get",
+        "next_node_time_str.split",
+        "now.strftime",
+        "now.time",
+        "override_time.isoformat",
+        "override_until.get",
+        "prev_day_schedule.get",
+        "replace",
+        "result.get",
+        "reversed",
+        "schedule_data.get",
+        "self._check_workday_integration",
+        "self.advance_group_to_next_node",
+        "self.advance_to_next_node",
+        "self.async_request_refresh",
+        "self.cancel_advance",
+        "self.get_workdays",
+        "self.is_workday_available",
+        "services.async_call",
+        "settings.get",
+        "sorted",
+        "states.get",
+        "storage._time_to_minutes",
+        "storage.async_get_advance_history",
+        "storage.async_get_group",
+        "storage.async_get_group_schedule",
+        "storage.async_get_groups",
+        "storage.async_get_settings",
+        "storage.async_save",
+        "storage.async_save_advance_history",
+        "storage.get_active_node",
+        "str",
+        "super",
+        "time_str.split",
+        "timedelta",
+        "until.isoformat"
+      ],
+      "top_level_assignments": [
+        "activated",
+        "active_node",
+        "advance_time",
+        "advanced_node",
+        "all_groups",
+        "carryover_node",
+        "clamped_temp",
+        "current_day",
+        "current_day_index",
+        "current_minutes",
+        "current_target",
+        "current_target_for_reapply",
+        "current_temperature",
+        "current_time",
+        "cutoff",
+        "days_of_week",
+        "entities_list",
+        "entity_group_schedules",
+        "entity_ids",
+        "error_count",
+        "fan_modes",
+        "first_node_minutes",
+        "first_success_entity_id",
+        "first_success_next_node",
+        "group",
+        "group_data",
+        "group_entities",
+        "group_name",
+        "group_schedule",
+        "group_type",
+        "groups",
+        "groups_migrated",
+        "history",
+        "history_updated",
+        "hvac_modes",
+        "is_advanced",
+        "is_first_run",
+        "is_no_change",
+        "is_preset_only",
+        "is_single",
+        "last",
+        "last_node",
+        "last_node_time",
+        "last_prev_node",
+        "latest",
+        "latest_until",
+        "max_temp",
+        "member_ids",
+        "member_until",
+        "min_temp",
+        "next_day",
+        "next_day_nodes",
+        "next_day_schedule",
+        "next_node",
+        "next_node_day",
+        "next_node_time_str",
+        "node_minutes",
+        "node_signature",
+        "node_state_changed",
+        "node_time",
+        "node_time_changed",
+        "nodes",
+        "now",
+        "original_node",
+        "override_time",
+        "override_until",
+        "preset_modes",
+        "prev_day",
+        "prev_day_schedule",
+        "prev_nodes",
+        "result",
+        "results",
+        "schedule_data",
+        "schedule_mode",
+        "self._workday_available",
+        "self.advance_history",
+        "self.last_node_states",
+        "self.last_node_times",
+        "self.override_until",
+        "self.storage",
+        "service_data",
+        "settings",
+        "sorted_nodes",
+        "sorted_prev_nodes",
+        "state",
+        "success_count",
+        "supported_features",
+        "swing_modes",
+        "target_hvac_mode",
+        "target_temp",
+        "target_temp_high",
+        "target_temp_low",
+        "temp_to_apply",
+        "until",
+        "use_workday",
+        "virtual_key",
+        "workday_state",
+        "workdays"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/sensor.py",
+      "lines": 453,
+      "docstring": "Sensor platform for Climate Scheduler.",
+      "imports": [
+        "const.DOMAIN",
+        "datetime.timedelta",
+        "homeassistant.components.sensor.SensorDeviceClass",
+        "homeassistant.components.sensor.SensorEntity",
+        "homeassistant.components.sensor.SensorStateClass",
+        "homeassistant.config_entries.ConfigEntry",
+        "homeassistant.const.UnitOfTemperature",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.core.callback",
+        "homeassistant.helpers.device_registry",
+        "homeassistant.helpers.entity_platform.AddEntitiesCallback",
+        "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.event.async_track_state_change_event",
+        "homeassistant.util.dt",
+        "logging",
+        "typing.Any"
+      ],
+      "functions": [
+        {
+          "name": "async_setup_entry",
+          "line": 27,
+          "end_line": 100,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "config_entry",
+              "annotation": "ConfigEntry"
+            },
+            {
+              "name": "async_add_entities",
+              "annotation": "AddEntitiesCallback"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Set up Climate Scheduler sensors from a config entry.",
+          "calls": [
+            "ClimateSchedulerRateSensor",
+            "ColdestEntitySensor",
+            "WarmestEntitySensor",
+            "_LOGGER.debug",
+            "_LOGGER.warning",
+            "_data.get",
+            "async_add_entities",
+            "dr.async_get",
+            "entities.values",
+            "entity_id.lower",
+            "entity_registry.async_get",
+            "er.async_get",
+            "len",
+            "sensors.append",
+            "settings.get",
+            "storage.async_get_all_entities",
+            "storage.async_is_ignored"
+          ],
+          "assignments": [
+            "all_entity_ids",
+            "coordinator",
+            "device_id",
+            "device_registry",
+            "device_sensors",
+            "entity_entry",
+            "entity_registry",
+            "sensors",
+            "settings",
+            "storage"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "ClimateSchedulerRateSensor",
+          "line": 103,
+          "end_line": 274,
+          "bases": [
+            "SensorEntity"
+          ],
+          "decorators": [],
+          "docstring": "Sensor that tracks the rate of temperature change for a climate entity.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 106,
+              "end_line": 177,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                },
+                {
+                  "name": "climate_entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "source_entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "temperature_attribute",
+                  "annotation": "str",
+                  "default": "\"current_temperature\""
+                },
+                {
+                  "name": "device_id",
+                  "annotation": "str",
+                  "default": "None"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the sensor.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.error",
+                "_LOGGER.warning",
+                "climate_entity_id.split",
+                "device_registry.async_get",
+                "dr.async_get",
+                "entity_name.replace",
+                "floor_sensor_name.endswith",
+                "floor_sensor_name.startswith",
+                "floor_sensor_suffix.replace",
+                "len",
+                "source_entity_id.split",
+                "title"
+              ],
+              "assignments": [
+                "device",
+                "device_registry",
+                "entity_name",
+                "floor_sensor_name",
+                "floor_sensor_suffix",
+                "friendly_name",
+                "is_floor",
+                "self._attr_device_class",
+                "self._attr_device_info",
+                "self._attr_icon",
+                "self._attr_name",
+                "self._attr_native_unit_of_measurement",
+                "self._attr_native_value",
+                "self._attr_state_class",
+                "self._attr_unique_id",
+                "self._climate_entity_id",
+                "self._device_id",
+                "self._samples",
+                "self._source_entity_id",
+                "self._temperature_attribute",
+                "self.hass",
+                "suffix",
+                "unique_suffix"
+              ]
+            },
+            {
+              "name": "async_added_to_hass",
+              "line": 179,
+              "end_line": 205,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Register state listener when entity is added.",
+              "calls": [
+                "_samples.append",
+                "async_track_state_change_event",
+                "attributes.get",
+                "dt_util.utcnow",
+                "float",
+                "self.async_on_remove",
+                "states.get"
+              ],
+              "assignments": [
+                "now",
+                "state",
+                "temp"
+              ]
+            },
+            {
+              "name": "_async_source_state_changed",
+              "line": 208,
+              "end_line": 239,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "event"
+                }
+              ],
+              "returns": "None",
+              "decorators": [
+                "callback"
+              ],
+              "docstring": "Handle source entity state changes.",
+              "calls": [
+                "_LOGGER.debug",
+                "_samples.append",
+                "attributes.get",
+                "data.get",
+                "dt_util.utcnow",
+                "float",
+                "len",
+                "self._calculate_rate",
+                "self.async_write_ha_state"
+              ],
+              "assignments": [
+                "current_temp",
+                "new_state",
+                "now",
+                "self._samples",
+                "temp"
+              ]
+            },
+            {
+              "name": "_calculate_rate",
+              "line": 241,
+              "end_line": 263,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Calculate the rate of temperature change.",
+              "calls": [
+                "len",
+                "round",
+                "total_seconds"
+              ],
+              "assignments": [
+                "rate",
+                "self._attr_native_value",
+                "temp_diff",
+                "time_diff"
+              ]
+            },
+            {
+              "name": "extra_state_attributes",
+              "line": 266,
+              "end_line": 274,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return additional state attributes.",
+              "calls": [
+                "len"
+              ],
+              "assignments": []
+            }
+          ]
+        },
+        {
+          "name": "ColdestEntitySensor",
+          "line": 277,
+          "end_line": 363,
+          "bases": [
+            "SensorEntity"
+          ],
+          "decorators": [],
+          "docstring": "Sensor that shows the coldest climate entity.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 280,
+              "end_line": 301,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                },
+                {
+                  "name": "storage"
+                },
+                {
+                  "name": "coordinator"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the sensor.",
+              "calls": [],
+              "assignments": [
+                "self._attr_device_class",
+                "self._attr_icon",
+                "self._attr_name",
+                "self._attr_native_unit_of_measurement",
+                "self._attr_native_value",
+                "self._attr_state_class",
+                "self._attr_unique_id",
+                "self._coldest_entity_id",
+                "self._coldest_friendly_name",
+                "self._coordinator",
+                "self._remove_listener",
+                "self._storage",
+                "self.hass"
+              ]
+            },
+            {
+              "name": "async_added_to_hass",
+              "line": 303,
+              "end_line": 308,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Register state listener when entity is added.",
+              "calls": [
+                "_coordinator.async_add_listener",
+                "self._async_update"
+              ],
+              "assignments": [
+                "self._remove_listener"
+              ]
+            },
+            {
+              "name": "async_will_remove_from_hass",
+              "line": 310,
+              "end_line": 313,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Unregister listener when entity is removed.",
+              "calls": [
+                "self._remove_listener"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_handle_coordinator_update",
+              "line": 316,
+              "end_line": 318,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [
+                "callback"
+              ],
+              "docstring": "Handle updated data from the coordinator.",
+              "calls": [
+                "hass.async_create_task",
+                "self._async_update"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_async_update",
+              "line": 320,
+              "end_line": 355,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Update the sensor value.",
+              "calls": [
+                "_storage.async_get_all_entities",
+                "_storage.async_is_ignored",
+                "attributes.get",
+                "float",
+                "self.async_write_ha_state",
+                "states.get"
+              ],
+              "assignments": [
+                "all_entities",
+                "coldest_entity",
+                "coldest_name",
+                "coldest_temp",
+                "current_temp",
+                "self._attr_native_value",
+                "self._coldest_entity_id",
+                "self._coldest_friendly_name",
+                "state",
+                "temp"
+              ]
+            },
+            {
+              "name": "extra_state_attributes",
+              "line": 358,
+              "end_line": 363,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return additional state attributes.",
+              "calls": [],
+              "assignments": []
+            }
+          ]
+        },
+        {
+          "name": "WarmestEntitySensor",
+          "line": 366,
+          "end_line": 452,
+          "bases": [
+            "SensorEntity"
+          ],
+          "decorators": [],
+          "docstring": "Sensor that shows the warmest climate entity.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 369,
+              "end_line": 390,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                },
+                {
+                  "name": "storage"
+                },
+                {
+                  "name": "coordinator"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the sensor.",
+              "calls": [],
+              "assignments": [
+                "self._attr_device_class",
+                "self._attr_icon",
+                "self._attr_name",
+                "self._attr_native_unit_of_measurement",
+                "self._attr_native_value",
+                "self._attr_state_class",
+                "self._attr_unique_id",
+                "self._coordinator",
+                "self._remove_listener",
+                "self._storage",
+                "self._warmest_entity_id",
+                "self._warmest_friendly_name",
+                "self.hass"
+              ]
+            },
+            {
+              "name": "async_added_to_hass",
+              "line": 392,
+              "end_line": 397,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Register state listener when entity is added.",
+              "calls": [
+                "_coordinator.async_add_listener",
+                "self._async_update"
+              ],
+              "assignments": [
+                "self._remove_listener"
+              ]
+            },
+            {
+              "name": "async_will_remove_from_hass",
+              "line": 399,
+              "end_line": 402,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Unregister listener when entity is removed.",
+              "calls": [
+                "self._remove_listener"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_handle_coordinator_update",
+              "line": 405,
+              "end_line": 407,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [
+                "callback"
+              ],
+              "docstring": "Handle updated data from the coordinator.",
+              "calls": [
+                "hass.async_create_task",
+                "self._async_update"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_async_update",
+              "line": 409,
+              "end_line": 444,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Update the sensor value.",
+              "calls": [
+                "_storage.async_get_all_entities",
+                "_storage.async_is_ignored",
+                "attributes.get",
+                "float",
+                "self.async_write_ha_state",
+                "states.get"
+              ],
+              "assignments": [
+                "all_entities",
+                "current_temp",
+                "self._attr_native_value",
+                "self._warmest_entity_id",
+                "self._warmest_friendly_name",
+                "state",
+                "temp",
+                "warmest_entity",
+                "warmest_name",
+                "warmest_temp"
+              ]
+            },
+            {
+              "name": "extra_state_attributes",
+              "line": 447,
+              "end_line": 452,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return additional state attributes.",
+              "calls": [],
+              "assignments": []
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "ClimateSchedulerRateSensor",
+        "ColdestEntitySensor",
+        "WarmestEntitySensor",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.warning",
+        "_coordinator.async_add_listener",
+        "_data.get",
+        "_samples.append",
+        "_storage.async_get_all_entities",
+        "_storage.async_is_ignored",
+        "async_add_entities",
+        "async_track_state_change_event",
+        "attributes.get",
+        "climate_entity_id.split",
+        "data.get",
+        "device_registry.async_get",
+        "dr.async_get",
+        "dt_util.utcnow",
+        "entities.values",
+        "entity_id.lower",
+        "entity_name.replace",
+        "entity_registry.async_get",
+        "er.async_get",
+        "float",
+        "floor_sensor_name.endswith",
+        "floor_sensor_name.startswith",
+        "floor_sensor_suffix.replace",
+        "hass.async_create_task",
+        "len",
+        "round",
+        "self._async_update",
+        "self._calculate_rate",
+        "self._remove_listener",
+        "self.async_on_remove",
+        "self.async_write_ha_state",
+        "sensors.append",
+        "settings.get",
+        "source_entity_id.split",
+        "states.get",
+        "storage.async_get_all_entities",
+        "storage.async_is_ignored",
+        "title",
+        "total_seconds"
+      ],
+      "top_level_assignments": [
+        "all_entities",
+        "all_entity_ids",
+        "coldest_entity",
+        "coldest_name",
+        "coldest_temp",
+        "coordinator",
+        "current_temp",
+        "device",
+        "device_id",
+        "device_registry",
+        "device_sensors",
+        "entity_entry",
+        "entity_name",
+        "entity_registry",
+        "floor_sensor_name",
+        "floor_sensor_suffix",
+        "friendly_name",
+        "is_floor",
+        "new_state",
+        "now",
+        "rate",
+        "self._attr_device_class",
+        "self._attr_device_info",
+        "self._attr_icon",
+        "self._attr_name",
+        "self._attr_native_unit_of_measurement",
+        "self._attr_native_value",
+        "self._attr_state_class",
+        "self._attr_unique_id",
+        "self._climate_entity_id",
+        "self._coldest_entity_id",
+        "self._coldest_friendly_name",
+        "self._coordinator",
+        "self._device_id",
+        "self._remove_listener",
+        "self._samples",
+        "self._source_entity_id",
+        "self._storage",
+        "self._temperature_attribute",
+        "self._warmest_entity_id",
+        "self._warmest_friendly_name",
+        "self.hass",
+        "sensors",
+        "settings",
+        "state",
+        "storage",
+        "suffix",
+        "temp",
+        "temp_diff",
+        "time_diff",
+        "unique_suffix",
+        "warmest_entity",
+        "warmest_name",
+        "warmest_temp"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/services.py",
+      "lines": 1910,
+      "docstring": "Service definitions and handlers for Climate Scheduler.",
+      "imports": [
+        "aiohttp",
+        "asyncio",
+        "const.DOMAIN",
+        "coordinator.HeatingSchedulerCoordinator",
+        "datetime",
+        "hashlib",
+        "homeassistant.config_entries.ConfigEntry",
+        "homeassistant.const.__version__",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.core.ServiceCall",
+        "homeassistant.core.SupportsResponse",
+        "homeassistant.helpers.config_validation",
+        "homeassistant.helpers.device_registry",
+        "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.selector",
+        "homeassistant.loader.async_get_integration",
+        "homeassistant.util.json",
+        "json",
+        "logging",
+        "pathlib.Path",
+        "storage.ScheduleStorage",
+        "time",
+        "typing.Any",
+        "voluptuous"
+      ],
+      "functions": [
+        {
+          "name": "async_get_services",
+          "line": 21,
+          "end_line": 593,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            }
+          ],
+          "returns": "dict[str, Any]",
+          "decorators": [],
+          "docstring": "Return dynamic service definitions with runtime-populated selectors.",
+          "calls": [
+            "all_groups.items",
+            "global_profiles.keys",
+            "group_data.get",
+            "name.startswith",
+            "storage.async_get_global_profiles",
+            "storage.async_get_groups"
+          ],
+          "assignments": [
+            "all_groups",
+            "global_profiles",
+            "group_names",
+            "profile_options"
+          ]
+        },
+        {
+          "name": "async_setup_services",
+          "line": 597,
+          "end_line": 1909,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Set up all services for the Climate Scheduler integration.",
+          "calls": [
+            "Path",
+            "RuntimeError",
+            "ValueError",
+            "_LOGGER.debug",
+            "_LOGGER.error",
+            "_LOGGER.info",
+            "_LOGGER.warning",
+            "_advance_target",
+            "_data.get",
+            "_disable_target",
+            "_enable_target",
+            "aiohttp.ClientSession",
+            "all_climate_entities.update",
+            "all_groups.items",
+            "async_get_integration",
+            "asyncio.timeout",
+            "attrs.get",
+            "bus.async_fire",
+            "climate_entities.append",
+            "climate_entity_id.split",
+            "climate_states.append",
+            "config_entries.async_entries",
+            "config_entries.async_get_entry",
+            "config_entries.async_reload",
+            "content.lower",
+            "content.split",
+            "coordinator.async_advance_group",
+            "coordinator.async_advance_schedule",
+            "coordinator.async_cancel_advance",
+            "coordinator.async_get_advance_status",
+            "coordinator.async_request_refresh",
+            "coordinator.clear_advance_history",
+            "coordinator.get_advance_history",
+            "data.get",
+            "datetime.now",
+            "devices.values",
+            "dict",
+            "dr.async_get",
+            "entities.values",
+            "entity_id.lower",
+            "entity_id.split",
+            "entity_id.startswith",
+            "entity_reg.async_get",
+            "entity_reg.async_remove",
+            "entry.get",
+            "entry_url.split",
+            "er.async_get",
+            "errors.append",
+            "expected_entity_ids.add",
+            "expected_unique_ids.add",
+            "floor_sensor_name.startswith",
+            "gdata.get",
+            "getattr",
+            "global_profiles.keys",
+            "group.get",
+            "group_data.get",
+            "group_name.encode",
+            "group_name.lower",
+            "group_name.replace",
+            "group_name.startswith",
+            "groups.items",
+            "ha_version.split",
+            "hasattr",
+            "hashlib.md5",
+            "hass.async_add_executor_job",
+            "hexdigest",
+            "int",
+            "integration_devices.append",
+            "isinstance",
+            "json.loads",
+            "last_node_states.clear",
+            "len",
+            "list",
+            "lovelace_data.get",
+            "lower",
+            "manifest.get",
+            "name.startswith",
+            "node_data.get",
+            "now.weekday",
+            "orphaned.append",
+            "problematic.append",
+            "r.get",
+            "registered_cards.append",
+            "removed.append",
+            "replace",
+            "resource_url.split",
+            "resources.async_create_item",
+            "resources.async_delete_item",
+            "resources.async_items",
+            "resources.async_load",
+            "resources.async_update_item",
+            "response.text",
+            "schedule.get",
+            "selector.EntitySelector",
+            "selector.EntitySelectorConfig",
+            "selector.SelectSelector",
+            "selector.SelectSelectorConfig",
+            "service_schemas.get",
+            "services.async_register",
+            "session.close",
+            "session.get",
+            "set",
+            "settings.get",
+            "sorted",
+            "states.get",
+            "status.get",
+            "storage.async_add_entity_to_group",
+            "storage.async_cleanup_derivative_sensors",
+            "storage.async_cleanup_unmonitored_storage",
+            "storage.async_create_group",
+            "storage.async_create_profile",
+            "storage.async_delete_group",
+            "storage.async_delete_profile",
+            "storage.async_factory_reset",
+            "storage.async_get_active_profile_name",
+            "storage.async_get_global_profiles",
+            "storage.async_get_group",
+            "storage.async_get_groups",
+            "storage.async_get_profiles",
+            "storage.async_get_schedule",
+            "storage.async_get_settings",
+            "storage.async_remove_entity_from_group",
+            "storage.async_rename_group",
+            "storage.async_rename_profile",
+            "storage.async_save_settings",
+            "storage.async_set_active_profile",
+            "storage.async_set_enabled",
+            "storage.async_set_group_schedule",
+            "storage.async_set_ignored",
+            "storage.async_set_schedule",
+            "storage_data.values",
+            "str",
+            "sum",
+            "time.time",
+            "vol.Any",
+            "vol.Optional",
+            "vol.Required",
+            "vol.Schema"
+          ],
+          "assignments": [
+            "active_profile",
+            "added",
+            "all_climate_entities",
+            "all_groups",
+            "attrs",
+            "base_url",
+            "card_url",
+            "climate_entities",
+            "climate_entry",
+            "climate_states",
+            "confirm",
+            "confirm_delete_all",
+            "content",
+            "content_lower",
+            "create_derivative",
+            "day",
+            "delete",
+            "deleted_count",
+            "device_id",
+            "device_reg",
+            "device_sensors",
+            "domain",
+            "enabled",
+            "entities",
+            "entities_list",
+            "entity_id",
+            "entity_name",
+            "entity_reg",
+            "entity_selector",
+            "entry",
+            "entry_base",
+            "entry_type",
+            "entry_url",
+            "errors",
+            "existing_entry",
+            "expected_base_url",
+            "expected_entity_ids",
+            "expected_unique_ids",
+            "first_lines",
+            "floor_sensor_name",
+            "floor_sensor_suffix",
+            "frontend_version",
+            "full_url",
+            "global_profiles",
+            "group",
+            "group_data",
+            "group_name",
+            "group_names",
+            "group_selector",
+            "groups",
+            "history",
+            "ignored",
+            "integration",
+            "integration_devices",
+            "integration_entities",
+            "integration_version",
+            "is_active",
+            "item",
+            "lines",
+            "lovelace",
+            "lovelace_data",
+            "manifest",
+            "manifest_path",
+            "manifest_text",
+            "message",
+            "new_name",
+            "node_data",
+            "nodes",
+            "now",
+            "old_name",
+            "orphaned",
+            "problematic",
+            "profile_name",
+            "profile_options",
+            "profile_selector",
+            "profiles",
+            "profiles_list",
+            "registered_cards",
+            "removed",
+            "resource_type",
+            "resource_url",
+            "resources",
+            "result",
+            "schedule",
+            "schedule_mode",
+            "schedules",
+            "sensor_entities",
+            "sensor_state",
+            "session",
+            "settings",
+            "settings_json",
+            "state",
+            "status",
+            "storage_data",
+            "target",
+            "target_id",
+            "token",
+            "total_entities",
+            "unique_id",
+            "url",
+            "version_number",
+            "version_parts"
+          ]
+        }
+      ],
+      "classes": [],
+      "top_level_calls": [
+        "Path",
+        "RuntimeError",
+        "ValueError",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "_advance_target",
+        "_data.get",
+        "_disable_target",
+        "_enable_target",
+        "aiohttp.ClientSession",
+        "all_climate_entities.update",
+        "all_groups.items",
+        "async_get_integration",
+        "asyncio.timeout",
+        "attrs.get",
+        "bus.async_fire",
+        "climate_entities.append",
+        "climate_entity_id.split",
+        "climate_states.append",
+        "config_entries.async_entries",
+        "config_entries.async_get_entry",
+        "config_entries.async_reload",
+        "content.lower",
+        "content.split",
+        "coordinator.async_advance_group",
+        "coordinator.async_advance_schedule",
+        "coordinator.async_cancel_advance",
+        "coordinator.async_get_advance_status",
+        "coordinator.async_request_refresh",
+        "coordinator.clear_advance_history",
+        "coordinator.get_advance_history",
+        "data.get",
+        "datetime.now",
+        "devices.values",
+        "dict",
+        "dr.async_get",
+        "entities.values",
+        "entity_id.lower",
+        "entity_id.split",
+        "entity_id.startswith",
+        "entity_reg.async_get",
+        "entity_reg.async_remove",
+        "entry.get",
+        "entry_url.split",
+        "er.async_get",
+        "errors.append",
+        "expected_entity_ids.add",
+        "expected_unique_ids.add",
+        "floor_sensor_name.startswith",
+        "gdata.get",
+        "getattr",
+        "global_profiles.keys",
+        "group.get",
+        "group_data.get",
+        "group_name.encode",
+        "group_name.lower",
+        "group_name.replace",
+        "group_name.startswith",
+        "groups.items",
+        "ha_version.split",
+        "hasattr",
+        "hashlib.md5",
+        "hass.async_add_executor_job",
+        "hexdigest",
+        "int",
+        "integration_devices.append",
+        "isinstance",
+        "json.loads",
+        "last_node_states.clear",
+        "len",
+        "list",
+        "lovelace_data.get",
+        "lower",
+        "manifest.get",
+        "name.startswith",
+        "node_data.get",
+        "now.weekday",
+        "orphaned.append",
+        "problematic.append",
+        "r.get",
+        "registered_cards.append",
+        "removed.append",
+        "replace",
+        "resource_url.split",
+        "resources.async_create_item",
+        "resources.async_delete_item",
+        "resources.async_items",
+        "resources.async_load",
+        "resources.async_update_item",
+        "response.text",
+        "schedule.get",
+        "selector.EntitySelector",
+        "selector.EntitySelectorConfig",
+        "selector.SelectSelector",
+        "selector.SelectSelectorConfig",
+        "service_schemas.get",
+        "services.async_register",
+        "session.close",
+        "session.get",
+        "set",
+        "settings.get",
+        "sorted",
+        "states.get",
+        "status.get",
+        "storage.async_add_entity_to_group",
+        "storage.async_cleanup_derivative_sensors",
+        "storage.async_cleanup_unmonitored_storage",
+        "storage.async_create_group",
+        "storage.async_create_profile",
+        "storage.async_delete_group",
+        "storage.async_delete_profile",
+        "storage.async_factory_reset",
+        "storage.async_get_active_profile_name",
+        "storage.async_get_global_profiles",
+        "storage.async_get_group",
+        "storage.async_get_groups",
+        "storage.async_get_profiles",
+        "storage.async_get_schedule",
+        "storage.async_get_settings",
+        "storage.async_remove_entity_from_group",
+        "storage.async_rename_group",
+        "storage.async_rename_profile",
+        "storage.async_save_settings",
+        "storage.async_set_active_profile",
+        "storage.async_set_enabled",
+        "storage.async_set_group_schedule",
+        "storage.async_set_ignored",
+        "storage.async_set_schedule",
+        "storage_data.values",
+        "str",
+        "sum",
+        "time.time",
+        "vol.Any",
+        "vol.Optional",
+        "vol.Required",
+        "vol.Schema"
+      ],
+      "top_level_assignments": [
+        "active_profile",
+        "added",
+        "all_climate_entities",
+        "all_groups",
+        "attrs",
+        "base_url",
+        "card_url",
+        "climate_entities",
+        "climate_entry",
+        "climate_states",
+        "confirm",
+        "confirm_delete_all",
+        "content",
+        "content_lower",
+        "create_derivative",
+        "day",
+        "delete",
+        "deleted_count",
+        "device_id",
+        "device_reg",
+        "device_sensors",
+        "domain",
+        "enabled",
+        "entities",
+        "entities_list",
+        "entity_id",
+        "entity_name",
+        "entity_reg",
+        "entity_selector",
+        "entry",
+        "entry_base",
+        "entry_type",
+        "entry_url",
+        "errors",
+        "existing_entry",
+        "expected_base_url",
+        "expected_entity_ids",
+        "expected_unique_ids",
+        "first_lines",
+        "floor_sensor_name",
+        "floor_sensor_suffix",
+        "frontend_version",
+        "full_url",
+        "global_profiles",
+        "group",
+        "group_data",
+        "group_name",
+        "group_names",
+        "group_selector",
+        "groups",
+        "history",
+        "ignored",
+        "integration",
+        "integration_devices",
+        "integration_entities",
+        "integration_version",
+        "is_active",
+        "item",
+        "lines",
+        "lovelace",
+        "lovelace_data",
+        "manifest",
+        "manifest_path",
+        "manifest_text",
+        "message",
+        "new_name",
+        "node_data",
+        "nodes",
+        "now",
+        "old_name",
+        "orphaned",
+        "problematic",
+        "profile_name",
+        "profile_options",
+        "profile_selector",
+        "profiles",
+        "profiles_list",
+        "registered_cards",
+        "removed",
+        "resource_type",
+        "resource_url",
+        "resources",
+        "result",
+        "schedule",
+        "schedule_mode",
+        "schedules",
+        "sensor_entities",
+        "sensor_state",
+        "session",
+        "settings",
+        "settings_json",
+        "state",
+        "status",
+        "storage_data",
+        "target",
+        "target_id",
+        "token",
+        "total_entities",
+        "unique_id",
+        "url",
+        "version_number",
+        "version_parts"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/storage.py",
+      "lines": 1882,
+      "docstring": "Storage management for Climate Scheduler.",
+      "imports": [
+        "const.DEFAULT_SCHEDULE",
+        "const.DOMAIN",
+        "const.MAX_TEMP",
+        "const.MIN_TEMP",
+        "const.STORAGE_KEY",
+        "const.STORAGE_VERSION",
+        "copy",
+        "datetime.datetime",
+        "datetime.time",
+        "homeassistant.const.UnitOfTemperature",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.storage.Store",
+        "logging",
+        "re",
+        "typing.Any",
+        "typing.Dict",
+        "typing.List",
+        "typing.Optional"
+      ],
+      "functions": [
+        {
+          "name": "validate_node",
+          "line": 17,
+          "end_line": 53,
+          "is_async": false,
+          "args": [
+            {
+              "name": "node",
+              "annotation": "Dict[str, Any]"
+            }
+          ],
+          "returns": "bool",
+          "decorators": [],
+          "docstring": "Validate a schedule node structure.",
+          "calls": [
+            "_LOGGER.error",
+            "float",
+            "int",
+            "isinstance",
+            "len",
+            "node.get",
+            "time_str.split"
+          ],
+          "assignments": [
+            "time_str"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "ScheduleStorage",
+          "line": 56,
+          "end_line": 1882,
+          "bases": [],
+          "decorators": [],
+          "docstring": "Handle storage of heating schedules.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 59,
+              "end_line": 63,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize storage.",
+              "calls": [
+                "Store"
+              ],
+              "assignments": [
+                "self._store",
+                "self.hass"
+              ]
+            },
+            {
+              "name": "async_load",
+              "line": 65,
+              "end_line": 193,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Load data from storage.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.error",
+                "_LOGGER.info",
+                "_data.get",
+                "_store.async_load",
+                "best_layer.items",
+                "get",
+                "int",
+                "isinstance",
+                "layer.get",
+                "layer.items",
+                "layer_version",
+                "layers.append",
+                "len",
+                "locals",
+                "parse_version_string",
+                "re.findall",
+                "reversed",
+                "s.get",
+                "self._ensure_global_profiles_initialized",
+                "self._migrate_entities_to_groups",
+                "self._migrate_legacy_profile_name_suffixes",
+                "self._migrate_profiles_to_global",
+                "self._migrate_to_day_schedules",
+                "self._migrate_to_profiles",
+                "self._sync_group_profile_views",
+                "self.async_save",
+                "tuple",
+                "v.get"
+              ],
+              "assignments": [
+                "best_layer",
+                "best_ver",
+                "changed_settings",
+                "data",
+                "nums",
+                "parsed",
+                "s",
+                "self._data",
+                "settings",
+                "v"
+              ]
+            },
+            {
+              "name": "_migrate_to_day_schedules",
+              "line": 195,
+              "end_line": 227,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Migrate existing schedules to day-based format.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "entity_data.get",
+                "group_data.get",
+                "items",
+                "self.async_save"
+              ],
+              "assignments": [
+                "migrated",
+                "old_nodes"
+              ]
+            },
+            {
+              "name": "_migrate_to_profiles",
+              "line": 229,
+              "end_line": 268,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Migrate existing schedules to profile-based format.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "entity_data.get",
+                "group_data.get",
+                "items",
+                "self.async_save"
+              ],
+              "assignments": [
+                "migrated",
+                "schedule_mode",
+                "schedules"
+              ]
+            },
+            {
+              "name": "_migrate_entities_to_groups",
+              "line": 270,
+              "end_line": 318,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Migrate individual entities to single-entity groups for unified backend.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "entity_data.get",
+                "group_data.get",
+                "items",
+                "list",
+                "self.async_save"
+              ],
+              "assignments": [
+                "entity_in_group",
+                "group_name",
+                "migrated"
+              ]
+            },
+            {
+              "name": "async_save",
+              "line": 320,
+              "end_line": 324,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Save data to storage.",
+              "calls": [
+                "_LOGGER.debug",
+                "_store.async_save",
+                "self._sync_group_profile_views"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_get_default_schedule_template",
+              "line": 326,
+              "end_line": 340,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "List[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Return configured default schedule template with validation fallback.",
+              "calls": [
+                "_data.get",
+                "copy.deepcopy",
+                "isinstance",
+                "settings.get",
+                "valid_nodes.append",
+                "validate_node"
+              ],
+              "assignments": [
+                "configured",
+                "settings"
+              ]
+            },
+            {
+              "name": "_build_schedules_from_template",
+              "line": 342,
+              "end_line": 344,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "default_schedule",
+                  "annotation": "List[Dict[str, Any]]"
+                }
+              ],
+              "returns": "Dict[str, List[Dict[str, Any]]]",
+              "decorators": [],
+              "docstring": "Build schedule dictionary from the single default schedule template.",
+              "calls": [
+                "copy.deepcopy"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_ensure_global_profiles_initialized",
+              "line": 346,
+              "end_line": 359,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Ensure global profiles exist with at least one usable profile.",
+              "calls": [
+                "_data.get",
+                "isinstance",
+                "self._build_schedules_from_template",
+                "self._get_default_schedule_template"
+              ],
+              "assignments": [
+                "default_schedule",
+                "profiles"
+              ]
+            },
+            {
+              "name": "_resolve_group_active_global_profile",
+              "line": 361,
+              "end_line": 371,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_data",
+                  "annotation": "Dict[str, Any]"
+                },
+                {
+                  "name": "global_profiles",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "Optional[str]",
+              "decorators": [],
+              "docstring": "Resolve the active global profile for a group using compatibility fields.",
+              "calls": [
+                "group_data.get",
+                "iter",
+                "next"
+              ],
+              "assignments": [
+                "active_global",
+                "active_profile"
+              ]
+            },
+            {
+              "name": "_sync_group_profile_views",
+              "line": 373,
+              "end_line": 392,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Align active schedule fields with selected global active profile.",
+              "calls": [
+                "_data.get",
+                "active_profile_data.get",
+                "copy.deepcopy",
+                "global_profiles.get",
+                "groups.values",
+                "isinstance",
+                "self._ensure_global_profiles_initialized",
+                "self._resolve_group_active_global_profile"
+              ],
+              "assignments": [
+                "active_profile",
+                "active_profile_data",
+                "global_profiles",
+                "groups"
+              ]
+            },
+            {
+              "name": "_migrate_profiles_to_global",
+              "line": 394,
+              "end_line": 475,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Migrate legacy per-group profile dictionaries into global profiles.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "group_data.get",
+                "groups.items",
+                "isinstance",
+                "iter",
+                "legacy_profiles.items",
+                "make_unique_profile_name",
+                "name_map.get",
+                "name_map.values",
+                "next",
+                "self._sync_group_profile_views",
+                "self.async_save",
+                "source_profile.get"
+              ],
+              "assignments": [
+                "active_profile",
+                "candidate",
+                "fallback_name",
+                "global_profiles",
+                "groups",
+                "legacy_default_name",
+                "legacy_profiles",
+                "mapped_active_profile",
+                "migrated",
+                "new_profile_name",
+                "source_profile",
+                "suffix"
+              ]
+            },
+            {
+              "name": "_migrate_legacy_profile_name_suffixes",
+              "line": 477,
+              "end_line": 540,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Normalize legacy profile names from '<name> [legacy]' to '<name>' with metadata.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "group_data.get",
+                "groups.values",
+                "isinstance",
+                "len",
+                "normalized_profile.get",
+                "profile_name.endswith",
+                "profiles.items",
+                "self.async_save"
+              ],
+              "assignments": [
+                "base_name",
+                "candidate_name",
+                "current_value",
+                "group_changed",
+                "groups",
+                "migrated",
+                "normalized_profile",
+                "profiles",
+                "source_profile",
+                "suffix",
+                "target_name"
+              ]
+            },
+            {
+              "name": "async_get_settings",
+              "line": 542,
+              "end_line": 544,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Return current global settings.",
+              "calls": [
+                "_data.get"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_save_settings",
+              "line": 546,
+              "end_line": 554,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "settings",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Save global settings to storage by merging and persisting.",
+              "calls": [
+                "_LOGGER.debug",
+                "_data.get",
+                "self.async_save",
+                "settings.items"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_get_advance_history",
+              "line": 556,
+              "end_line": 558,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Return advance history for all entities.",
+              "calls": [
+                "_data.get"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_save_advance_history",
+              "line": 560,
+              "end_line": 564,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "history",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Save advance history to storage.",
+              "calls": [
+                "_LOGGER.debug",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_factory_reset",
+              "line": 566,
+              "end_line": 591,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Reset all data to factory defaults (freshly installed state).",
+              "calls": [
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "self.async_save"
+              ],
+              "assignments": [
+                "self._data"
+              ]
+            },
+            {
+              "name": "_find_single_entity_group",
+              "line": 593,
+              "end_line": 609,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Optional[str]",
+              "decorators": [],
+              "docstring": "Find the single-entity group name for an entity (checks both old __entity_ format and friendly name format).",
+              "calls": [
+                "_data.get",
+                "group_data.get",
+                "items",
+                "len"
+              ],
+              "assignments": [
+                "group_data",
+                "old_format"
+              ]
+            },
+            {
+              "name": "async_get_all_entities",
+              "line": 611,
+              "end_line": 617,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "List[str]",
+              "decorators": [],
+              "docstring": "Get list of all entity IDs with schedules (from single-entity groups).",
+              "calls": [
+                "_data.get",
+                "entity_ids.extend",
+                "group_data.get",
+                "items",
+                "list",
+                "set"
+              ],
+              "assignments": [
+                "entity_ids"
+              ]
+            },
+            {
+              "name": "async_get_schedule",
+              "line": 619,
+              "end_line": 657,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "day",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get schedule for an entity (from its single-entity group or multi-entity group). If day is specified, returns nodes for that day.",
+              "calls": [
+                "_LOGGER.debug",
+                "_data.get",
+                "group_data.get",
+                "items",
+                "projected_group.get",
+                "self._find_single_entity_group",
+                "self._get_nodes_for_day",
+                "self._project_group_runtime_view"
+              ],
+              "assignments": [
+                "group_data",
+                "projected_group",
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "_get_nodes_for_day",
+              "line": 659,
+              "end_line": 680,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_data",
+                  "annotation": "Dict[str, Any]"
+                },
+                {
+                  "name": "day",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "List[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get nodes for a specific day based on schedule mode.",
+              "calls": [
+                "entity_data.get",
+                "schedules.get"
+              ],
+              "assignments": [
+                "schedule_mode",
+                "schedules"
+              ]
+            },
+            {
+              "name": "async_set_schedule",
+              "line": 682,
+              "end_line": 726,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "nodes",
+                  "annotation": "List[Dict[str, Any]]"
+                },
+                {
+                  "name": "day",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                },
+                {
+                  "name": "schedule_mode",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set schedule nodes for an entity by creating/updating its single-entity group.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "attributes.get",
+                "group_data.get",
+                "items",
+                "self._find_single_entity_group",
+                "self.async_set_group_schedule",
+                "states.get"
+              ],
+              "assignments": [
+                "friendly_name",
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "async_add_entity",
+              "line": 728,
+              "end_line": 760,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Add a new entity with default schedule by creating a single-entity group.",
+              "calls": [
+                "DEFAULT_SCHEDULE.copy",
+                "_LOGGER.info",
+                "attributes.get",
+                "self.async_save",
+                "states.get"
+              ],
+              "assignments": [
+                "friendly_name",
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "async_remove_entity",
+              "line": 762,
+              "end_line": 771,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Remove an entity and its schedule (single-entity group).",
+              "calls": [
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "_data.get",
+                "self._find_single_entity_group",
+                "self.async_save"
+              ],
+              "assignments": [
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "async_set_ignored",
+              "line": 773,
+              "end_line": 871,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "ignored",
+                  "annotation": "bool"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set whether an entity should be ignored (not monitored).",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "any",
+                "attributes.get",
+                "copy.deepcopy",
+                "group_data.get",
+                "isinstance",
+                "items",
+                "len",
+                "profiles.get",
+                "schedules.values",
+                "self._build_schedules_from_template",
+                "self._get_default_schedule_template",
+                "self.async_save",
+                "states.get"
+              ],
+              "assignments": [
+                "default_profile",
+                "default_schedule",
+                "entity_group_name",
+                "friendly_name",
+                "group_data",
+                "has_any_nodes",
+                "profiles",
+                "schedules",
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "async_is_ignored",
+              "line": 873,
+              "end_line": 881,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Check if an entity is marked as ignored.",
+              "calls": [
+                "_data.get",
+                "group_data.get",
+                "items"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_set_enabled",
+              "line": 883,
+              "end_line": 898,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "enabled",
+                  "annotation": "bool"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Enable or disable scheduling for an entity (via its single-entity group or multi-entity group).",
+              "calls": [
+                "_LOGGER.info",
+                "_LOGGER.warning",
+                "_data.get",
+                "group_data.get",
+                "items",
+                "self.async_save"
+              ],
+              "assignments": [
+                "entity_group_name"
+              ]
+            },
+            {
+              "name": "_reload_sensor_platform",
+              "line": 900,
+              "end_line": 911,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Reload the sensor platform to update derivative sensors.",
+              "calls": [
+                "_LOGGER.debug",
+                "config_entries.async_entries",
+                "config_entries.async_reload"
+              ],
+              "assignments": [
+                "entries",
+                "entry"
+              ]
+            },
+            {
+              "name": "async_cleanup_derivative_sensors",
+              "line": 913,
+              "end_line": 994,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "confirm_delete_all",
+                  "annotation": "bool",
+                  "default": "False"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Cleanup derivative sensors.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.warning",
+                "_data.get",
+                "deleted_sensors.append",
+                "entities.values",
+                "entity_registry.async_remove",
+                "er.async_get",
+                "errors.append",
+                "len",
+                "replace",
+                "self.async_get_all_entities",
+                "settings.get",
+                "str",
+                "unique_id.endswith",
+                "unique_id.replace"
+              ],
+              "assignments": [
+                "all_entity_ids",
+                "auto_creation_enabled",
+                "climate_entity_id",
+                "climate_scheduler_sensors",
+                "deleted_sensors",
+                "entity_name",
+                "entity_registry",
+                "errors",
+                "settings",
+                "unique_id"
+              ]
+            },
+            {
+              "name": "async_cleanup_unmonitored_storage",
+              "line": 996,
+              "end_line": 1217,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "delete",
+                  "annotation": "bool",
+                  "default": "False"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Cleanup stale storage references for unmonitored or missing entities.",
+              "calls": [
+                "_data.get",
+                "active_profile_data.get",
+                "advance_history.keys",
+                "copy.deepcopy",
+                "group_data.get",
+                "groups.items",
+                "isinstance",
+                "iter",
+                "kept_entities.update",
+                "len",
+                "list",
+                "next",
+                "normalized_entities.append",
+                "profile_data.get",
+                "profiles.items",
+                "removed_advance_history.append",
+                "removed_entity_refs.append",
+                "removed_groups.append",
+                "removed_profiles.append",
+                "repaired_active_profiles.append",
+                "repaired_groups.append",
+                "seen_entities.add",
+                "self.async_save",
+                "set",
+                "states.async_entity_ids",
+                "str"
+              ],
+              "assignments": [
+                "active_profile",
+                "active_profile_data",
+                "advance_history_raw",
+                "changed",
+                "climate_entity_ids",
+                "current_groups",
+                "group_data",
+                "groups",
+                "message",
+                "new_active_profile",
+                "original_entities",
+                "profile_schedules",
+                "profiles",
+                "should_be_single"
+              ]
+            },
+            {
+              "name": "async_is_enabled",
+              "line": 1219,
+              "end_line": 1227,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [],
+              "docstring": "Check if scheduling is enabled for an entity.",
+              "calls": [
+                "_data.get",
+                "group_data.get",
+                "items"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "interpolate_temperature",
+              "line": 1229,
+              "end_line": 1254,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "nodes",
+                  "annotation": "List[Dict[str, Any]]"
+                },
+                {
+                  "name": "current_time",
+                  "annotation": "time"
+                }
+              ],
+              "returns": "float",
+              "decorators": [],
+              "docstring": "Calculate temperature at a given time using step function (hold until next node).",
+              "calls": [
+                "self._time_to_minutes",
+                "sorted"
+              ],
+              "assignments": [
+                "active_node",
+                "current_minutes",
+                "node_minutes",
+                "sorted_nodes"
+              ]
+            },
+            {
+              "name": "get_active_node",
+              "line": 1256,
+              "end_line": 1281,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "nodes",
+                  "annotation": "List[Dict[str, Any]]"
+                },
+                {
+                  "name": "current_time",
+                  "annotation": "time"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get the active node at a given time.",
+              "calls": [
+                "self._time_to_minutes",
+                "sorted"
+              ],
+              "assignments": [
+                "active_node",
+                "current_minutes",
+                "node_minutes",
+                "sorted_nodes"
+              ]
+            },
+            {
+              "name": "get_active_node_for_group",
+              "line": 1283,
+              "end_line": 1326,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "current_time",
+                  "annotation": "Optional[time]",
+                  "default": "None"
+                },
+                {
+                  "name": "current_day",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get the active node for a group at a given time, handling cross-day transitions in individual mode.",
+              "calls": [
+                "datetime.now",
+                "days_of_week.index",
+                "group_schedule.get",
+                "lower",
+                "prev_day_schedule.get",
+                "self._time_to_minutes",
+                "self.async_get_group_schedule",
+                "self.get_active_node",
+                "sorted",
+                "strftime",
+                "time"
+              ],
+              "assignments": [
+                "current_day",
+                "current_day_index",
+                "current_minutes",
+                "current_time",
+                "days_of_week",
+                "first_node_minutes",
+                "group_schedule",
+                "nodes",
+                "prev_day",
+                "prev_day_schedule",
+                "prev_nodes",
+                "schedule_mode",
+                "sorted_nodes",
+                "sorted_prev_nodes"
+              ]
+            },
+            {
+              "name": "get_next_node",
+              "line": 1328,
+              "end_line": 1346,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "nodes",
+                  "annotation": "List[Dict[str, Any]]"
+                },
+                {
+                  "name": "current_time",
+                  "annotation": "time"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get the next scheduled node after the current time.",
+              "calls": [
+                "self._time_to_minutes",
+                "sorted"
+              ],
+              "assignments": [
+                "current_minutes",
+                "node_minutes",
+                "sorted_nodes"
+              ]
+            },
+            {
+              "name": "_time_to_minutes",
+              "line": 1349,
+              "end_line": 1354,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "time_str",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "int",
+              "decorators": [
+                "staticmethod"
+              ],
+              "docstring": "Convert HH:MM string to minutes since midnight.",
+              "calls": [
+                "int",
+                "time_str.split"
+              ],
+              "assignments": [
+                "hours",
+                "minutes",
+                "parts"
+              ]
+            },
+            {
+              "name": "async_create_group",
+              "line": 1358,
+              "end_line": 1385,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Create a new group.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_delete_group",
+              "line": 1387,
+              "end_line": 1392,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Delete a group.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_rename_group",
+              "line": 1394,
+              "end_line": 1405,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "old_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "new_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Rename a group.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "pop",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_add_entity_to_group",
+              "line": 1407,
+              "end_line": 1458,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Add an entity to a group.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "append",
+                "existing_group_data.get",
+                "group_data.get",
+                "items",
+                "len",
+                "remove",
+                "self.async_save"
+              ],
+              "assignments": [
+                "entity_count",
+                "entity_found_in_group",
+                "group_data",
+                "old_single_entity_group"
+              ]
+            },
+            {
+              "name": "async_remove_entity_from_group",
+              "line": 1460,
+              "end_line": 1502,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Remove an entity from a group and create a new single-entity group for it.",
+              "calls": [
+                "_LOGGER.info",
+                "_data.get",
+                "attributes.get",
+                "copy.deepcopy",
+                "entities.remove",
+                "group_data.get",
+                "len",
+                "self.async_save",
+                "states.get"
+              ],
+              "assignments": [
+                "entities",
+                "friendly_name",
+                "group_data",
+                "single_group_name"
+              ]
+            },
+            {
+              "name": "async_get_groups",
+              "line": 1504,
+              "end_line": 1514,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Get all groups.",
+              "calls": [
+                "_data.get",
+                "groups.items",
+                "isinstance",
+                "self._project_group_runtime_view",
+                "self._sync_group_profile_views"
+              ],
+              "assignments": [
+                "groups"
+              ]
+            },
+            {
+              "name": "async_get_group",
+              "line": 1516,
+              "end_line": 1522,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get a specific group.",
+              "calls": [
+                "_data.get",
+                "get",
+                "isinstance",
+                "self._project_group_runtime_view",
+                "self._sync_group_profile_views"
+              ],
+              "assignments": [
+                "group_data"
+              ]
+            },
+            {
+              "name": "_project_group_runtime_view",
+              "line": 1524,
+              "end_line": 1536,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_data",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Return a runtime view exposing global profiles while preserving persisted legacy profiles.",
+              "calls": [
+                "_data.get",
+                "copy.deepcopy",
+                "self._ensure_global_profiles_initialized",
+                "self._resolve_group_active_global_profile"
+              ],
+              "assignments": [
+                "active_profile",
+                "global_profiles",
+                "view"
+              ]
+            },
+            {
+              "name": "async_get_entity_group",
+              "line": 1538,
+              "end_line": 1543,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "entity_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Optional[str]",
+              "decorators": [],
+              "docstring": "Get the group name that an entity belongs to.",
+              "calls": [
+                "_data.get",
+                "group_data.get",
+                "items"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_set_group_schedule",
+              "line": 1545,
+              "end_line": 1652,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "nodes",
+                  "annotation": "List[Dict[str, Any]]"
+                },
+                {
+                  "name": "day",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                },
+                {
+                  "name": "schedule_mode",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                },
+                {
+                  "name": "profile_name",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set schedule for a group (applies to all entities in the group).",
+              "calls": [
+                "ValueError",
+                "_LOGGER.debug",
+                "_LOGGER.info",
+                "_data.get",
+                "apply_nodes_to_schedules",
+                "bool",
+                "copy.deepcopy",
+                "get",
+                "group_data.get",
+                "isinstance",
+                "keys",
+                "len",
+                "self._ensure_global_profiles_initialized",
+                "self._resolve_group_active_global_profile",
+                "self.async_save"
+              ],
+              "assignments": [
+                "active_profile",
+                "current_mode",
+                "global_profiles",
+                "group_data",
+                "is_explicit_non_active_profile_save",
+                "resolved_active_profile",
+                "target_mode",
+                "target_profile",
+                "target_schedules",
+                "updated"
+              ]
+            },
+            {
+              "name": "async_get_group_schedule",
+              "line": 1654,
+              "end_line": 1679,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "day",
+                  "annotation": "Optional[str]",
+                  "default": "None"
+                }
+              ],
+              "returns": "Optional[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get schedule for a group (same logic as entity schedule retrieval).",
+              "calls": [
+                "_data.get",
+                "group_data.get",
+                "schedules.get"
+              ],
+              "assignments": [
+                "group_data",
+                "nodes",
+                "schedule_mode",
+                "schedules"
+              ]
+            },
+            {
+              "name": "async_enable_group",
+              "line": 1681,
+              "end_line": 1688,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Enable a group schedule.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_disable_group",
+              "line": 1690,
+              "end_line": 1697,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Disable a group schedule.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "self.async_save"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_enable_schedule",
+              "line": 1699,
+              "end_line": 1710,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "schedule_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Enable a schedule by group name or entity_id.",
+              "calls": [
+                "ValueError",
+                "_data.get",
+                "self.async_enable_group",
+                "self.async_get_entity_group"
+              ],
+              "assignments": [
+                "group_name"
+              ]
+            },
+            {
+              "name": "async_disable_schedule",
+              "line": 1712,
+              "end_line": 1723,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "schedule_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Disable a schedule by group name or entity_id.",
+              "calls": [
+                "ValueError",
+                "_data.get",
+                "self.async_disable_group",
+                "self.async_get_entity_group"
+              ],
+              "assignments": [
+                "group_name"
+              ]
+            },
+            {
+              "name": "async_create_profile",
+              "line": 1727,
+              "end_line": 1747,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "profile_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Create a new global schedule profile.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "self._ensure_global_profiles_initialized",
+                "self.async_save",
+                "target_group.get"
+              ],
+              "assignments": [
+                "global_profiles",
+                "target_group"
+              ]
+            },
+            {
+              "name": "async_delete_profile",
+              "line": 1749,
+              "end_line": 1771,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "profile_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Delete a global schedule profile.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "group_data.get",
+                "items",
+                "len",
+                "self._ensure_global_profiles_initialized",
+                "self.async_save"
+              ],
+              "assignments": [
+                "global_profiles"
+              ]
+            },
+            {
+              "name": "async_rename_profile",
+              "line": 1773,
+              "end_line": 1795,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "old_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "new_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Rename a global schedule profile.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.info",
+                "_data.get",
+                "global_profiles.pop",
+                "group_data.get",
+                "self._ensure_global_profiles_initialized",
+                "self.async_save",
+                "values"
+              ],
+              "assignments": [
+                "global_profiles"
+              ]
+            },
+            {
+              "name": "async_set_active_profile",
+              "line": 1797,
+              "end_line": 1857,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                },
+                {
+                  "name": "profile_name",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Set the active profile for a group.",
+              "calls": [
+                "ValueError",
+                "_LOGGER.debug",
+                "_LOGGER.info",
+                "_data.get",
+                "copy.deepcopy",
+                "isinstance",
+                "iter",
+                "keys",
+                "legacy_profiles.get",
+                "len",
+                "next",
+                "original_profile.get",
+                "profile_data.get",
+                "profile_name.startswith",
+                "self._ensure_global_profiles_initialized",
+                "self.async_save",
+                "target_data.get"
+              ],
+              "assignments": [
+                "fallback_legacy",
+                "global_profiles",
+                "legacy_active",
+                "legacy_candidate",
+                "legacy_profiles",
+                "original_name",
+                "original_profile",
+                "prefix",
+                "profile_data",
+                "tagged_name",
+                "tagged_profile",
+                "target_data"
+              ]
+            },
+            {
+              "name": "async_get_profiles",
+              "line": 1859,
+              "end_line": 1865,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Get all global profiles.",
+              "calls": [
+                "_data.get",
+                "self._ensure_global_profiles_initialized"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_get_active_profile_name",
+              "line": 1867,
+              "end_line": 1877,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "target_id",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "Optional[str]",
+              "decorators": [],
+              "docstring": "Get the name of the active profile for a group.",
+              "calls": [
+                "_data.get",
+                "self._ensure_global_profiles_initialized",
+                "self._resolve_group_active_global_profile"
+              ],
+              "assignments": [
+                "global_profiles",
+                "target_data",
+                "target_key"
+              ]
+            },
+            {
+              "name": "async_get_global_profiles",
+              "line": 1879,
+              "end_line": 1882,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [],
+              "docstring": "Get the global profile dictionary.",
+              "calls": [
+                "_data.get",
+                "self._ensure_global_profiles_initialized"
+              ],
+              "assignments": []
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "DEFAULT_SCHEDULE.copy",
+        "Store",
+        "ValueError",
+        "_LOGGER.debug",
+        "_LOGGER.error",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "_data.get",
+        "_store.async_load",
+        "_store.async_save",
+        "active_profile_data.get",
+        "advance_history.keys",
+        "any",
+        "append",
+        "apply_nodes_to_schedules",
+        "attributes.get",
+        "best_layer.items",
+        "bool",
+        "config_entries.async_entries",
+        "config_entries.async_reload",
+        "copy.deepcopy",
+        "datetime.now",
+        "days_of_week.index",
+        "deleted_sensors.append",
+        "entities.remove",
+        "entities.values",
+        "entity_data.get",
+        "entity_ids.extend",
+        "entity_registry.async_remove",
+        "er.async_get",
+        "errors.append",
+        "existing_group_data.get",
+        "float",
+        "get",
+        "global_profiles.get",
+        "global_profiles.pop",
+        "group_data.get",
+        "group_schedule.get",
+        "groups.items",
+        "groups.values",
+        "int",
+        "isinstance",
+        "items",
+        "iter",
+        "kept_entities.update",
+        "keys",
+        "layer.get",
+        "layer.items",
+        "layer_version",
+        "layers.append",
+        "legacy_profiles.get",
+        "legacy_profiles.items",
+        "len",
+        "list",
+        "locals",
+        "lower",
+        "make_unique_profile_name",
+        "name_map.get",
+        "name_map.values",
+        "next",
+        "node.get",
+        "normalized_entities.append",
+        "normalized_profile.get",
+        "original_profile.get",
+        "parse_version_string",
+        "pop",
+        "prev_day_schedule.get",
+        "profile_data.get",
+        "profile_name.endswith",
+        "profile_name.startswith",
+        "profiles.get",
+        "profiles.items",
+        "projected_group.get",
+        "re.findall",
+        "remove",
+        "removed_advance_history.append",
+        "removed_entity_refs.append",
+        "removed_groups.append",
+        "removed_profiles.append",
+        "repaired_active_profiles.append",
+        "repaired_groups.append",
+        "replace",
+        "reversed",
+        "s.get",
+        "schedules.get",
+        "schedules.values",
+        "seen_entities.add",
+        "self._build_schedules_from_template",
+        "self._ensure_global_profiles_initialized",
+        "self._find_single_entity_group",
+        "self._get_default_schedule_template",
+        "self._get_nodes_for_day",
+        "self._migrate_entities_to_groups",
+        "self._migrate_legacy_profile_name_suffixes",
+        "self._migrate_profiles_to_global",
+        "self._migrate_to_day_schedules",
+        "self._migrate_to_profiles",
+        "self._project_group_runtime_view",
+        "self._resolve_group_active_global_profile",
+        "self._sync_group_profile_views",
+        "self._time_to_minutes",
+        "self.async_disable_group",
+        "self.async_enable_group",
+        "self.async_get_all_entities",
+        "self.async_get_entity_group",
+        "self.async_get_group_schedule",
+        "self.async_save",
+        "self.async_set_group_schedule",
+        "self.get_active_node",
+        "set",
+        "settings.get",
+        "settings.items",
+        "sorted",
+        "source_profile.get",
+        "states.async_entity_ids",
+        "states.get",
+        "str",
+        "strftime",
+        "target_data.get",
+        "target_group.get",
+        "time",
+        "time_str.split",
+        "tuple",
+        "unique_id.endswith",
+        "unique_id.replace",
+        "v.get",
+        "valid_nodes.append",
+        "validate_node",
+        "values"
+      ],
+      "top_level_assignments": [
+        "active_global",
+        "active_node",
+        "active_profile",
+        "active_profile_data",
+        "advance_history_raw",
+        "all_entity_ids",
+        "auto_creation_enabled",
+        "base_name",
+        "best_layer",
+        "best_ver",
+        "candidate",
+        "candidate_name",
+        "changed",
+        "changed_settings",
+        "climate_entity_id",
+        "climate_entity_ids",
+        "climate_scheduler_sensors",
+        "configured",
+        "current_day",
+        "current_day_index",
+        "current_groups",
+        "current_minutes",
+        "current_mode",
+        "current_time",
+        "current_value",
+        "data",
+        "days_of_week",
+        "default_profile",
+        "default_schedule",
+        "deleted_sensors",
+        "entities",
+        "entity_count",
+        "entity_found_in_group",
+        "entity_group_name",
+        "entity_ids",
+        "entity_in_group",
+        "entity_name",
+        "entity_registry",
+        "entries",
+        "entry",
+        "errors",
+        "fallback_legacy",
+        "fallback_name",
+        "first_node_minutes",
+        "friendly_name",
+        "global_profiles",
+        "group_changed",
+        "group_data",
+        "group_name",
+        "group_schedule",
+        "groups",
+        "has_any_nodes",
+        "hours",
+        "is_explicit_non_active_profile_save",
+        "legacy_active",
+        "legacy_candidate",
+        "legacy_default_name",
+        "legacy_profiles",
+        "mapped_active_profile",
+        "message",
+        "migrated",
+        "minutes",
+        "new_active_profile",
+        "new_profile_name",
+        "node_minutes",
+        "nodes",
+        "normalized_profile",
+        "nums",
+        "old_format",
+        "old_nodes",
+        "old_single_entity_group",
+        "original_entities",
+        "original_name",
+        "original_profile",
+        "parsed",
+        "parts",
+        "prefix",
+        "prev_day",
+        "prev_day_schedule",
+        "prev_nodes",
+        "profile_data",
+        "profile_schedules",
+        "profiles",
+        "projected_group",
+        "resolved_active_profile",
+        "s",
+        "schedule_mode",
+        "schedules",
+        "self._data",
+        "self._store",
+        "self.hass",
+        "settings",
+        "should_be_single",
+        "single_group_name",
+        "sorted_nodes",
+        "sorted_prev_nodes",
+        "source_profile",
+        "suffix",
+        "tagged_name",
+        "tagged_profile",
+        "target_data",
+        "target_group",
+        "target_key",
+        "target_mode",
+        "target_name",
+        "target_profile",
+        "target_schedules",
+        "time_str",
+        "unique_id",
+        "updated",
+        "v",
+        "view"
+      ]
+    },
+    {
+      "file": "custom_components/climate_scheduler/switch.py",
+      "lines": 422,
+      "docstring": "Switch platform for Climate Scheduler - Exposes schedules in scheduler-component format.",
+      "imports": [
+        "asyncio",
+        "const.DOMAIN",
+        "datetime.datetime",
+        "datetime.time",
+        "datetime.timedelta",
+        "hashlib",
+        "homeassistant.components.switch.SwitchEntity",
+        "homeassistant.config_entries.ConfigEntry",
+        "homeassistant.core.HomeAssistant",
+        "homeassistant.core.callback",
+        "homeassistant.helpers.entity_platform.AddEntitiesCallback",
+        "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.update_coordinator.CoordinatorEntity",
+        "homeassistant.util.dt",
+        "logging",
+        "typing.Any",
+        "typing.Dict",
+        "typing.List",
+        "typing.Optional"
+      ],
+      "functions": [
+        {
+          "name": "async_setup_entry",
+          "line": 19,
+          "end_line": 74,
+          "is_async": true,
+          "args": [
+            {
+              "name": "hass",
+              "annotation": "HomeAssistant"
+            },
+            {
+              "name": "config_entry",
+              "annotation": "ConfigEntry"
+            },
+            {
+              "name": "async_add_entities",
+              "annotation": "AddEntitiesCallback"
+            }
+          ],
+          "returns": "None",
+          "decorators": [],
+          "docstring": "Set up Climate Scheduler switch entities from a config entry.",
+          "calls": [
+            "ClimateSchedulerSwitch",
+            "_LOGGER.info",
+            "all",
+            "all_groups.items",
+            "async_add_entities",
+            "entities.values",
+            "entity_registry.async_remove",
+            "er.async_get",
+            "group_data.get",
+            "last_part.lower",
+            "len",
+            "list",
+            "storage.async_get_groups",
+            "switches.append",
+            "unique_id.split",
+            "unique_id.startswith"
+          ],
+          "assignments": [
+            "all_groups",
+            "coordinator",
+            "entity_registry",
+            "last_part",
+            "old_entities_removed",
+            "parts",
+            "storage",
+            "switches"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "ClimateSchedulerSwitch",
+          "line": 77,
+          "end_line": 421,
+          "bases": [
+            "CoordinatorEntity",
+            "SwitchEntity"
+          ],
+          "decorators": [],
+          "docstring": "Switch entity that exposes a climate schedule in scheduler-component format.",
+          "class_attrs": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 80,
+              "end_line": 114,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "hass",
+                  "annotation": "HomeAssistant"
+                },
+                {
+                  "name": "coordinator"
+                },
+                {
+                  "name": "storage"
+                },
+                {
+                  "name": "group_name",
+                  "annotation": "str"
+                },
+                {
+                  "name": "group_data",
+                  "annotation": "Dict[str, Any]"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Initialize the switch.",
+              "calls": [
+                "__init__",
+                "entity_id.split",
+                "group_name.encode",
+                "group_name.replace",
+                "group_name.startswith",
+                "hashlib.md5",
+                "hexdigest",
+                "super"
+              ],
+              "assignments": [
+                "entity_id",
+                "self._attr_has_entity_name",
+                "self._attr_name",
+                "self._attr_should_poll",
+                "self._attr_unique_id",
+                "self._group_data",
+                "self._group_name",
+                "self.hass",
+                "self.storage",
+                "token"
+              ]
+            },
+            {
+              "name": "is_on",
+              "line": 117,
+              "end_line": 121,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "bool",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return true if schedule is enabled.",
+              "calls": [
+                "_group_data.get",
+                "self._refresh_group_data"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "state",
+              "line": 124,
+              "end_line": 137,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "str",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return the state of the scheduler.",
+              "calls": [],
+              "assignments": []
+            },
+            {
+              "name": "extra_state_attributes",
+              "line": 140,
+              "end_line": 176,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return scheduler-component compatible attributes.",
+              "calls": [
+                "_cached_next_trigger.isoformat",
+                "_group_data.get",
+                "list",
+                "profile_data.get",
+                "profiles.get",
+                "profiles.keys",
+                "self._compute_schedule_attributes",
+                "self._get_weekdays_list",
+                "self._refresh_group_data"
+              ],
+              "assignments": [
+                "active_profile",
+                "attrs",
+                "entities",
+                "profile_data",
+                "profiles",
+                "schedule_mode",
+                "schedules"
+              ]
+            },
+            {
+              "name": "_refresh_group_data",
+              "line": 178,
+              "end_line": 185,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Refresh group data from storage.",
+              "calls": [
+                "asyncio.iscoroutinefunction"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_handle_coordinator_update",
+              "line": 188,
+              "end_line": 194,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [
+                "callback"
+              ],
+              "docstring": "Handle updated data from the coordinator.",
+              "calls": [
+                "loop.create_task",
+                "loop.is_running",
+                "self._async_refresh_group_data",
+                "self.async_write_ha_state"
+              ],
+              "assignments": [
+                "loop"
+              ]
+            },
+            {
+              "name": "_async_refresh_group_data",
+              "line": 196,
+              "end_line": 200,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Async refresh of group data.",
+              "calls": [
+                "storage.async_get_group"
+              ],
+              "assignments": [
+                "group_data",
+                "self._group_data"
+              ]
+            },
+            {
+              "name": "_compute_schedule_attributes",
+              "line": 202,
+              "end_line": 359,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Compute next_trigger, next_slot, actions, and next_entries.",
+              "calls": [
+                "_LOGGER.debug",
+                "_LOGGER.warning",
+                "_cached_actions.append",
+                "_cached_next_entries.append",
+                "_group_data.get",
+                "_group_name.replace",
+                "_group_name.startswith",
+                "dt_util.now",
+                "entry_actions.append",
+                "enumerate",
+                "int",
+                "lower",
+                "n.get",
+                "next_node.get",
+                "next_trigger_dt.replace",
+                "node.get",
+                "node_dt.isoformat",
+                "now.replace",
+                "now.strftime",
+                "now.time",
+                "profile_data.get",
+                "profiles.get",
+                "self._get_schedule_for_day",
+                "self._time_str_to_minutes",
+                "sorted",
+                "time_str.split",
+                "timedelta"
+              ],
+              "assignments": [
+                "action",
+                "active_profile",
+                "current_day",
+                "current_minutes",
+                "current_schedule",
+                "current_time",
+                "entities",
+                "entry_actions",
+                "next_node",
+                "next_node_index",
+                "next_trigger_dt",
+                "node_dt",
+                "node_minutes",
+                "node_time_str",
+                "now",
+                "profile_data",
+                "profiles",
+                "schedule_mode",
+                "schedules",
+                "self._cached_actions",
+                "self._cached_next_entries",
+                "self._cached_next_slot",
+                "self._cached_next_trigger",
+                "sorted_nodes",
+                "temp",
+                "time_str"
+              ]
+            },
+            {
+              "name": "_get_schedule_for_day",
+              "line": 361,
+              "end_line": 378,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "schedules",
+                  "annotation": "Dict[str, List[Dict[str, Any]]]"
+                },
+                {
+                  "name": "schedule_mode",
+                  "annotation": "str"
+                },
+                {
+                  "name": "current_day",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "List[Dict[str, Any]]",
+              "decorators": [],
+              "docstring": "Get the appropriate schedule for the current day.",
+              "calls": [
+                "schedules.get"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "_get_weekdays_list",
+              "line": 380,
+              "end_line": 389,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "schedule_mode",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "List[str]",
+              "decorators": [],
+              "docstring": "Get weekdays list for scheduler-component compatibility.",
+              "calls": [],
+              "assignments": []
+            },
+            {
+              "name": "_time_str_to_minutes",
+              "line": 392,
+              "end_line": 398,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "time_str",
+                  "annotation": "str"
+                }
+              ],
+              "returns": "int",
+              "decorators": [
+                "staticmethod"
+              ],
+              "docstring": "Convert HH:MM string to minutes since midnight.",
+              "calls": [
+                "int",
+                "time_str.split"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_turn_on",
+              "line": 400,
+              "end_line": 404,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "**kwargs"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Enable the schedule.",
+              "calls": [
+                "coordinator.async_request_refresh",
+                "self.async_write_ha_state",
+                "storage.async_enable_schedule"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "async_turn_off",
+              "line": 406,
+              "end_line": 410,
+              "is_async": true,
+              "args": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "**kwargs"
+                }
+              ],
+              "returns": "None",
+              "decorators": [],
+              "docstring": "Disable the schedule.",
+              "calls": [
+                "coordinator.async_request_refresh",
+                "self.async_write_ha_state",
+                "storage.async_disable_schedule"
+              ],
+              "assignments": []
+            },
+            {
+              "name": "device_info",
+              "line": 413,
+              "end_line": 421,
+              "is_async": false,
+              "args": [
+                {
+                  "name": "self"
+                }
+              ],
+              "returns": "Dict[str, Any]",
+              "decorators": [
+                "property"
+              ],
+              "docstring": "Return device info for this scheduler.",
+              "calls": [],
+              "assignments": []
+            }
+          ]
+        }
+      ],
+      "top_level_calls": [
+        "ClimateSchedulerSwitch",
+        "_LOGGER.debug",
+        "_LOGGER.info",
+        "_LOGGER.warning",
+        "__init__",
+        "_cached_actions.append",
+        "_cached_next_entries.append",
+        "_cached_next_trigger.isoformat",
+        "_group_data.get",
+        "_group_name.replace",
+        "_group_name.startswith",
+        "all",
+        "all_groups.items",
+        "async_add_entities",
+        "asyncio.iscoroutinefunction",
+        "coordinator.async_request_refresh",
+        "dt_util.now",
+        "entities.values",
+        "entity_id.split",
+        "entity_registry.async_remove",
+        "entry_actions.append",
+        "enumerate",
+        "er.async_get",
+        "group_data.get",
+        "group_name.encode",
+        "group_name.replace",
+        "group_name.startswith",
+        "hashlib.md5",
+        "hexdigest",
+        "int",
+        "last_part.lower",
+        "len",
+        "list",
+        "loop.create_task",
+        "loop.is_running",
+        "lower",
+        "n.get",
+        "next_node.get",
+        "next_trigger_dt.replace",
+        "node.get",
+        "node_dt.isoformat",
+        "now.replace",
+        "now.strftime",
+        "now.time",
+        "profile_data.get",
+        "profiles.get",
+        "profiles.keys",
+        "schedules.get",
+        "self._async_refresh_group_data",
+        "self._compute_schedule_attributes",
+        "self._get_schedule_for_day",
+        "self._get_weekdays_list",
+        "self._refresh_group_data",
+        "self._time_str_to_minutes",
+        "self.async_write_ha_state",
+        "sorted",
+        "storage.async_disable_schedule",
+        "storage.async_enable_schedule",
+        "storage.async_get_group",
+        "storage.async_get_groups",
+        "super",
+        "switches.append",
+        "time_str.split",
+        "timedelta",
+        "unique_id.split",
+        "unique_id.startswith"
+      ],
+      "top_level_assignments": [
+        "action",
+        "active_profile",
+        "all_groups",
+        "attrs",
+        "coordinator",
+        "current_day",
+        "current_minutes",
+        "current_schedule",
+        "current_time",
+        "entities",
+        "entity_id",
+        "entity_registry",
+        "entry_actions",
+        "group_data",
+        "last_part",
+        "loop",
+        "next_node",
+        "next_node_index",
+        "next_trigger_dt",
+        "node_dt",
+        "node_minutes",
+        "node_time_str",
+        "now",
+        "old_entities_removed",
+        "parts",
+        "profile_data",
+        "profiles",
+        "schedule_mode",
+        "schedules",
+        "self._attr_has_entity_name",
+        "self._attr_name",
+        "self._attr_should_poll",
+        "self._attr_unique_id",
+        "self._cached_actions",
+        "self._cached_next_entries",
+        "self._cached_next_slot",
+        "self._cached_next_trigger",
+        "self._group_data",
+        "self._group_name",
+        "self.hass",
+        "self.storage",
+        "sorted_nodes",
+        "storage",
+        "switches",
+        "temp",
+        "time_str",
+        "token"
+      ]
+    }
+  ],
+  "cross_module_calls": []
+}
