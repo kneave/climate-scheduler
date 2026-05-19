@@ -132,17 +132,16 @@ class TestValidateNodeEdgeCases:
         """NO_CHANGE_TEMP is None, which cannot be parsed as float."""
         assert validate_node({"time": "07:00", "temp": None}) is False
 
-    def test_nan_string_accepted_but_broken(self):
-        """BUG: float('NaN') parses successfully, so validate_node accepts it.
-        This is a known issue — NaN is not a meaningful temperature."""
-        # This SHOULD be False but currently returns True
-        assert validate_node({"time": "07:00", "temp": "NaN"}) is True
+    def test_nan_temperature_rejected(self):
+        """NaN temperature should be rejected (was a bug, now fixed)."""
+        assert validate_node({"time": "07:00", "temp": "NaN"}) is False
+        assert validate_node({"time": "07:00", "temp": float("NaN")}) is False
 
-    def test_infinity_accepted_but_broken(self):
-        """BUG: float('inf') parses successfully, so validate_node accepts it.
-        This is a known issue — infinity is not a meaningful temperature."""
-        # This SHOULD be False but currently returns True
-        assert validate_node({"time": "07:00", "temp": "inf"}) is True
+    def test_infinity_temperature_rejected(self):
+        """Infinity temperature should be rejected (was a bug, now fixed)."""
+        assert validate_node({"time": "07:00", "temp": "inf"}) is False
+        assert validate_node({"time": "07:00", "temp": "-inf"}) is False
+        assert validate_node({"time": "07:00", "temp": float("inf")}) is False
 
     def test_boolean_temp_accepted(self):
         """bool is a subclass of int in Python, so True/1 and False/0 are accepted."""

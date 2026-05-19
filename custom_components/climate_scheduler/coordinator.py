@@ -404,33 +404,33 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
         else:
             _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
-            
-            # Apply fan mode
-            if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_fan_mode",
-                    {"entity_id": entity_id, "fan_mode": next_node["fan_mode"]},
-                    blocking=True,
-                )
-            
-            # Apply swing mode
-            if "swing_mode" in next_node and swing_modes and next_node["swing_mode"] in swing_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_swing_mode",
-                    {"entity_id": entity_id, "swing_mode": next_node["swing_mode"]},
-                    blocking=True,
-                )
-            
-            # Apply preset mode
-            if "preset_mode" in next_node and preset_modes and next_node["preset_mode"] in preset_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
-                    blocking=True,
-                )
+        
+        # Apply fan mode — always, matching _async_update_data behavior
+        if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
+            await self.hass.services.async_call(
+                "climate",
+                "set_fan_mode",
+                {"entity_id": entity_id, "fan_mode": next_node["fan_mode"]},
+                blocking=True,
+            )
+        
+        # Apply swing mode — always, matching _async_update_data behavior
+        if "swing_mode" in next_node and swing_modes and next_node["swing_mode"] in swing_modes:
+            await self.hass.services.async_call(
+                "climate",
+                "set_swing_mode",
+                {"entity_id": entity_id, "swing_mode": next_node["swing_mode"]},
+                blocking=True,
+            )
+        
+        # Apply preset mode — always, matching _async_update_data behavior
+        if "preset_mode" in next_node and preset_modes and next_node["preset_mode"] in preset_modes:
+            await self.hass.services.async_call(
+                "climate",
+                "set_preset_mode",
+                {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
+                blocking=True,
+            )
         
         # Fire event for manual advance
         # Get all entities in the group for event data

@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .const import DOMAIN
+from .const import DOMAIN, MIN_TEMP, MAX_TEMP
 from .coordinator import HeatingSchedulerCoordinator
 from .storage import ScheduleStorage
 
@@ -112,8 +112,8 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         )
         
         # Temperature control settings
-        self._attr_min_temp = 5.0
-        self._attr_max_temp = 35.0
+        self._attr_min_temp = MIN_TEMP
+        self._attr_max_temp = MAX_TEMP
         self._attr_target_temp_step = 0.5
         
         # Simplified modes: Auto (Active - follows schedule) or Off (Idle)
@@ -397,9 +397,14 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         current_time = datetime.now().time()
         current_day = datetime.now().strftime('%a').lower()
         
-        group_data = self._storage._data.get("groups", {}).get(self._group_name, {})
-        schedules = group_data.get("schedules", {})
-        schedule_data = schedules.get(current_day)
+        # Use async_get_group_schedule to get properly resolved schedule data
+        # (handles all_days/5/2/individual mode day resolution).
+        # Direct _data access was broken — it expected {"nodes": [...} wrapping
+        # but storage uses raw lists, and wrong day keys for all_days mode.
+        try:
+            schedule_data = await self._storage.async_get_group_schedule(self._group_name, current_day)
+        except Exception:
+            schedule_data = None
         
         if schedule_data and "nodes" in schedule_data:
             nodes = schedule_data["nodes"]

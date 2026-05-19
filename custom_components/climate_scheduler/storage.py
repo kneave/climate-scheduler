@@ -1,6 +1,7 @@
 """Storage management for Climate Scheduler."""
 import logging
 import copy
+import math
 import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime, time
@@ -43,9 +44,16 @@ def validate_node(node: Dict[str, Any]) -> bool:
         _LOGGER.error(f"Cannot parse time: {time_str}")
         return False
     
-    # Validate temperature is numeric
+    # Validate temperature is numeric and finite
     try:
-        float(node["temp"])
+        temp_val = float(node["temp"])
+        # Reject NaN and infinity — float() accepts them but they corrupt data
+        if temp_val != temp_val:  # NaN check (NaN != NaN is True)
+            _LOGGER.error(f"Invalid temperature (NaN): {node.get('temp')}")
+            return False
+        if math.isinf(temp_val):
+            _LOGGER.error(f"Invalid temperature (infinity): {node.get('temp')}")
+            return False
     except (ValueError, TypeError):
         _LOGGER.error(f"Invalid temperature: {node.get('temp')}")
         return False
@@ -446,6 +454,16 @@ class ScheduleStorage:
                     mapped_active_profile = name_map.get(active_profile)
                     if mapped_active_profile:
                         group_data["active_profile_global"] = mapped_active_profile
+                        # Sync the active global profile's schedules from the
+                        # group's live schedules (source of truth), not the stale
+                        # legacy profile copy. This prevents _sync_group_profile_views
+                        # from clobbering the migrated runtime state.
+                        global_profiles[mapped_active_profile]["schedules"] = copy.deepcopy(
+                            group_data.get("schedules", {"all_days": []})
+                        )
+                        global_profiles[mapped_active_profile]["schedule_mode"] = group_data.get(
+                            "schedule_mode", "all_days"
+                        )
                     elif name_map:
                         group_data["active_profile_global"] = next(iter(name_map.values()))
                 else:
@@ -465,6 +483,11 @@ class ScheduleStorage:
                     group_data["active_profile_legacy"] = legacy_default_name
                     group_data["active_profile"] = legacy_default_name
                     group_data["active_profile_global"] = fallback_name
+                    # Ensure the global profile matches the live group schedules
+                    # (source of truth), preventing _sync_group_profile_views clobber.
+                    global_profiles[fallback_name]["schedules"] = copy.deepcopy(
+                        group_data.get("schedules", {"all_days": []})
+                    )
 
             migrated = True
 

@@ -990,10 +990,47 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         }
     
     async def handle_clear_schedule(call: ServiceCall) -> None:
-        """Handle clear_schedule service call."""
-        entity_id = call.data["schedule_id"]
-        await storage.async_set_schedule(entity_id, [])
+        """Handle clear_schedule service call.
+
+        Clears ALL schedule days for the target, not just the active day.
+        The schedule_id can be either an entity_id or a group name.
+        """
+        schedule_id = call.data["schedule_id"]
+
+        # Resolve to group name (entity_id might be in a single-entity group)
+        group_name = None
+        groups = await storage.async_get_groups()
+
+        # First check if schedule_id is directly a group name
+        if schedule_id in groups:
+            group_name = schedule_id
+        else:
+            # Look for the entity in a group
+            for g_name, g_data in groups.items():
+                if schedule_id in g_data.get("entities", []):
+                    group_name = g_name
+                    break
+
+        if group_name is None:
+            _LOGGER.warning(f"clear_schedule: '{schedule_id}' not found in any group")
+            return
+
+        # Clear ALL schedule days for the group
+        group_data = groups[group_name]
+        schedule_mode = group_data.get("schedule_mode", "all_days")
+
+        # Clear all days for the active profile
+        if schedule_mode == "all_days":
+            await storage.async_set_group_schedule(group_name, [], day="all_days")
+        elif schedule_mode == "5/2":
+            await storage.async_set_group_schedule(group_name, [], day="weekday")
+            await storage.async_set_group_schedule(group_name, [], day="weekend")
+        else:  # individual
+            for day in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]:
+                await storage.async_set_group_schedule(group_name, [], day=day)
+
         await coordinator.async_request_refresh()
+        _LOGGER.info(f"Cleared all schedule days for '{schedule_id}' (group '{group_name}', mode={schedule_mode})")
     
     async def _enable_target(target_id: str) -> None:
         """Enable scheduling for either a single entity or a group name.
