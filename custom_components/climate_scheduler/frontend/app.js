@@ -259,8 +259,22 @@ async function initApp() {
         await haAPI.subscribeToStateChanges();
         haAPI.onStateUpdate(handleStateUpdate);
         
-        // Subscribe to profile change events
-        await haAPI.subscribeToEvents('climate_scheduler_profile_changed', handleProfileChanged);
+        // Profile-change notifications may be restricted to administrators.
+        // Allow regular users to finish loading the dashboard.
+        try {
+            await haAPI.subscribeToEvents(
+                'climate_scheduler_profile_changed',
+                handleProfileChanged
+            );
+        } catch (error) {
+            if (error?.code !== 'unauthorized') {
+                throw error;
+            }
+            console.warn(
+                '[Climate Scheduler] Profile-change notifications unavailable ' +
+                'for this user. Refresh to see external profile changes.'
+            );
+        }
         
         // Set up UI event listeners
         setupEventListeners();
