@@ -1,6 +1,7 @@
 """Storage management for Climate Scheduler."""
 import logging
 import copy
+import math
 import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime, time
@@ -12,6 +13,100 @@ from homeassistant.const import UnitOfTemperature
 from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_TEMP, MAX_TEMP
 
 _LOGGER = logging.getLogger(__name__)
+
+_ALLOWED_SCHEDULE_MODES = {"all_days", "5/2", "individual"}
+_ALLOWED_DAY_KEYS = {"all_days", "weekday", "weekend", "mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+_WEEKDAY_KEYS = {"mon", "tue", "wed", "thu", "fri"}
+_WEEKEND_KEYS = {"sat", "sun"}
+_OPTIONAL_STRING_NODE_FIELDS = {
+    "hvac_mode",
+    "fan_mode",
+    "swing_mode",
+    "swing_horizontal_mode",
+    "preset_mode",
+    "aux_heat",
+}
+_OPTIONAL_NUMERIC_NODE_FIELDS = {
+    "target_temp_low",
+    "target_temp_high",
+    "target_humidity",
+}
+_OPTIONAL_PASSTHROUGH_NODE_FIELDS = {"A", "B", "C"}
+
+
+def _normalize_schedule_mode(schedule_mode: Optional[str]) -> Optional[str]:
+    """Normalize schedule mode to canonical values when provided."""
+    if schedule_mode is None:
+        return None
+
+    if not isinstance(schedule_mode, str):
+        raise ValueError("schedule_mode must be a string")
+
+    normalized = schedule_mode.strip().lower()
+    if normalized not in _ALLOWED_SCHEDULE_MODES:
+        raise ValueError(f"Invalid schedule_mode '{schedule_mode}'")
+
+    return normalized
+
+
+def _normalize_schedule_day(day: Optional[str]) -> Optional[str]:
+    """Normalize schedule day keys for storage mapping."""
+    if day is None:
+        return None
+
+    if not isinstance(day, str):
+        raise ValueError("day must be a string")
+
+    normalized = day.strip().lower()
+    if normalized not in _ALLOWED_DAY_KEYS:
+        raise ValueError(f"Invalid day '{day}'")
+
+    return normalized
+
+
+def _sanitize_schedule_nodes(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Validate and sanitize incoming schedule nodes before persistence."""
+    if not isinstance(nodes, list):
+        raise ValueError("nodes must be a list")
+
+    sanitized_nodes: List[Dict[str, Any]] = []
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            raise ValueError(f"Node at index {index} must be an object")
+        if not validate_node(node):
+            raise ValueError(
+                f"Invalid node at index {index}; expected fields include valid HH:MM time and numeric temp"
+            )
+
+        node_time = str(node["time"])
+        if node_time == "24:00":
+            node_time = "23:59"
+
+        sanitized_node: Dict[str, Any] = {
+            "time": node_time,
+            "temp": float(node["temp"]),
+        }
+
+        if node.get("noChange") is True:
+            sanitized_node["noChange"] = True
+
+        for field in _OPTIONAL_STRING_NODE_FIELDS:
+            value = node.get(field)
+            if isinstance(value, str) and value.strip() != "":
+                sanitized_node[field] = value
+
+        for field in _OPTIONAL_NUMERIC_NODE_FIELDS:
+            value = node.get(field)
+            if isinstance(value, (int, float)) and math.isfinite(value):
+                sanitized_node[field] = float(value)
+
+        for field in _OPTIONAL_PASSTHROUGH_NODE_FIELDS:
+            if field in node:
+                sanitized_node[field] = node[field]
+
+        sanitized_nodes.append(sanitized_node)
+
+    return sanitized_nodes
 
 
 def validate_node(node: Dict[str, Any]) -> bool:
@@ -1550,6 +1645,30 @@ class ScheduleStorage:
         """
         if group_name not in self._data.get("groups", {}):
             raise ValueError(f"Group '{group_name}' does not exist")
+
+        normalized_mode = _normalize_schedule_mode(schedule_mode)
+        normalized_day = _normalize_schedule_day(day)
+        sanitized_nodes = _sanitize_schedule_nodes(nodes)
+
+        # Ensure day and mode combinations resolve to valid schedule buckets.
+        if normalized_day is not None:
+            mode_for_day = normalized_mode
+            if mode_for_day is None:
+                mode_for_day = self._data["groups"][group_name].get("schedule_mode", "all_days")
+                mode_for_day = _normalize_schedule_mode(mode_for_day) or "all_days"
+
+            if mode_for_day == "all_days":
+                normalized_day = "all_days"
+            elif mode_for_day == "5/2":
+                if normalized_day in _WEEKDAY_KEYS:
+                    normalized_day = "weekday"
+                elif normalized_day in _WEEKEND_KEYS:
+                    normalized_day = "weekend"
+                elif normalized_day not in {"weekday", "weekend"}:
+                    raise ValueError(f"Invalid day '{normalized_day}' for schedule_mode '5/2'")
+            else:  # individual
+                if normalized_day not in (_WEEKDAY_KEYS | _WEEKEND_KEYS):
+                    raise ValueError(f"Invalid day '{normalized_day}' for schedule_mode 'individual'")
         
         group_data = self._data["groups"][group_name]
 
@@ -1606,27 +1725,29 @@ class ScheduleStorage:
         is_explicit_non_active_profile_save = bool(profile_name and profile_name != resolved_active_profile)
 
         if is_explicit_non_active_profile_save:
-            target_mode = schedule_mode if schedule_mode is not None else global_profiles[target_profile].get("schedule_mode", "all_days")
+            target_mode = normalized_mode if normalized_mode is not None else global_profiles[target_profile].get("schedule_mode", "all_days")
+            target_mode = _normalize_schedule_mode(target_mode) or "all_days"
             target_schedules = apply_nodes_to_schedules(
                 global_profiles[target_profile].get("schedules", {}),
                 target_mode,
-                nodes,
-                day,
+                sanitized_nodes,
+                normalized_day,
             )
 
             global_profiles[target_profile]["schedule_mode"] = target_mode
             global_profiles[target_profile]["schedules"] = copy.deepcopy(target_schedules)
         else:
             # Active-profile save path updates group runtime state and mirrors to active global profile
-            if schedule_mode is not None:
-                group_data["schedule_mode"] = schedule_mode
+            if normalized_mode is not None:
+                group_data["schedule_mode"] = normalized_mode
 
             current_mode = group_data.get("schedule_mode", "all_days")
+            current_mode = _normalize_schedule_mode(current_mode) or "all_days"
             group_data["schedules"] = apply_nodes_to_schedules(
                 group_data.get("schedules", {}),
                 current_mode,
-                nodes,
-                day,
+                sanitized_nodes,
+                normalized_day,
             )
 
             global_profiles[target_profile]["schedule_mode"] = current_mode
@@ -1644,12 +1765,19 @@ class ScheduleStorage:
             current_mode = global_profiles[target_profile].get("schedule_mode", "all_days")
         else:
             current_mode = group_data.get("schedule_mode", "all_days")
+            current_mode = _normalize_schedule_mode(current_mode) or "all_days"
         
-        _LOGGER.info(f"Saved group schedule to profile '{target_profile}' for group '{group_name}' - day: {day}, mode: {current_mode}, nodes: {len(nodes)}")
+        _LOGGER.info(
+            f"Saved group schedule to profile '{target_profile}' for group '{group_name}' - "
+            f"day: {normalized_day}, mode: {current_mode}, nodes: {len(sanitized_nodes)}"
+        )
         _LOGGER.debug(f"Profile schedules after save: {global_profiles[target_profile]['schedules'].keys()}")
         
         await self.async_save()
-        _LOGGER.info(f"Set schedule for group '{group_name}' with {len(nodes)} nodes (day: {day}, mode: {schedule_mode})")
+        _LOGGER.info(
+            f"Set schedule for group '{group_name}' with {len(sanitized_nodes)} nodes "
+            f"(day: {normalized_day}, mode: {normalized_mode})"
+        )
     
     async def async_get_group_schedule(self, group_name: str, day: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get schedule for a group (same logic as entity schedule retrieval)."""

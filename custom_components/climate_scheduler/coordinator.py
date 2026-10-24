@@ -301,9 +301,42 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             "target_node": next_node,
             "cancelled_at": None
         })
+
+        async def _rollback_failed_advance(error_message: str, exc: Optional[Exception] = None) -> Dict[str, Any]:
+            """Rollback override/history state if advance fails after state mutation."""
+            if entity_id in self.override_until:
+                del self.override_until[entity_id]
+
+            # Mark latest advance entry as cancelled to avoid dangling active history.
+            if entity_id in self.advance_history and self.advance_history[entity_id]:
+                latest = self.advance_history[entity_id][-1]
+                if latest.get("cancelled_at") is None:
+                    latest["cancelled_at"] = dt_util.now().isoformat()
+
+            try:
+                await self.storage.async_save_advance_history(self.advance_history)
+            except Exception as history_error:
+                _LOGGER.warning(
+                    "Failed to persist rollback history for %s after advance error: %s",
+                    entity_id,
+                    history_error,
+                )
+
+            if exc is not None:
+                _LOGGER.error("Advance failed for %s: %s", entity_id, exc, exc_info=True)
+            else:
+                _LOGGER.warning("Advance failed for %s: %s", entity_id, error_message)
+
+            return {
+                "success": False,
+                "error": error_message,
+            }
         
         # Save history to storage
-        await self.storage.async_save_advance_history(self.advance_history)
+        try:
+            await self.storage.async_save_advance_history(self.advance_history)
+        except Exception as exc:
+            return await _rollback_failed_advance(f"Failed to persist advance history: {exc}", exc)
         
         _LOGGER.info(f"Set override for {entity_id} until {override_until}")
         
@@ -333,10 +366,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         # Get entity state
         state = self.hass.states.get(entity_id)
         if state is None:
-            return {
-                "success": False,
-                "error": "Entity not found"
-            }
+            return await _rollback_failed_advance("Entity not found")
         
         # Get entity capabilities
         hvac_modes = state.attributes.get("hvac_modes", [])
@@ -351,121 +381,121 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         # Apply the next node settings
         target_hvac_mode = next_node.get("hvac_mode")
         
-        if target_hvac_mode == "off":
-            _LOGGER.info(f"Advancing {entity_id} - turning off")
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "turn_off",
-                    {"entity_id": entity_id},
-                    blocking=True,
-                )
-            except Exception as e:
-                _LOGGER.debug(f"turn_off failed for {entity_id}, trying set_hvac_mode: {e}")
-                if "off" in hvac_modes:
+        try:
+            if target_hvac_mode == "off":
+                _LOGGER.info(f"Advancing {entity_id} - turning off")
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "turn_off",
+                        {"entity_id": entity_id},
+                        blocking=True,
+                    )
+                except Exception as e:
+                    _LOGGER.debug(f"turn_off failed for {entity_id}, trying set_hvac_mode: {e}")
+                    if "off" in hvac_modes:
+                        await self.hass.services.async_call(
+                            "climate",
+                            "set_hvac_mode",
+                            {"entity_id": entity_id, "hvac_mode": "off"},
+                            blocking=True,
+                        )
+            else:
+                # Apply HVAC mode
+                if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
                     await self.hass.services.async_call(
                         "climate",
                         "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "off"},
+                        {"entity_id": entity_id, "hvac_mode": next_node["hvac_mode"]},
                         blocking=True,
                     )
-        else:
-            # Apply HVAC mode
-            if "hvac_mode" in next_node and next_node["hvac_mode"] != "off" and next_node["hvac_mode"] in hvac_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": next_node["hvac_mode"]},
-                    blocking=True,
-                )
 
-        # Set temperature after applying HVAC/off mode
-        if clamped_temp is not None and not is_preset_only:
-            _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": entity_id,
-                        ATTR_TEMPERATURE: clamped_temp,
+            # Set temperature after applying HVAC/off mode
+            if clamped_temp is not None and not is_preset_only:
+                _LOGGER.info(f"Advancing {entity_id} to temp={clamped_temp}°C")
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {
+                            "entity_id": entity_id,
+                            ATTR_TEMPERATURE: clamped_temp,
+                        },
+                        blocking=True,
+                    )
+                except Exception as exc:
+                    if target_hvac_mode == "off":
+                        _LOGGER.warning(f"Failed to set temperature after turning off {entity_id}: {exc}")
+                    else:
+                        return await _rollback_failed_advance(f"Failed to set temperature: {str(exc)}", exc)
+            elif clamped_temp is not None and is_preset_only:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+            else:
+                _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
+                
+                # Apply fan mode
+                if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_fan_mode",
+                        {"entity_id": entity_id, "fan_mode": next_node["fan_mode"]},
+                        blocking=True,
+                    )
+                
+                # Apply swing mode
+                if "swing_mode" in next_node and swing_modes and next_node["swing_mode"] in swing_modes:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_swing_mode",
+                        {"entity_id": entity_id, "swing_mode": next_node["swing_mode"]},
+                        blocking=True,
+                    )
+                
+                # Apply preset mode
+                if "preset_mode" in next_node and preset_modes and next_node["preset_mode"] in preset_modes:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
+                        blocking=True,
+                    )
+            
+            # Fire event for manual advance
+            # Get all entities in the group for event data
+            group_entities = groups[group_name].get("entities", [])
+            
+            self.hass.bus.async_fire(
+                f"{DOMAIN}_node_activated",
+                {
+                    # TODO: Remove entity_id in future version - deprecated in favor of entities list
+                    "entity_id": entity_id,  # Specific entity that was advanced
+                    "entities": group_entities,  # All entities in the group
+                    "group_name": group_name,
+                    "node": {
+                        "time": next_node.get("time"),
+                        "temp": clamped_temp,
+                        "hvac_mode": next_node.get("hvac_mode"),
+                        "fan_mode": next_node.get("fan_mode"),
+                        "swing_mode": next_node.get("swing_mode"),
+                        "preset_mode": next_node.get("preset_mode"),
+                        "A": next_node.get("A"),
+                        "B": next_node.get("B"),
+                        "C": next_node.get("C"),
                     },
-                    blocking=True,
-                )
-            except Exception as exc:
-                if target_hvac_mode == "off":
-                    _LOGGER.warning(f"Failed to set temperature after turning off {entity_id}: {exc}")
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Failed to set temperature: {str(exc)}"
-                    }
-        elif clamped_temp is not None and is_preset_only:
-            _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
-        else:
-            _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE set)")
-            
-            # Apply fan mode
-            if "fan_mode" in next_node and fan_modes and next_node["fan_mode"] in fan_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_fan_mode",
-                    {"entity_id": entity_id, "fan_mode": next_node["fan_mode"]},
-                    blocking=True,
-                )
-            
-            # Apply swing mode
-            if "swing_mode" in next_node and swing_modes and next_node["swing_mode"] in swing_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_swing_mode",
-                    {"entity_id": entity_id, "swing_mode": next_node["swing_mode"]},
-                    blocking=True,
-                )
-            
-            # Apply preset mode
-            if "preset_mode" in next_node and preset_modes and next_node["preset_mode"] in preset_modes:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": entity_id, "preset_mode": next_node["preset_mode"]},
-                    blocking=True,
-                )
-        
-        # Fire event for manual advance
-        # Get all entities in the group for event data
-        group_entities = groups[group_name].get("entities", [])
-        
-        self.hass.bus.async_fire(
-            f"{DOMAIN}_node_activated",
-            {
-                # TODO: Remove entity_id in future version - deprecated in favor of entities list
-                "entity_id": entity_id,  # Specific entity that was advanced
-                "entities": group_entities,  # All entities in the group
-                "group_name": group_name,
-                "node": {
-                    "time": next_node.get("time"),
-                    "temp": clamped_temp,
-                    "hvac_mode": next_node.get("hvac_mode"),
-                    "fan_mode": next_node.get("fan_mode"),
-                    "swing_mode": next_node.get("swing_mode"),
-                    "preset_mode": next_node.get("preset_mode"),
-                    "A": next_node.get("A"),
-                    "B": next_node.get("B"),
-                    "C": next_node.get("C"),
-                },
-                "day": next_node_day,
-                "trigger_type": "manual_advance",
+                    "day": next_node_day,
+                    "trigger_type": "manual_advance",
+                }
+            )
+            _LOGGER.info(f"Fired node_activated event for {entity_id} (manual_advance)")
+
+            return {
+                "success": True,
+                "next_node": next_node,
+                "next_node_day": next_node_day,
+                "applied_temp": clamped_temp
             }
-        )
-        _LOGGER.info(f"Fired node_activated event for {entity_id} (manual_advance)")
-        
-        return {
-            "success": True,
-            "next_node": next_node,
-            "next_node_day": next_node_day,
-            "applied_temp": clamped_temp
-        }
+        except Exception as exc:
+            return await _rollback_failed_advance(f"Failed to advance schedule: {str(exc)}", exc)
     
     async def cancel_advance(self, entity_id: str) -> Dict[str, Any]:
         """Cancel an active advance override for an entity or a group schedule_id."""

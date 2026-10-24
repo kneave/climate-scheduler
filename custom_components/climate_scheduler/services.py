@@ -13,9 +13,38 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .coordinator import HeatingSchedulerCoordinator
-from .storage import ScheduleStorage
+from .storage import ScheduleStorage, validate_node
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def normalize_nodes_payload(nodes_raw: Any, service_name: str) -> list[dict[str, Any]]:
+    """Normalize and validate incoming nodes payload for schedule services."""
+    parsed_nodes: Any = nodes_raw
+
+    if isinstance(parsed_nodes, str):
+        try:
+            parsed_nodes = json.loads(parsed_nodes)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{service_name}: nodes must be valid JSON when provided as a string") from exc
+
+    if isinstance(parsed_nodes, dict):
+        parsed_nodes = [parsed_nodes]
+
+    if not isinstance(parsed_nodes, list):
+        raise ValueError(f"{service_name}: nodes must be a list of node objects")
+
+    normalized_nodes: list[dict[str, Any]] = []
+    for index, node in enumerate(parsed_nodes):
+        if not isinstance(node, dict):
+            raise ValueError(f"{service_name}: node at index {index} must be an object")
+        if not validate_node(node):
+            raise ValueError(
+                f"{service_name}: invalid node at index {index}; expected fields include valid HH:MM time and numeric temp"
+            )
+        normalized_nodes.append(node)
+
+    return normalized_nodes
 
 
 async def async_get_services(hass: HomeAssistant) -> dict[str, Any]:
@@ -956,7 +985,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_set_schedule(call: ServiceCall) -> None:
         """Handle set_schedule service call."""
         entity_id = call.data["schedule_id"]
-        nodes = call.data["nodes"]
+        nodes = normalize_nodes_payload(call.data["nodes"], "set_schedule")
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
         await storage.async_set_schedule(entity_id, nodes, day, schedule_mode)
@@ -1153,7 +1182,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_set_group_schedule(call: ServiceCall) -> None:
         """Handle set_group_schedule service call."""
         group_name = call.data["schedule_id"]
-        nodes = call.data["nodes"]
+        nodes = normalize_nodes_payload(call.data["nodes"], "set_group_schedule")
         day = call.data.get("day")
         schedule_mode = call.data.get("schedule_mode")
         profile_name = call.data.get("profile_name")
