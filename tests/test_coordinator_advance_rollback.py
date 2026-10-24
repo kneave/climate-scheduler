@@ -77,6 +77,9 @@ async def test_advance_rolls_back_override_state_when_apply_fails() -> None:
                         "swing_modes": [],
                         "preset_modes": [],
                         "current_temperature": 20,
+                        # feature bit 0 (TARGET_TEMPERATURE) marks entities
+                        # whose temperature can be set (see upstream 0cae78c)
+                        "supported_features": 1,
                     }
                 )
             }
