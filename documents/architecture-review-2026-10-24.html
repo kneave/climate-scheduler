@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>climate-scheduler — Architecture Deepening Review</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  .card { transition: box-shadow .2s; }
+  .card:hover { box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+  .mass-bar { height: 14px; border-radius: 3px; }
+  .badge-strong { background:#dc2626; }
+  .badge-explore { background:#ea580c; }
+  .badge-spec { background:#64748b; }
+  .arrow { font-size: 28px; color: #94a3b8; }
+</style>
+<script>mermaid.initialize({startOnLoad:true, theme:'neutral'});</script>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<div class="max-w-5xl mx-auto px-6 py-10">
+
+<header class="mb-10">
+  <h1 class="text-3xl font-bold text-slate-800">climate-scheduler — Deepening Opportunities</h1>
+  <p class="text-slate-600 mt-2 max-w-3xl">
+    Question asked: <em>"code is concentrated in a small number of files — worth splitting out by subsystem?"</em>
+    This review answers with the language of <strong>depth</strong>: split where it buys <strong>locality</strong> (concentrated change) and <strong>leverage</strong> (small interface). Sizes: <code>storage.py</code> 1,808 ln · <code>services.py</code> 1,855 ln · <code>coordinator.py</code> 1,098 ln · <code>app.js</code> 7,290 ln (322 KB). Verified against <code>feature/code-review-remediation</code> (main + remediation work).
+  </p>
+  <div class="mt-4 grid grid-cols-4 gap-3 text-center text-sm">
+    <div class="bg-white rounded-lg p-3 shadow"><div class="text-2xl font-bold text-rose-600">storage.py</div><div class="text-slate-500">7 systems in 1,808 lines</div></div>
+    <div class="bg-white rounded-lg p-3 shadow"><div class="text-2xl font-bold text-orange-600">services.py</div><div class="text-slate-500">2 foreign systems, 1,855 lines</div></div>
+    <div class="bg-white rounded-lg p-3 shadow"><div class="text-2xl font-bold text-amber-600">coordinator.py</div><div class="text-slate-500">own migration + duplicated seams</div></div>
+    <div class="bg-white rounded-lg p-3 shadow"><div class="text-2xl font-bold text-sky-600">app.js</div><div class="text-slate-500">38 shared globals, 7,290 lines</div></div>
+  </div>
+</header>
+
+<!-- ===================== CANDIDATE 1 ===================== -->
+<div class="card bg-white rounded-xl shadow-md p-6 mb-8">
+  <div class="flex items-start justify-between">
+    <h2 class="text-xl font-bold text-slate-800">1 · Extract the schedule-model module: <code class="text-sm bg-slate-100 px-2 py-0.5 rounded">schedule_model.py</code></h2>
+    <span class="badge-strong text-white text-xs font-semibold px-3 py-1 rounded-full">Strong</span>
+  </div>
+  <p class="mt-2 text-sm text-slate-500">Files: <code>storage.py</code> → new <code>schedule_model.py</code>, consumed by <code>coordinator.py</code>, <code>climate.py</code>, <code>services.py</code></p>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-slate-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Problem</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>Schedule <em>semantics</em> — mode/day mapping, node validation, active-node resolution, time math — live in <code>storage.py</code> (persistence file). The domain model and the disk layer share one module.</li>
+        <li>The same concepts are re-implemented <strong><span class="text-rose-600">3×</span></strong>: <code>_time_to_minutes</code> (storage :1444, coordinator :245 <em>nested</em>, consumed privately by climate/coordinator, 7 private-access sites); day-carry-over (storage :1378, coordinator :706, climate :264); mode→day-bucket rules (<code>_get_nodes_for_day</code> :754 vs nested <code>apply_nodes_to_schedules</code> :1675 — inverse copies).</li>
+        <li>Consumers bypass public interfaces: <code>self.storage._time_to_minutes</code>, <code>storage._data</code> ×6 across climate/services/sensor. Private reach-in is the norm, not the exception.</li>
+      </ul>
+    </div>
+    <div class="bg-emerald-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-emerald-600 uppercase mb-2">Solution — deepen, don't just move</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>Pull the <strong>pure schedule domain</strong> into one module: <code>validate_node</code>, <code>_sanitize_schedule_nodes</code>, <code>_normalize_schedule_mode/day</code> (storage :37–149), <code>apply_nodes_to_schedules</code> (extract from :1675), <code>_get_nodes_for_day</code>, <code>get_active_node*</code>, <code>get_next_node</code>, <code>time_to_minutes</code> (delete coordinator's nested twin), day-carry-over.</li>
+        <li>The module owns the Node & Schedule contracts (CONTRACTS.md): one home for "what a valid node is" and "how 5/2 maps" — <strong>locality</strong>.</li>
+        <li>Delete the dead <code>interpolate_temperature</code> (:1324, zero callers).</li>
+        <li>storage.py keeps only persistence: load/save/migrate/group CRUD.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mt-4 bg-slate-50 rounded-lg p-4">
+    <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Deletion test</div>
+    <p class="text-sm text-slate-700">Deleting <code>schedule_model.py</code> wouldn't just move complexity — the <em>triplicated</em> minute-math and mode-mapping logic would reappear at every consumer. That's a module earning its keep.</p>
+  </div>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div>
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Before — semantics scattered, 3 private-access lanes</div>
+      <pre class="mermaid">
+graph TD
+  S[storage.py<br/>1,808 ln] -->|"own copy"| T1[time_to_minutes :1444]
+  C[coordinator.py] -->|"nested twin"| T2[_time_to_minutes :245]
+  CL[climate.py] -->|private reach| T3[storage._time_to_minutes ×3]
+  S -->|"dup rules"| M1[mode mapping :754]
+  S -->|"dup rules (inverse)"| M2[apply_nodes :1675]
+  CO[coordinator :706] -->|"own copy"| DC[day carry-over]
+  S --> T4[day carry-over :1378]
+  CL -->|"own 3rd copy"| DC
+  style S fill:#fee2e2,stroke:#dc2626
+  style C fill:#fff7ed,stroke:#ea580c
+      </pre>
+    </div>
+    <div>
+      <div class="text-xs font-semibold text-emerald-400 uppercase mb-2">After — one deep module, public interface</div>
+      <pre class="mermaid">
+graph TD
+  SM[schedule_model.py<br/>pure domain: node contract,<br/>mode/day mapping, time math] 
+  ST[storage.py<br/>persistence only] --> SM
+  CO[coordinator.py] --> SM
+  CL[climate.py] --> SM
+  SV[services.py] --> SM
+  style SM fill:#d1fae5,stroke:#059669
+  style ST fill:#e0f2fe,stroke:#0284c7
+      </pre>
+    </div>
+  </div>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-sky-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-sky-700 uppercase mb-2">Benefits</div>
+      <ul class="text-sm list-disc pl-4 space-y-1">
+        <li><strong>Leverage</strong>: consumers get validated node sanitization + mode mapping behind calls that already look similar; interface ≈ 8 functions, behaviour ≈ 400 lines of subtle time/day logic.</li>
+        <li><strong>Locality</strong>: the mode-map rules triad (#146-class bugs, #186's 24:00 resurrection) becomes one file to fix. Triage fixes stop needing 3-file shotgun edits.</li>
+        <li><strong>Test surface</strong>: already proven cheap — <code>validate_node</code>/<code>_sanitize_schedule_nodes</code> tests run with zero HA mocking today. The whole module becomes runnable in microseconds, no conftest stubs.</li>
+        <li>Kills the 7 private-access sites as a side effect.</li>
+      </ul>
+    </div>
+    <div class="bg-amber-50 rounded-lg p-4 text-sm text-amber-900">
+      <div class="text-xs font-semibold text-amber-700 uppercase mb-2">Watch out</div>
+      Keep it <em>pure</em>: importing <code>homeassistant.const</code> is fine, importing <code>Store</code>/<code>hass</code> re-couples it. The C7 fix (non-finite temp guard) and the C3 sanitizer belong here too, so harden once.
+    </div>
+  </div>
+</div>
+
+<!-- ===================== CANDIDATE 2 ===================== -->
+<div class="card bg-white rounded-xl shadow-md p-6 mb-8">
+  <div class="flex items-start justify-between">
+    <h2 class="text-xl font-bold text-slate-800">2 · Evict foreign systems: registry/sensor and Lovelace assets out of storage/services</h2>
+    <span class="badge-strong text-white text-xs font-semibold px-3 py-1 rounded-full">Strong</span>
+  </div>
+  <p class="mt-2 text-sm text-slate-500">Files: <code>storage.py</code> → <code>entity_registry_ops.py</code>; <code>services.py</code> → <code>frontend_assets.py</code></p>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-slate-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Problem</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>storage.py — a <em>persistence</em> class — calls <code>config_entries</code> reload and audits the HA entity registry: <code>_reload_sensor_platform</code> :995, <code>async_cleanup_derivative_sensors</code> :1008, <code>async_cleanup_unmonitored_storage</code> :1091 (≈200 lines of registry work in the storage layer).</li>
+        <li>services.py dedupes expected-vs-registered sensor names, re-deriving the same patterns services.py :692–984 stores elsewhere — two modules must agree on a naming scheme neither owns.</li>
+        <li>services.py also owns the Lovelace card lifecycle: <code>handle_reregister_card</code> :1550 + diagnostics probe :1657 (≈300 lines, ~16% of the file) — frontend asset registration is not a schedule service.</li>
+        <li>Both are precisely the hard-to-test zones: hass.config_entries + aiohttp mocking.</li>
+      </ul>
+    </div>
+    <div class="bg-emerald-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-emerald-600 uppercase mb-2">Solution</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li><code>entity_registry_ops.py</code>: sensor-name derivation, cleanup passes, platform reload. Storage calls it behind one seam (<code>on_groups_changed()</code>); services reuses the same expected-name helpers.</li>
+        <li><code>frontend_assets.py</code>: resource registration + reregister service + diagnostics probe (the file that would also absorb ADR-conflict fix #196's duplicate-registration loop).</li>
+        <li>storage.py drops to load/save/migrate/CRUD; services.py drops ~500 lines of non-service code.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div>
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Before — layers cross-wired</div>
+      <pre class="mermaid">
+graph TD
+  ST[storage.py] -->|calls| CE[config_entries reload<br/>+ entity registry audit]
+  SV[services.py] -->|duplicates| SN[sensor name patterns]
+  ST -.->|"same patterns"| SN
+  SV -->|calls| LO[Lovelace resource CRUD<br/>+ aiohttp probe]
+  SENS[sensor.py] -.->|"naming agreement"| SN
+  style ST fill:#fee2e2,stroke:#dc2626
+  style SV fill:#fee2e2,stroke:#dc2626
+      </pre>
+    </div>
+    <div>
+      <div class="text-xs font-semibold text-emerald-400 uppercase mb-2">After — clean layers</div>
+      <pre class="mermaid">
+graph TD
+  ST[storage.py] --> ERO[entity_registry_ops.py]
+  SV[services.py] --> ERO
+  SENS[sensor.py] --> ERO
+  FA[frontend_assets.py] --> LO[Lovelace / aiohttp]
+  SV --> FA
+  ST --> SM[schedule_model.py]
+  style ST fill:#d1fae5,stroke:#059669
+  style SV fill:#d1fae5,stroke:#059669
+      </pre>
+    </div>
+  </div>
+
+  <div class="mt-3 bg-sky-50 rounded-lg p-4">
+    <div class="text-xs font-semibold text-sky-700 uppercase mb-1">Benefits</div>
+    <ul class="text-sm list-disc pl-4 space-y-1">
+      <li><strong>Locality</strong>: sensor naming drift (#130/#144 phantom devices, #196 resource ratchet) concentrates in one registry module; the cleanup-service disagreement disappears.</li>
+      <li><strong>Test surface</strong>: name-derivation becomes pure (no hass mock needed); registry ops get one mocked hass at the seam.</li>
+      <li>#130/#144 fixes (async_remove_config_entry_device) have a natural home instead of extending storage further.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===================== CANDIDATE 3 ===================== -->
+<div class="card bg-white rounded-xl shadow-md p-6 mb-8">
+  <div class="flex items-start justify-between">
+    <h2 class="text-xl font-bold text-slate-800">3 · Frontend: extract pure logic from app.js into classic-script modules</h2>
+    <span class="badge-explore text-white text-xs font-semibold px-3 py-1 rounded-full">Worth exploring</span>
+  </div>
+  <p class="mt-2 text-sm text-slate-500">Files: <code>frontend/app.js</code> (7,290 ln) → several files, loaded via existing <code>loadScript</code> chain; no build step, ADR-001 compatible (explicitly lists this follow-up)</p>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-slate-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Problem</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>app.js is 7,290 lines with 107 top-level functions and 38 shared mutable globals (313 use-sites). Open Risks already name it: "Large-file regression risk."</li>
+        <li>Day/mode logic has 12+ duplicated literal sites inside app.js (<code>'mon'..'sun'</code> ×4, weekend pairs ×4, day-array ×4) — and it <em>also</em> re-implements backend storage rules. That's the Q2 review finding live at scale.</li>
+        <li>Latent hazard found: <code>toggleEntityInclusion</code> defined twice (:2628, :5219) — the later silently overrides the former.</li>
+        <li>Two interpolators (utils.js vs keyframe-timeline.ts) — known duplication at the seam.</li>
+      </ul>
+    </div>
+    <div class="bg-emerald-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-emerald-600 uppercase mb-2">Solution</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>Do the phase <strong>ADR-001 already anticipated</strong> — extract the pure clusters using the existing classic-script pattern (top-level functions become globals; panel.ts load order guarantees availability):
+          <ol class="list-decimal pl-4 mt-1 space-y-1">
+            <li><code>schedule-utils.js</code>: temp normalization (:36–115, parameterize <code>graphSnapStep</code>), node↔keyframe conversion (:812–980), mode/day transition pure fns (:981–1116, :4340–4385) — <span class="font-semibold">≈600 lines movable with zero DOM/HA dependencies</span>.</li>
+            <li><code>save-queue.js</code>: debounce/flags state as one object + its 6 functions <span class="font-semibold">(kills the 6-area save-flag scatter)</span>.</li>
+            <li>Larger cuts (editor, event listeners, node settings) only after state threading — separate campaign.</li>
+          </ol>
+        </li>
+        <li>Fix the double <code>toggleEntityInclusion</code> while touching the area.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mt-4 bg-slate-50 rounded-lg p-4">
+    <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Why not ES modules / full TS migration?</div>
+    <p class="text-sm text-slate-700">panel.ts loads scripts via classic <code>&lt;script&gt;</code> tags (utils → ha-api → app); 38 top-level <code>let</code>s become shared global-lexical bindings only within a single classic script. An ES-module conversion or full TS port would need to thread state through 107 functions at once — high-risk, contradicts ADR-001's "deferred" stance. Classic-script extraction keeps every step shippable and reviewable.</p>
+  </div>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-sky-50 rounded-lg p-4 text-sm">
+      <div class="text-xs font-semibold text-sky-700 uppercase mb-1">Benefits</div>
+      <ul class="list-disc pl-4 space-y-1">
+        <li><strong>Leverage</strong>: 14 <code>scheduleNodesToKeyframes</code> call sites and 10 temp-normalization sites call one tested function instead of re-deriving.</li>
+        <li>Mode/day transition rules (the #186/#150-class bugs and Q2 review finding) get a frontend home next to — and mirroring — <code>schedule_model.py</code>; the mode-map contract becomes greppable to exactly two files instead of five.</li>
+        <li>Extracted pure clusters unit-testable in node without a DOM.</li>
+      </ul>
+    </div>
+    <div class="bg-amber-50 rounded-lg p-4 text-sm text-amber-900">
+      <div class="text-xs font-semibold text-amber-700 uppercase mb-2">Watch out</div>
+      Load-order is now load-bearing (add new files to panel.ts's <code>loadScripts</code> before app.js). Keep one extraction per commit; the 38 shared globals stay in app.js until the state-object campaign.
+    </div>
+  </div>
+</div>
+
+<!-- ===================== CANDIDATE 4 ===================== -->
+<div class="card bg-white rounded-xl shadow-md p-6 mb-8">
+  <div class="flex items-start justify-between">
+    <h2 class="text-xl font-bold text-slate-800">4 · Split services.py handlers into domain registries</h2>
+    <span class="badge-spec text-white text-xs font-semibold px-3 py-1 rounded-full">Speculative</span>
+  </div>
+  <p class="mt-2 text-sm text-slate-500">Files: <code>services.py</code> → <code>services/</code> package (schedule_services.py, profile_services.py, advance_services.py, admin_services.py) — or reject</p>
+
+  <div class="mt-4 grid md:grid-cols-2 gap-4">
+    <div class="bg-slate-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Problem</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>services.py mixes 5 service domains (schedules, profiles/groups, advance, admin/cleanup, diagnostics) with schema tables and selector building — 1,855 lines.</li>
+        <li>It pokes coordinator internals: deletes <code>coordinator.last_node_states</code> directly at 6 sites (:996, :1034, :1099, :1483, :1519, :1536) with no cache-invalidation API on the coordinator.</li>
+      </ul>
+    </div>
+    <div class="bg-emerald-50 rounded-lg p-4">
+      <div class="text-xs font-semibold text-emerald-600 uppercase mb-2">Solution — but consider the smaller cut first</div>
+      <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+        <li>Package split is mechanical but low-leverage — interface count stays flat. <span class="font-semibold">Cheaper 80% win:</span> add <code>coordinator.invalidate_node_cache(entity_ids)</code> and route the 6 private-access sites through it. That single deepened method removes the worst coupling without moving 1,800 lines.</li>
+        <li>Only do the package split when a 5th domain (e.g. #84 boost service) arrives — two adapters make the seam real.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="mt-3 bg-slate-100 rounded-lg p-3 text-sm text-slate-600">
+    <strong>Deletion test verdict:</strong> a <code>services/</code> package mostly relocates code (complexity neither vanishes nor concentrates) → shallow split. The <code>invalidate_node_cache</code> method genuinely concentrates scattered knowledge → deep.
+  </div>
+</div>
+
+<!-- ===================== TOP RECOMMENDATION ===================== -->
+<div class="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl shadow-lg p-6 text-white mb-8">
+  <h2 class="text-2xl font-bold">Top recommendation: Candidate 1 — <code>schedule_model.py</code></h2>
+  <p class="mt-2 text-emerald-50">Why first: lowest risk (pure functions, already partially tested), highest leverage per line moved (~800 lines in, 7 private-access lanes closed, three copies of mode/time logic replaced by one), and it is the <em>prerequisite</em> for doing Candidates 2 and 3 well — the registry and frontend splits both want a canonical schedule-model to point at. It also front-loads the C7 fix (non-finite temp) into its new home so the hardening ships with the seam instead of in storage.py forever.</p>
+  <p class="mt-2 text-sm text-emerald-100">Ordering: 1 → (2a registry, 2b frontend assets) → 3 (frontend pure extraction) → 4's small cache-invalidation cut anytime.</p>
+</div>
+
+<!-- ===================== CONTEXT-DEPENDENT NOTES ===================== -->
+<div class="card bg-white rounded-xl shadow-md p-6">
+  <h2 class="text-xl font-bold text-slate-800 mb-2">Ground rules noted during review</h2>
+  <ul class="text-sm text-slate-700 list-disc pl-4 space-y-1">
+    <li><strong>ADR-001 (source-of-truth frontend edits)</strong> — no candidate contradicts it; Candidate 3 executes its recorded follow-up ("phased decomposition of app.js"). No ADR conflicts surfaced.</li>
+    <li><strong>Cadence reality</strong>: 3 commits on main in 6 months, solo maintainer — every split should be one shippable commit, not a branch-long migration. The pure-function extractions fit that; monolith rewrites don't.</li>
+    <li><strong>Test reconciliation first</strong>: <code>origin/feature/test-suite</code> (~175 tests: migrations, coordinator, storage CRUD) vs local branch harness (6 tests + CI). Whichever lands first is the safety net — do that before any move.</li>
+    <li><strong>Don't split what's already deep:</strong> the group/platform entities (climate.py 21KB, sensor.py 18KB, switch.py 17KB) have decent interfaces; leave them.</li>
+  </ul>
+</div>
+
+<footer class="text-center text-xs text-slate-400 mt-8">Generated 2026-10-24 · branch feature/code-review-remediation · evidence: explore-agent line maps + direct greps</footer>
+</div>
+</body>
+</html>
