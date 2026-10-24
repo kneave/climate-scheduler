@@ -307,5 +307,16 @@ ClimateSchedulerCard = __decorate([
     t('climate-scheduler-card')
 ], ClimateSchedulerCard);
 
+window.customCards = window.customCards || [];
+if (!window.customCards.some((c) => c.type === "climate-scheduler-card")) {
+    window.customCards.push({
+        type: "climate-scheduler-card",
+        name: "Climate Scheduler Card",
+        description: "Full Climate Scheduler UI as a Lovelace card",
+        preview: false,
+    });
+    console.info("[Climate Scheduler] Card registered in picker");
+}
+
 export { ClimateSchedulerCard };
 //# sourceMappingURL=climate-scheduler-card.js.map
