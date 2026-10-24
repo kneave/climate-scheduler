@@ -344,9 +344,9 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         swing_modes = state.attributes.get("swing_modes", [])
         preset_modes = state.attributes.get("preset_modes", [])
 
-        # Check if this is a preset-only entity
-        current_temperature = state.attributes.get("current_temperature")
-        is_preset_only = current_temperature is None
+        # Check if this entity supports target temperature (feature bit 0 -> value 1)
+        supported_features = state.attributes.get("supported_features", 0)
+        is_preset_only = not bool(supported_features & 1)
         
         # Apply the next node settings
         target_hvac_mode = next_node.get("hvac_mode")
@@ -941,18 +941,17 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 current_target = state.attributes.get("temperature")
                 _LOGGER.info(f"{entity_id} current target: {current_target}°C")
                 
-                # Check if this is a preset-only entity (no current_temperature sensor)
-                current_temperature = state.attributes.get("current_temperature")
-                is_preset_only = current_temperature is None
-                if is_preset_only:
-                    _LOGGER.info(f"{entity_id} is preset-only (no current_temperature), will skip temperature changes")
-                
                 # Get entity capabilities
                 supported_features = state.attributes.get("supported_features", 0)
                 hvac_modes = state.attributes.get("hvac_modes", [])
                 fan_modes = state.attributes.get("fan_modes", [])
                 swing_modes = state.attributes.get("swing_modes", [])
                 preset_modes = state.attributes.get("preset_modes", [])
+                
+                # Check if this entity supports target temperature (feature bit 0 -> value 1)
+                is_preset_only = not bool(supported_features & 1)
+                if is_preset_only:
+                    _LOGGER.info(f"{entity_id} is preset-only (supported_features={supported_features}), will skip temperature changes")
                 
                 # Check if we're turning off - apply mode first
                 target_hvac_mode = active_node.get("hvac_mode")
