@@ -84,32 +84,6 @@ export class ClimateSchedulerCard extends LitElement {
     }
   `;
 
-  constructor() {
-    super();
-    // Register card in picker
-    this._registerCard();
-  }
-
-  private _registerCard() {
-    try {
-      (window as any).customCards = (window as any).customCards || [];
-      const cardType = 'climate-scheduler-card';
-      const exists = (window as any).customCards.some((c: any) => c.type === cardType);
-      
-      if (!exists) {
-        (window as any).customCards.push({
-          type: cardType,
-          name: 'Climate Scheduler Card',
-          description: 'Full Climate Scheduler UI as a Lovelace card',
-          preview: false,
-        });
-        console.info('[Climate Scheduler] Card registered in picker');
-      }
-    } catch (e) {
-      console.error('[Climate Scheduler] Failed to register card in picker:', e);
-    }
-  }
-
   setConfig(config: any) {
     this._config = config || {};
   }
@@ -242,6 +216,25 @@ export class ClimateSchedulerCard extends LitElement {
   getCardSize() {
     return 10;
   }
+}
+
+// Register card in the Lovelace picker as the module loads: element
+// constructors only run once an instance exists, which is too late for the
+// Add Card dialog.
+try {
+  (window as any).customCards = (window as any).customCards || [];
+  const cardType = 'climate-scheduler-card';
+  if (!(window as any).customCards.some((c: any) => c.type === cardType)) {
+    (window as any).customCards.push({
+      type: cardType,
+      name: 'Climate Scheduler Card',
+      description: 'Full Climate Scheduler UI as a Lovelace card',
+      preview: false,
+    });
+    console.info('[Climate Scheduler] Card registered in picker');
+  }
+} catch (e) {
+  console.error('[Climate Scheduler] Failed to register card in picker:', e);
 }
 
 declare global {

@@ -114,36 +114,15 @@ const t=t=>(e,o)=>{ void 0!==o?o.addInitializer(()=>{customElements.define(t,e);
     }
 })();
 let ClimateSchedulerCard = class ClimateSchedulerCard extends i {
-    static getConfigElement() { return null; }
-    static getStubConfig() { return {}; }
     constructor() {
-        super();
+        super(...arguments);
         this._config = {};
         this._hasIntegration = false;
         this._errorMessage = null;
         this._panelLoaded = false;
-        // Register card in picker
-        this._registerCard();
     }
-    _registerCard() {
-        try {
-            window.customCards = window.customCards || [];
-            const cardType = 'climate-scheduler-card';
-            const exists = window.customCards.some((c) => c.type === cardType);
-            if (!exists) {
-                window.customCards.push({
-                    type: cardType,
-                    name: 'Climate Scheduler Card',
-                    description: 'Full Climate Scheduler UI as a Lovelace card',
-                    preview: false,
-                });
-                console.info('[Climate Scheduler] Card registered in picker');
-            }
-        }
-        catch (e) {
-            console.error('[Climate Scheduler] Failed to register card in picker:', e);
-        }
-    }
+    static getConfigElement() { return null; }
+    static getStubConfig() { return {}; }
     setConfig(config) {
         this._config = config || {};
     }
@@ -306,6 +285,25 @@ __decorate([
 ClimateSchedulerCard = __decorate([
     t('climate-scheduler-card')
 ], ClimateSchedulerCard);
+// Register card in the Lovelace picker as the module loads: element
+// constructors only run once an instance exists, which is too late for the
+// Add Card dialog.
+try {
+    window.customCards = window.customCards || [];
+    const cardType = 'climate-scheduler-card';
+    if (!window.customCards.some((c) => c.type === cardType)) {
+        window.customCards.push({
+            type: cardType,
+            name: 'Climate Scheduler Card',
+            description: 'Full Climate Scheduler UI as a Lovelace card',
+            preview: false,
+        });
+        console.info('[Climate Scheduler] Card registered in picker');
+    }
+}
+catch (e) {
+    console.error('[Climate Scheduler] Failed to register card in picker:', e);
+}
 
 export { ClimateSchedulerCard };
 //# sourceMappingURL=climate-scheduler-card.js.map
