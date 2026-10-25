@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.15.1-develop.1] - 2026-10-25
+
+Pre-release for beta testers (develop branch).
+
+### Fixed
+- Climate Scheduler card now appears in the Lovelace "Add Card" picker even when no instance of the card exists yet; registration now runs at module load instead of element construction (#174, #204).
+- Non-admin users no longer get "Connection Failed: Unauthorized" when opening a dashboard with the card; the denied profile-change notification subscription is now optional during initialization (#173, #199).
+- Thermostats misdetected as preset-only now receive target temperature changes; preset-only detection uses the `TARGET_TEMPERATURE` feature flag instead of the presence of a current temperature reading (#198).
+
 ## [1.15.1] - 2026-03-01
 
 ### Fixed
