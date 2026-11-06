@@ -1415,6 +1415,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             await storage.async_create_profile(target_id, profile_name)
             _LOGGER.info(f"Created profile '{profile_name}' for schedule '{target_id}'")
+            # Refresh entities so preset_modes reflect the profile list immediately
+            await coordinator.async_request_refresh()
         except ValueError as err:
             _LOGGER.error(f"Error creating profile: {err}")
             raise
@@ -1426,6 +1428,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             await storage.async_delete_profile(target_id, profile_name)
             _LOGGER.info(f"Deleted profile '{profile_name}' from schedule '{target_id}'")
+            # Refresh entities so preset_modes reflect the profile list immediately
+            await coordinator.async_request_refresh()
         except ValueError as err:
             _LOGGER.error(f"Error deleting profile: {err}")
             raise
@@ -1438,6 +1442,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             await storage.async_rename_profile(target_id, old_name, new_name)
             _LOGGER.info(f"Renamed profile '{old_name}' to '{new_name}' for schedule '{target_id}'")
+            # Refresh entities so preset_modes reflect the profile list immediately
+            await coordinator.async_request_refresh()
         except ValueError as err:
             _LOGGER.error(f"Error renaming profile: {err}")
             raise

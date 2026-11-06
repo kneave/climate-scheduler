@@ -122,10 +122,8 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
             HVACMode.OFF,   # Idle - turns off members
         ]
         
-        # Preset modes from profiles
-        profiles = group_data.get("profiles", {})
-        self._attr_preset_modes = list(profiles.keys()) if profiles else []
-        self._attr_preset_mode = group_data.get("active_profile", "Default")
+        # Preset modes from global profiles
+        self._attr_preset_modes, self._attr_preset_mode = storage.get_group_preset_state(group_data)
         
         # State tracking
         self._member_entities: List[str] = group_data.get("entities", [])
@@ -184,9 +182,8 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         group_data = self._storage._data.get("groups", {}).get(self._group_name)
         if group_data:
             self._enabled = group_data.get("enabled", True)
-            profiles = group_data.get("profiles", {})
-            self._attr_preset_modes = list(profiles.keys()) if profiles else []
-            self._attr_preset_mode = group_data.get("active_profile", "Default")
+            # Profiles are global; the per-group "profiles" dict is legacy data only
+            self._attr_preset_modes, self._attr_preset_mode = self._storage.get_group_preset_state(group_data)
             # Update HVAC mode based on enabled state
             self._attr_hvac_mode = HVACMode.AUTO if self._enabled else HVACMode.OFF
         self._update_state()
