@@ -2,7 +2,7 @@
 import logging
 import copy
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, time
 
 from homeassistant.core import HomeAssistant
@@ -369,6 +369,17 @@ class ScheduleStorage:
             return active_profile
 
         return "Default" if "Default" in global_profiles else next(iter(global_profiles), None)
+
+    def get_group_preset_state(self, group_data: Dict[str, Any]) -> Tuple[List[str], Optional[str]]:
+        """Return (global profile names, active global profile) for a group.
+
+        Used by entities that expose profiles as preset modes. Profiles are global,
+        so the per-group legacy "profiles" dict must not be used for this.
+        """
+        self._ensure_global_profiles_initialized()
+        global_profiles = self._data.get("profiles", {})
+        active_profile = self._resolve_group_active_global_profile(group_data, global_profiles)
+        return list(global_profiles.keys()), active_profile
 
     def _sync_group_profile_views(self) -> None:
         """Align active schedule fields with selected global active profile."""
