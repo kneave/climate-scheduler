@@ -56,7 +56,10 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             await coordinator.async_request_refresh()
 
         from homeassistant.helpers.event import async_track_time_interval
-        async_track_time_interval(
+        # Keep the unsubscribe handle: without it, a reload (e.g. the automatic
+        # post-upgrade reload) leaves the old coordinator running on a stale
+        # storage copy alongside the new one.
+        hass.data[DOMAIN]["unsub_update_timer"] = async_track_time_interval(
             hass,
             _scheduled_update,
             timedelta(seconds=UPDATE_INTERVAL_SECONDS)
@@ -397,7 +400,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:  # noqa: BLE001
                 pass
         _LOGGER.info("[BACKEND] All services removed during unload")
-        hass.data.pop(DOMAIN, None)
+        domain_data = hass.data.pop(DOMAIN, None) or {}
+        if unsub := domain_data.get("unsub_update_timer"):
+            unsub()
+        if coordinator := domain_data.get("coordinator"):
+            await coordinator.async_shutdown()
     else:
         _LOGGER.info("[BACKEND] Unloading entry but keeping services (not last entry)")
     
