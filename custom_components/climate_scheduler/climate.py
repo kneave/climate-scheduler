@@ -69,7 +69,7 @@ async def async_setup_entry(
                 group_data,
             )
         )
-        _LOGGER.info(f"Created climate entity for group '{group_name}' with {entity_count} entities")
+        _LOGGER.debug("Created climate entity for group '%s' with %s entities", group_name, entity_count)
     
     # Save normalized flags if any were updated
     if groups_normalized:
@@ -78,7 +78,7 @@ async def async_setup_entry(
     
     if entities:
         async_add_entities(entities, True)
-        _LOGGER.info(f"Added {len(entities)} climate scheduler group entities")
+        _LOGGER.debug("Added %s climate scheduler group entities", len(entities))
 
 
 class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
