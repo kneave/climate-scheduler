@@ -69,7 +69,7 @@ async def async_setup_entry(
                 group_data,
             )
         )
-        _LOGGER.info(f"Created climate entity for group '{group_name}' with {entity_count} entities")
+        _LOGGER.debug("Created climate entity for group '%s' with %s entities", group_name, entity_count)
     
     # Save normalized flags if any were updated
     if groups_normalized:
@@ -78,13 +78,21 @@ async def async_setup_entry(
     
     if entities:
         async_add_entities(entities, True)
-        _LOGGER.info(f"Added {len(entities)} climate scheduler group entities")
+        _LOGGER.debug("Added %s climate scheduler group entities", len(entities))
 
 
 class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
     """Climate entity representing a schedule group."""
 
     _attr_has_entity_name = True
+
+    # ponytail: HA 2026.11 renamed these to native_* (legacy names stop working in
+    # 2027.11). On older cores (hacs.json: 2024.1) expose the native values through
+    # the legacy properties. Delete once the minimum HA version is >= 2026.11.
+    if not hasattr(ClimateEntity, "native_temperature_unit"):
+        temperature_unit = property(lambda self: self._attr_native_temperature_unit)
+        current_temperature = property(lambda self: self._attr_native_current_temperature)
+        target_temperature = property(lambda self: self._attr_native_target_temperature)
 
     def __init__(
         self,
@@ -103,7 +111,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"climate_scheduler_group_{group_name.lower().replace(' ', '_')}"
         
         # Climate entity configuration - will be set when added to hass
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS  # Default, updated in async_added_to_hass
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS  # Default, updated in async_added_to_hass
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE |
             ClimateEntityFeature.TURN_ON |
@@ -130,8 +138,8 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         # State tracking
         self._member_entities: List[str] = group_data.get("entities", [])
         self._enabled: bool = group_data.get("enabled", True)
-        self._attr_current_temperature: Optional[float] = None
-        self._attr_target_temperature: Optional[float] = None
+        self._attr_native_current_temperature: Optional[float] = None
+        self._attr_native_target_temperature: Optional[float] = None
         self._attr_hvac_mode: Optional[HVACMode] = HVACMode.AUTO if self._enabled else HVACMode.OFF
         self._attr_hvac_action: Optional[HVACAction] = None  # Will be set in _update_state
         
@@ -144,7 +152,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         """When entity is added to hass, set temperature unit from system config."""
         await super().async_added_to_hass()
         # Use the same approach as storage.py - get temperature unit from system config
-        self._attr_temperature_unit = self.hass.config.units.temperature_unit
+        self._attr_native_temperature_unit = self.hass.config.units.temperature_unit
         
         # Set temperature step from first member entity if available
         if self._member_entities:
@@ -156,7 +164,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         _LOGGER.debug(
             "Climate entity %s initialized with temperature unit: %s, step: %s",
             self.entity_id,
-            self._attr_temperature_unit,
+            self._attr_native_temperature_unit,
             self._attr_target_temp_step,
         )
         # Perform initial state update
@@ -210,9 +218,9 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
                     pass
         
         if temps:
-            self._attr_current_temperature = round(sum(temps) / len(temps), 1)
+            self._attr_native_current_temperature = round(sum(temps) / len(temps), 1)
         else:
-            self._attr_current_temperature = None
+            self._attr_native_current_temperature = None
         
         self._member_temps = temp_map
         
@@ -301,7 +309,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         
         # Show the scheduled setpoint as target temperature, or use a default
         if active_setpoint is not None:
-            self._attr_target_temperature = active_setpoint
+            self._attr_native_target_temperature = active_setpoint
         else:
             # Fallback: use average of member target temps, or 20°C default
             member_targets = []
@@ -314,11 +322,11 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
                         pass
             
             if member_targets:
-                self._attr_target_temperature = round(sum(member_targets) / len(member_targets), 1)
+                self._attr_native_target_temperature = round(sum(member_targets) / len(member_targets), 1)
             else:
-                self._attr_target_temperature = 20.0  # Default fallback
+                self._attr_native_target_temperature = 20.0  # Default fallback
             
-            _LOGGER.debug(f"No schedule setpoint for {self._group_name}, using fallback: {self._attr_target_temperature}")
+            _LOGGER.debug(f"No schedule setpoint for {self._group_name}, using fallback: {self._attr_native_target_temperature}")
         
         # HVAC mode reflects enabled state (not member states)
         # This is already set in _handle_coordinator_update
@@ -427,7 +435,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
                 )
         
         # Update target temperature immediately and trigger state refresh
-        self._attr_target_temperature = temperature
+        self._attr_native_target_temperature = temperature
         
         # Schedule a state update after a short delay to allow member entities to react
         async def delayed_update():

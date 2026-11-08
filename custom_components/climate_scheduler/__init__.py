@@ -8,6 +8,7 @@ from pathlib import Path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.util import json as json_util
@@ -37,17 +38,16 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     # Initialize coordinator once
     coordinator: HeatingSchedulerCoordinator | None = hass.data[DOMAIN].get("coordinator")
     if coordinator is None:
-        coordinator = HeatingSchedulerCoordinator(
-            hass,
-            storage,
-            timedelta(seconds=UPDATE_INTERVAL_SECONDS)
-        )
+        # No built-in update_interval: the interval timer below drives refreshes.
+        # Having both made two cycles run ~1 s apart whenever the coordinator's
+        # jittered schedule landed just before the timer.
+        coordinator = HeatingSchedulerCoordinator(hass, storage, None)
         hass.data[DOMAIN]["coordinator"] = coordinator
 
         # Start coordinator updates
-        _LOGGER.info(f"Starting coordinator with {UPDATE_INTERVAL_SECONDS}s update interval")
+        _LOGGER.debug("Starting coordinator with %ss update interval", UPDATE_INTERVAL_SECONDS)
         await coordinator.async_refresh()
-        _LOGGER.info("Forcing initial temperature sync for all entities")
+        _LOGGER.debug("Forcing initial temperature sync for all entities")
         await coordinator.force_update_all()
 
         # Schedule periodic updates
@@ -56,7 +56,10 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
             await coordinator.async_request_refresh()
 
         from homeassistant.helpers.event import async_track_time_interval
-        async_track_time_interval(
+        # Keep the unsubscribe handle: without it, a reload (e.g. the automatic
+        # post-upgrade reload) leaves the old coordinator running on a stale
+        # storage copy alongside the new one.
+        hass.data[DOMAIN]["unsub_update_timer"] = async_track_time_interval(
             hass,
             _scheduled_update,
             timedelta(seconds=UPDATE_INTERVAL_SECONDS)
@@ -165,7 +168,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
         ])
         hass.data[DOMAIN]["frontend_static_registered"] = True
-        _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
+        _LOGGER.debug("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
     else:
         _LOGGER.debug("Frontend static path already registered")
 
@@ -194,7 +197,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
 
         # Check for YAML mode
         if not hasattr(resources, "store") or resources.store is None:
-            _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
+            _LOGGER.debug("Lovelace YAML mode detected, card must be registered manually")
             
             # Check if the card is already registered in YAML
             base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
@@ -206,7 +209,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                     entry_base_url = entry_url.split("?")[0]
                     if entry_base_url == base_url:
                         card_already_registered = True
-                        _LOGGER.info("Card is already registered in YAML configuration")
+                        _LOGGER.debug("Card is already registered in YAML configuration")
                         # Dismiss any existing notification since card is now present
                         await hass.services.async_call(
                             "persistent_notification",
@@ -283,7 +286,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         # install/update/reboot and avoids stale IDs or metadata).
         if existing_entry:
             try:
-                _LOGGER.info("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
+                _LOGGER.debug("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
                 await resources.async_delete_item(existing_entry["id"])
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to remove existing bundled frontend resource, will attempt to (re)create it")
@@ -295,7 +298,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             if removed_old:
                 _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
             else:
-                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+                _LOGGER.debug("Successfully registered bundled frontend card (version %s)", frontend_version)
         else:
             _LOGGER.warning("Cannot auto-register card: Lovelace resources are in YAML mode")
         
@@ -397,9 +400,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:  # noqa: BLE001
                 pass
         _LOGGER.info("[BACKEND] All services removed during unload")
-        hass.data.pop(DOMAIN, None)
+        domain_data = hass.data.pop(DOMAIN, None) or {}
+        if unsub := domain_data.get("unsub_update_timer"):
+            unsub()
+        if coordinator := domain_data.get("coordinator"):
+            await coordinator.async_shutdown()
     else:
         _LOGGER.info("[BACKEND] Unloading entry but keeping services (not last entry)")
     
     return unload_ok
 
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing a device that no entity of this integration uses anymore.
+
+    Older versions described the climate entity's device with a device_info on
+    rate sensors, which on recent cores created a separate device owned by this
+    integration. This lets users delete those leftovers from the UI.
+    """
+    entity_registry = er.async_get(hass)
+    return not any(
+        entry.config_entry_id == config_entry.entry_id
+        for entry in er.async_entries_for_device(
+            entity_registry, device_entry.id, include_disabled_entities=True
+        )
+    )
