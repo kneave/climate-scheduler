@@ -45,9 +45,9 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
         hass.data[DOMAIN]["coordinator"] = coordinator
 
         # Start coordinator updates
-        _LOGGER.info(f"Starting coordinator with {UPDATE_INTERVAL_SECONDS}s update interval")
+        _LOGGER.debug("Starting coordinator with %ss update interval", UPDATE_INTERVAL_SECONDS)
         await coordinator.async_refresh()
-        _LOGGER.info("Forcing initial temperature sync for all entities")
+        _LOGGER.debug("Forcing initial temperature sync for all entities")
         await coordinator.force_update_all()
 
         # Schedule periodic updates
@@ -165,7 +165,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             StaticPathConfig(f"/{DOMAIN}/static", str(frontend_path), should_cache)
         ])
         hass.data[DOMAIN]["frontend_static_registered"] = True
-        _LOGGER.info("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
+        _LOGGER.debug("Registered frontend static path: %s -> %s", f"/{DOMAIN}/static", frontend_path)
     else:
         _LOGGER.debug("Frontend static path already registered")
 
@@ -194,7 +194,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
 
         # Check for YAML mode
         if not hasattr(resources, "store") or resources.store is None:
-            _LOGGER.info("Lovelace YAML mode detected, card must be registered manually")
+            _LOGGER.debug("Lovelace YAML mode detected, card must be registered manually")
             
             # Check if the card is already registered in YAML
             base_url = f"/{DOMAIN}/static/climate-scheduler-card.js"
@@ -206,7 +206,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
                     entry_base_url = entry_url.split("?")[0]
                     if entry_base_url == base_url:
                         card_already_registered = True
-                        _LOGGER.info("Card is already registered in YAML configuration")
+                        _LOGGER.debug("Card is already registered in YAML configuration")
                         # Dismiss any existing notification since card is now present
                         await hass.services.async_call(
                             "persistent_notification",
@@ -283,7 +283,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
         # install/update/reboot and avoids stale IDs or metadata).
         if existing_entry:
             try:
-                _LOGGER.info("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
+                _LOGGER.debug("Removing existing bundled frontend card registration: %s", existing_entry.get("url"))
                 await resources.async_delete_item(existing_entry["id"])
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to remove existing bundled frontend resource, will attempt to (re)create it")
@@ -295,7 +295,7 @@ async def _register_frontend_resources(hass: HomeAssistant) -> None:
             if removed_old:
                 _LOGGER.info("Successfully migrated to bundled frontend card (version %s)", frontend_version)
             else:
-                _LOGGER.info("Successfully registered bundled frontend card (version %s)", frontend_version)
+                _LOGGER.debug("Successfully registered bundled frontend card (version %s)", frontend_version)
         else:
             _LOGGER.warning("Cannot auto-register card: Lovelace resources are in YAML mode")
         

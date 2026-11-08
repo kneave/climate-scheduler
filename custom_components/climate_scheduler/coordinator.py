@@ -122,7 +122,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self._workday_available = workday_state is not None
         
         if self._workday_available:
-            _LOGGER.info("Workday integration detected (binary_sensor.workday_sensor found) - available for 5/2 mode scheduling")
+            _LOGGER.debug("Workday integration detected (binary_sensor.workday_sensor found) - available for 5/2 mode scheduling")
         else:
             _LOGGER.debug("Workday integration not found (binary_sensor.workday_sensor not present) - 5/2 mode will use basic day matching")
         
@@ -177,7 +177,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
 
     async def force_update_all(self) -> None:
         """Force update all thermostats to their scheduled temperatures."""
-        _LOGGER.info("Force updating all thermostats to scheduled temperatures")
+        _LOGGER.debug("Force updating all thermostats to scheduled temperatures")
         # Clear last node states and times to force updates
         self.last_node_states.clear()
         self.last_node_times.clear()
@@ -629,12 +629,12 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Update heating schedules."""
-        _LOGGER.info("=== COORDINATOR UPDATE CYCLE START ===")
+        _LOGGER.debug("=== COORDINATOR UPDATE CYCLE START ===")
         try:
             now = dt_util.now()
             current_time = now.time()
             current_day = now.strftime('%a').lower()  # Get day: mon, tue, wed, etc.
-            _LOGGER.info(f"Current time: {current_time}, day: {current_day}")
+            _LOGGER.debug("Current time: %s, day: %s", current_time, current_day)
             # Load global settings (min/max temps)
             try:
                 settings = await self.storage.async_get_settings()
@@ -681,7 +681,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         
                         if current_minutes < first_node_minutes:
                             # We're before the first node of today, need previous day/period's last node
-                            _LOGGER.info(f"Group '{group_name}': Current time {current_time} is before first node today, checking previous period")
+                            _LOGGER.debug("Group '%s': Current time %s is before first node today, checking previous period", group_name, current_time)
                             
                             # Calculate previous day
                             days_of_week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
@@ -700,28 +700,28 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                                 # This way get_active_node will correctly use it as the active node until first node today
                                 carryover_node = {**last_prev_node, "time": "00:00", "_from_previous_day": True}
                                 group_schedule["nodes"] = [carryover_node] + nodes
-                                _LOGGER.info(f"Group '{group_name}': Carrying over previous period's node (temp={last_prev_node.get('temp')}) to bridge to first node at {sorted_nodes[0]['time']}")
+                                _LOGGER.debug("Group '%s': Carrying over previous period's node (temp=%s) to bridge to first node at %s", group_name, last_prev_node.get('temp'), sorted_nodes[0]['time'])
                     
                     entities_list = group_data.get("entities", [])
                     
                     if len(entities_list) == 0:
                         # Virtual group with no entities - track separately for event-only processing
                         entity_group_schedules[f"_virtual_{group_name}"] = (group_name, group_schedule, True)
-                        _LOGGER.info(f"Virtual group '{group_name}' will fire events only (no entities)")
+                        _LOGGER.debug("Virtual group '%s' will fire events only (no entities)", group_name)
                     else:
                         # Map all entities in this group to this schedule
                         for entity_id in entities_list:
                             entity_group_schedules[entity_id] = (group_name, group_schedule, False)
                             is_single = group_data.get("_is_single_entity_group", False)
                             group_type = "single-entity" if is_single else "multi-entity"
-                            _LOGGER.info(f"{entity_id} will use enabled {group_type} group '{group_name}' schedule")
+                            _LOGGER.debug("%s will use enabled %s group '%s' schedule", entity_id, group_type, group_name)
             
             # Save storage if any groups were migrated
             if groups_migrated:
                 await self.storage.async_save()
                 _LOGGER.info("Saved migrated group data")
             
-            _LOGGER.info(f"Found {len(entity_group_schedules)} entities with enabled group schedules")
+            _LOGGER.debug("Found %s entities with enabled group schedules", len(entity_group_schedules))
             
             results = {}
             
@@ -729,7 +729,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
             for entity_id, (group_name, schedule_data, is_virtual) in entity_group_schedules.items():
                 # Handle virtual groups (no entities, events only)
                 if is_virtual:
-                    _LOGGER.info(f"Processing virtual group: '{group_name}'")
+                    _LOGGER.debug("Processing virtual group: '%s'", group_name)
                     
                     nodes = schedule_data["nodes"]
                     active_node = self.storage.get_active_node(nodes, current_time)
@@ -806,7 +806,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(f"Entity {entity_id} not found in Home Assistant, skipping (may have been removed or renamed)")
                     continue
                 
-                _LOGGER.info(f"Processing entity: {entity_id} from group '{group_name}'")
+                _LOGGER.debug("Processing entity: %s from group '%s'", entity_id, group_name)
                 
                 # Check if entity has an active advance override
                 if entity_id in self.override_until:
@@ -827,7 +827,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             for event in reversed(self.advance_history[entity_id]):
                                 if event["cancelled_at"] is None:
                                     event["cancelled_at"] = dt_util.now().isoformat()
-                                    _LOGGER.info(f"Marked advance as completed for {entity_id}")
+                                    _LOGGER.debug("Marked advance as completed for %s", entity_id)
                                     history_updated = True
                                     break
                         if history_updated:
@@ -836,15 +836,15 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                         del self.override_until[entity_id]
                 
                 # Entity is in a group (either multi-entity or single-entity group)
-                _LOGGER.info(f"{entity_id} using group '{group_name}' schedule")
+                _LOGGER.debug("%s using group '%s' schedule", entity_id, group_name)
                 
-                _LOGGER.info(f"{entity_id} schedule data for {current_day}: {schedule_data}")
+                _LOGGER.debug("%s schedule data for %s: %s", entity_id, current_day, schedule_data)
                 if not schedule_data or "nodes" not in schedule_data:
                     _LOGGER.debug(f"No schedule nodes for {entity_id}")
                     continue
                 
                 nodes = schedule_data["nodes"]
-                _LOGGER.info(f"{entity_id} has {len(nodes)} nodes for {current_day}")
+                _LOGGER.debug("%s has %s nodes for %s", entity_id, len(nodes), current_day)
                 
                 # Get active node (includes temp and other settings)
                 active_node = self.storage.get_active_node(nodes, current_time)
@@ -853,7 +853,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     continue
                     
                 target_temp = active_node.get("temp")
-                _LOGGER.info(f"{entity_id} active node: {active_node}")
+                _LOGGER.debug("%s active node: %s", entity_id, active_node)
                 
                 # Clamp target temp to global min/max BEFORE creating signature
                 # This prevents infinite update loops where unclamped signature differs from clamped output
@@ -861,7 +861,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 is_no_change = active_node.get("noChange", False)
                 if is_no_change:
                     clamped_temp = None
-                    _LOGGER.info(f"{entity_id} temp set to NO_CHANGE - will not modify temperature")
+                    _LOGGER.debug("%s temp set to NO_CHANGE - will not modify temperature", entity_id)
                 else:
                     clamped_temp = target_temp
                     if target_temp is not None:
@@ -904,13 +904,13 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 
                 # Log the reason for applying settings
                 if is_first_run:
-                    _LOGGER.info(f"{entity_id} first run - applying initial settings")
+                    _LOGGER.debug("%s first run - applying initial settings", entity_id)
                 elif node_time_changed and not node_state_changed:
-                    _LOGGER.info(f"{entity_id} node time changed ({last_node_time} -> {node_time}), applying settings")
+                    _LOGGER.debug("%s node time changed (%s -> %s), applying settings", entity_id, last_node_time, node_time)
                 elif node_state_changed and not node_time_changed:
-                    _LOGGER.info(f"{entity_id} node state changed: {last_node} -> {node_signature}")
+                    _LOGGER.debug("%s node state changed: %s -> %s", entity_id, last_node, node_signature)
                 else:
-                    _LOGGER.info(f"{entity_id} node changed (time and state)")
+                    _LOGGER.debug("%s node changed (time and state)", entity_id)
                     
                 self.last_node_states[entity_id] = node_signature
                 self.last_node_times[entity_id] = node_time
@@ -925,21 +925,21 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                     
                     if current_target_for_reapply is not None:
                         temp_to_apply = current_target_for_reapply
-                        _LOGGER.info(f"{entity_id} NO_CHANGE - will use current temperature {temp_to_apply}°C")
+                        _LOGGER.debug("%s NO_CHANGE - will use current temperature %s°C", entity_id, temp_to_apply)
                     elif target_temp_high is not None or target_temp_low is not None:
                         # Entity uses min/max range - NO_CHANGE doesn't apply to range entities
                         # Still set temp_to_apply to None so we skip temperature but apply modes
                         temp_to_apply = None
-                        _LOGGER.info(f"{entity_id} NO_CHANGE - entity uses temp range (high={target_temp_high}, low={target_temp_low}), will apply modes only")
+                        _LOGGER.debug("%s NO_CHANGE - entity uses temp range (high=%s, low=%s), will apply modes only", entity_id, target_temp_high, target_temp_low)
                     else:
                         temp_to_apply = None
-                        _LOGGER.info(f"{entity_id} NO_CHANGE but no current temperature available")
+                        _LOGGER.debug("%s NO_CHANGE but no current temperature available", entity_id)
                 
                 # Re-get current state (we checked it exists earlier)
-                _LOGGER.info(f"{entity_id} state found: {state.state}")
+                _LOGGER.debug("%s state found: %s", entity_id, state.state)
                 # Get current target temperature
                 current_target = state.attributes.get("temperature")
-                _LOGGER.info(f"{entity_id} current target: {current_target}°C")
+                _LOGGER.debug("%s current target: %s°C", entity_id, current_target)
                 
                 # Get entity capabilities
                 supported_features = state.attributes.get("supported_features", 0)
@@ -951,11 +951,11 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 # Check if this entity supports target temperature (feature bit 0 -> value 1)
                 is_preset_only = not bool(supported_features & 1)
                 if is_preset_only:
-                    _LOGGER.info(f"{entity_id} is preset-only (supported_features={supported_features}), will skip temperature changes")
+                    _LOGGER.debug("%s is preset-only (supported_features=%s), will skip temperature changes", entity_id, supported_features)
                 
                 # Check if we're turning off - apply mode first
                 target_hvac_mode = active_node.get("hvac_mode")
-                _LOGGER.info(f"{entity_id} target_hvac_mode: {target_hvac_mode}, supported modes: {hvac_modes}")
+                _LOGGER.debug("%s target_hvac_mode: %s, supported modes: %s", entity_id, target_hvac_mode, hvac_modes)
                 if target_hvac_mode == "off":
                     _LOGGER.info(f"Turning off {entity_id}")
 
@@ -985,7 +985,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 else:
                     # Apply HVAC mode if specified in node and supported by entity (except off, handled above)
                     if "hvac_mode" in active_node and active_node["hvac_mode"] != "off" and active_node["hvac_mode"] in hvac_modes:
-                        _LOGGER.info(f"Setting HVAC mode to {active_node['hvac_mode']}")
+                        _LOGGER.info("Setting HVAC mode to %s for %s", active_node['hvac_mode'], entity_id)
                         await self.hass.services.async_call(
                             "climate",
                             "set_hvac_mode",
@@ -1030,13 +1030,13 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             # Skip further actions for this entity
                             continue
                 elif temp_to_apply is not None and is_preset_only:
-                    _LOGGER.info(f"Skipping temperature change for {entity_id} (preset-only entity)")
+                    _LOGGER.debug("Skipping temperature change for %s (preset-only entity)", entity_id)
                 else:
-                    _LOGGER.info(f"Skipping temperature change for {entity_id} (NO_CHANGE with no current temperature)")
+                    _LOGGER.debug("Skipping temperature change for %s (NO_CHANGE with no current temperature)", entity_id)
                 
                 # Apply fan mode if specified in node and supported by entity
                 if "fan_mode" in active_node and fan_modes and active_node["fan_mode"] in fan_modes:
-                    _LOGGER.info(f"Setting fan mode to {active_node['fan_mode']}")
+                    _LOGGER.info("Setting fan mode to %s for %s", active_node['fan_mode'], entity_id)
                     await self.hass.services.async_call(
                         "climate",
                         "set_fan_mode",
@@ -1051,7 +1051,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 
                 # Apply swing mode if specified in node and supported by entity
                 if "swing_mode" in active_node and swing_modes and active_node["swing_mode"] in swing_modes:
-                    _LOGGER.info(f"Setting swing mode to {active_node['swing_mode']}")
+                    _LOGGER.info("Setting swing mode to %s for %s", active_node['swing_mode'], entity_id)
                     await self.hass.services.async_call(
                         "climate",
                         "set_swing_mode",
@@ -1066,7 +1066,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 
                 # Apply preset mode if specified in node and supported by entity
                 if "preset_mode" in active_node and preset_modes and active_node["preset_mode"] in preset_modes:
-                    _LOGGER.info(f"Setting preset mode to {active_node['preset_mode']}")
+                    _LOGGER.info("Setting preset mode to %s for %s", active_node['preset_mode'], entity_id)
                     await self.hass.services.async_call(
                         "climate",
                         "set_preset_mode",
@@ -1109,7 +1109,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                             "trigger_type": "scheduled",
                         }
                     )
-                    _LOGGER.info(f"Fired node_activated event for {entity_id} (scheduled transition)")
+                    _LOGGER.debug("Fired node_activated event for %s (scheduled transition)", entity_id)
                 else:
                     _LOGGER.debug(f"Skipping event for {entity_id} - settings applied but not a time transition (user edit or first run)")
                 

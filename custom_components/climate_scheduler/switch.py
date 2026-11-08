@@ -71,7 +71,7 @@ async def async_setup_entry(
     
     if switches:
         async_add_entities(switches, True)
-        _LOGGER.info(f"Created {len(switches)} scheduler switch entities")
+        _LOGGER.debug("Created %s scheduler switch entities", len(switches))
 
 
 class ClimateSchedulerSwitch(CoordinatorEntity, SwitchEntity):
