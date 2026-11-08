@@ -86,7 +86,7 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
         self,
         hass: HomeAssistant,
         storage: ScheduleStorage,
-        update_interval: timedelta,
+        update_interval: Optional[timedelta],
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(

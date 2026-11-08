@@ -38,11 +38,10 @@ async def _async_setup_common(hass: HomeAssistant) -> None:
     # Initialize coordinator once
     coordinator: HeatingSchedulerCoordinator | None = hass.data[DOMAIN].get("coordinator")
     if coordinator is None:
-        coordinator = HeatingSchedulerCoordinator(
-            hass,
-            storage,
-            timedelta(seconds=UPDATE_INTERVAL_SECONDS)
-        )
+        # No built-in update_interval: the interval timer below drives refreshes.
+        # Having both made two cycles run ~1 s apart whenever the coordinator's
+        # jittered schedule landed just before the timer.
+        coordinator = HeatingSchedulerCoordinator(hass, storage, None)
         hass.data[DOMAIN]["coordinator"] = coordinator
 
         # Start coordinator updates
