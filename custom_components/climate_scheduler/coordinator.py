@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, MIN_TEMP, MAX_TEMP, NO_CHANGE_TEMP, SETTING_USE_WORKDAY, SETTING_WORKDAYS, DEFAULT_WORKDAYS
@@ -805,7 +805,14 @@ class HeatingSchedulerCoordinator(DataUpdateCoordinator):
                 if state is None:
                     _LOGGER.debug(f"Entity {entity_id} not found in Home Assistant, skipping (may have been removed or renamed)")
                     continue
-                
+
+                # Don't record the node as applied while the entity can't receive it:
+                # leaving last_node_states untouched makes the next cycle retry.
+                if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                    _LOGGER.debug("%s is %s, will retry on next cycle", entity_id, state.state)
+                    results[entity_id] = {"updated": False, "reason": state.state}
+                    continue
+
                 _LOGGER.debug("Processing entity: %s from group '%s'", entity_id, group_name)
                 
                 # Check if entity has an active advance override
