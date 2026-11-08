@@ -8,6 +8,7 @@ from pathlib import Path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.util import json as json_util
@@ -410,3 +411,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     return unload_ok
 
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing a device that no entity of this integration uses anymore.
+
+    Older versions described the climate entity's device with a device_info on
+    rate sensors, which on recent cores created a separate device owned by this
+    integration. This lets users delete those leftovers from the UI.
+    """
+    entity_registry = er.async_get(hass)
+    return not any(
+        entry.config_entry_id == config_entry.entry_id
+        for entry in er.async_entries_for_device(
+            entity_registry, device_entry.id, include_disabled_entities=True
+        )
+    )

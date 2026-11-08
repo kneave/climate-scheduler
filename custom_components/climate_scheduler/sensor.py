@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -161,16 +161,21 @@ class ClimateSchedulerRateSensor(SensorEntity):
         self._samples = []
         self._attr_native_value = 0.0  # Start at 0 instead of None
         
-        # Set device_info during initialization to ensure proper device linking
+        # Attach to the climate entity's existing device, like HA's own derivative
+        # helper does. A device_info would create a separate device owned by this
+        # integration: identifiers/connections are not unique across config entries.
         if device_id:
             device_registry = dr.async_get(hass)
             device = device_registry.async_get(device_id)
-            
+
             if device:
-                self._attr_device_info = {
-                    "identifiers": device.identifiers,
-                }
-                _LOGGER.debug(f"Linked sensor {self._attr_unique_id} to device {device_id} with identifiers {device.identifiers}")
+                if (MAJOR_VERSION, MINOR_VERSION) >= (2025, 8):
+                    self.device_entry = device
+                else:
+                    # ponytail: HA < 2025.8 ignores a preset device_entry; keep the
+                    # previous identifiers-based link there. Drop once min HA >= 2025.8.
+                    self._attr_device_info = {"identifiers": device.identifiers}
+                _LOGGER.debug(f"Linked sensor {self._attr_unique_id} to device {device_id}")
             else:
                 _LOGGER.error(f"Could not find device {device_id} in registry for sensor {self._attr_unique_id}")
         else:
