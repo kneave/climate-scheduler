@@ -368,7 +368,7 @@ class ClimateSchedulerSwitch(CoordinatorEntity, SwitchEntity):
         if schedule_mode == "all_days":
             return schedules.get("all_days", [])
         elif schedule_mode == "5/2":
-            if current_day in ["mon", "tue", "wed", "thu", "fri"]:
+            if self.storage.is_workday_day(current_day):
                 return schedules.get("weekday", [])
             else:
                 return schedules.get("weekend", [])

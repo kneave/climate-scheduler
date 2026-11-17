@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.const import UnitOfTemperature
 
-from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_TEMP, MAX_TEMP
+from .const import DOMAIN, STORAGE_VERSION, STORAGE_KEY, DEFAULT_SCHEDULE, MIN_TEMP, MAX_TEMP, DEFAULT_WORKDAYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -656,6 +656,29 @@ class ScheduleStorage:
         _LOGGER.debug(f"async_get_schedule: entity {entity_id} not found in any group")
         return None
     
+    def is_workday_day(self, day: str) -> bool:
+        """Return True if ``day`` (mon..sun) should use the 5/2 "weekday" schedule.
+
+        Falls back to the configured ``workdays`` list (default Mon-Fri). For
+        *today* only, and when ``use_workday_integration`` is enabled, the
+        state of ``binary_sensor.workday_sensor`` takes precedence, so public
+        holidays use the "weekend" schedule.
+        """
+        settings = self._data.get("settings", {})
+        workdays = settings.get("workdays")
+        if not isinstance(workdays, list) or not workdays:
+            workdays = DEFAULT_WORKDAYS
+        result = day in [d.lower() for d in workdays]
+
+        if (
+            settings.get("use_workday_integration", False)
+            and day == datetime.now().strftime("%a").lower()
+        ):
+            state = self.hass.states.get("binary_sensor.workday_sensor")
+            if state is not None and state.state in ("on", "off"):
+                result = state.state == "on"
+        return result
+
     def _get_nodes_for_day(self, entity_data: Dict[str, Any], day: str) -> List[Dict[str, Any]]:
         """Get nodes for a specific day based on schedule mode."""
         schedule_mode = entity_data.get("schedule_mode", "all_days")
@@ -1664,9 +1687,9 @@ class ScheduleStorage:
         if schedule_mode == "all_days":
             nodes = schedules.get("all_days", [])
         elif schedule_mode == "5/2":
-            if day in ["mon", "tue", "wed", "thu", "fri"]:
+            if self.is_workday_day(day):
                 nodes = schedules.get("weekday", [])
-            else:  # sat, sun
+            else:  # sat, sun, holidays
                 nodes = schedules.get("weekend", [])
         else:  # individual
             nodes = schedules.get(day, [])
