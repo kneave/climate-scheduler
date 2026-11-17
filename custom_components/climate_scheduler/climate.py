@@ -251,7 +251,7 @@ class ClimateSchedulerGroupEntity(CoordinatorEntity, ClimateEntity):
         if schedule_mode == "all_days":
             nodes = schedules.get("all_days", [])
         elif schedule_mode == "5/2":
-            if current_day in ["mon", "tue", "wed", "thu", "fri"]:
+            if self._storage.is_workday_day(current_day):
                 nodes = schedules.get("weekday", [])
             else:
                 nodes = schedules.get("weekend", [])

@@ -1052,6 +1052,48 @@ function getModeTransitionSeedNodes({ schedules, previousMode, previousDay, newM
     return [];
 }
 
+// Workday settings cache, refreshed whenever a group editor is opened
+let workdaySettingsCache = { use: false, workdays: ['mon', 'tue', 'wed', 'thu', 'fri'], sensorState: null };
+
+async function refreshWorkdaySettings() {
+    try {
+        const settings = await haAPI.getSettings();
+        workdaySettingsCache = {
+            use: !!settings?.use_workday_integration,
+            workdays: Array.isArray(settings?.workdays) && settings.workdays.length
+                ? settings.workdays
+                : ['mon', 'tue', 'wed', 'thu', 'fri'],
+            sensorState: null,
+        };
+        if (workdaySettingsCache.use) {
+            // haAPI.hass is only set in custom panel mode, so fall back to get_states
+            let state = haAPI?.hass?.states?.['binary_sensor.workday_sensor'];
+            if (!state) {
+                const states = await haAPI.getStates();
+                state = (states || []).find(s => s.entity_id === 'binary_sensor.workday_sensor');
+            }
+            workdaySettingsCache.sensorState = state?.state ?? null;
+        }
+    } catch (err) {
+        // keep previous values
+    }
+}
+
+// Which 5/2 period applies today: honours the configured workdays and, when
+// enabled, binary_sensor.workday_sensor (public holidays -> 'weekend').
+function getTodayPeriod() {
+    const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
+    let isWorkday = workdaySettingsCache.workdays.includes(weekday);
+    if (workdaySettingsCache.use) {
+        const state = workdaySettingsCache.sensorState
+            ?? haAPI?.hass?.states?.['binary_sensor.workday_sensor']?.state;
+        if (state === 'on' || state === 'off') {
+            isWorkday = state === 'on';
+        }
+    }
+    return isWorkday ? 'weekday' : 'weekend';
+}
+
 function getMainEditorDisplayedDay(scheduleMode) {
     if (scheduleMode === 'all_days') {
         return 'all_days';
@@ -1066,7 +1108,7 @@ function getMainEditorDisplayedDay(scheduleMode) {
     const now = new Date();
     const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
     if (scheduleMode === '5/2') {
-        return (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+        return getTodayPeriod();
     }
     return weekday;
 }
@@ -1078,7 +1120,7 @@ function resolveModeTransitionDay(previousMode, previousDay, newMode) {
 
     const now = new Date();
     const todayIndividual = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
-    const todayPeriod = (todayIndividual === 'sat' || todayIndividual === 'sun') ? 'weekend' : 'weekday';
+    const todayPeriod = getTodayPeriod();
     const individualDays = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 
     if (newMode === '5/2') {
@@ -1363,11 +1405,12 @@ async function editGroupSchedule(groupName, day = null) {
         // Determine which day to load based on mode
         const now = new Date();
         const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+        await refreshWorkdaySettings();
         
         if (currentScheduleMode === 'all_days') {
             currentDay = 'all_days';
         } else if (currentScheduleMode === '5/2') {
-            currentDay = (weekday === 'sat' || weekday === 'sun') ? 'weekend' : 'weekday';
+            currentDay = getTodayPeriod();
         } else {
             currentDay = weekday;
         }
