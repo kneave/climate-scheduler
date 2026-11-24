@@ -1,4 +1,66 @@
 /**
+ * Lovelace card scope for one thermostat or a list of thermostats.
+ * A filtered card is a UI scope, not a security boundary: the backend
+ * still applies schedules for every assigned entity.
+ *
+ * `entity` (string or list) and `entities` (list or comma/JSON string)
+ * are unioned and de-duplicated. Order is `entity` first, then `entities`.
+ * Empty values are ignored. No ids means no filter (house-wide editor).
+ */
+function normalizeEntityFilter(source) {
+    const ordered = [];
+    const seen = new Set();
+    const add = (value) => {
+        if (typeof value !== 'string') {
+            return;
+        }
+        const id = value.trim();
+        if (!id || seen.has(id)) {
+            return;
+        }
+        seen.add(id);
+        ordered.push(id);
+    };
+    const walk = (value) => {
+        if (value == null) {
+            return;
+        }
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) {
+                return;
+            }
+            if (trimmed.startsWith('[')) {
+                try {
+                    walk(JSON.parse(trimmed));
+                    return;
+                }
+                catch {
+                    // Fall through to a comma-separated list.
+                }
+            }
+            trimmed.split(',').forEach(add);
+            return;
+        }
+        if (Array.isArray(value)) {
+            value.forEach(walk);
+            return;
+        }
+        if (typeof value === 'object') {
+            const record = value;
+            if ('entity' in record) {
+                walk(record.entity);
+            }
+            if ('entities' in record) {
+                walk(record.entities);
+            }
+        }
+    };
+    walk(source);
+    return ordered.length ? ordered : null;
+}
+
+/**
  * Climate Scheduler Custom Panel
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
@@ -93,6 +155,8 @@ class ClimateSchedulerPanel extends HTMLElement {
         this._hass = null;
         this.narrow = false;
         this.panel = null;
+        /** Entity ids this embedded editor may show and assign. Null is house-wide. */
+        this.entityFilter = null;
     }
     // Declare properties that Home Assistant looks for
     static get properties() {
@@ -100,8 +164,23 @@ class ClimateSchedulerPanel extends HTMLElement {
             hass: { type: Object },
             narrow: { type: Boolean },
             route: { type: Object },
-            panel: { type: Object }
+            panel: { type: Object },
+            entityFilter: { type: Array }
         };
+    }
+    /**
+     * Property wins. `entity-filter` is a JSON or comma-separated fallback.
+     * Null means the house-wide editor.
+     */
+    resolveEntityFilter() {
+        if (this.entityFilter != null) {
+            return normalizeEntityFilter(this.entityFilter);
+        }
+        const attr = this.getAttribute('entity-filter');
+        if (attr == null || !attr.trim()) {
+            return null;
+        }
+        return normalizeEntityFilter(attr);
     }
     async connectedCallback() {
         this.render();
@@ -142,9 +221,18 @@ class ClimateSchedulerPanel extends HTMLElement {
                     versionElement.textContent = 'Climate Scheduler';
                 }
             }
-            // Initialize the app when panel is loaded and scripts are ready
+            // Initialize the app when panel is loaded and scripts are ready.
+            // entityFilter is a UI scope passed from the Lovelace card.
+            const entityFilter = this.resolveEntityFilter();
+            this.entityFilter = entityFilter;
+            if (entityFilter && entityFilter.length) {
+                this.setAttribute('entity-filter', entityFilter.join(','));
+            }
+            else {
+                this.removeAttribute('entity-filter');
+            }
             if (window.initClimateSchedulerApp) {
-                window.initClimateSchedulerApp(this.hass);
+                window.initClimateSchedulerApp(this.hass, entityFilter);
             }
         }
         catch (error) {

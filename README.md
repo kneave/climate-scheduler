@@ -67,6 +67,22 @@ Add the card manually with YAML (Manual card):
 type: custom:climate-scheduler-card
 ```
 
+Scope one card to a thermostat, or to a list. `entity` and `entities` are unioned, de-duplicated, and kept in that order. Empty values are ignored. Without either option the card stays the house-wide editor.
+
+```yaml
+type: custom:climate-scheduler-card
+entity: climate.living_room
+```
+
+```yaml
+type: custom:climate-scheduler-card
+entities:
+  - climate.living_room
+  - climate.bedroom
+```
+
+A filtered card is a UI scope, not a security boundary. The backend still applies schedules for every assigned entity. The option only limits what this card instance displays and can assign. Groups that include any entity outside the filter are hidden, because editing a mixed group would change the other thermostat.
+
 For panel mode in a view:
 ```yaml
 views:

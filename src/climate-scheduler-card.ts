@@ -4,6 +4,7 @@
 
 import { LitElement, html, css, PropertyValues, TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { normalizeEntityFilter } from './entity-filter';
 
 // Version checking - detect if browser cache is stale
 (async function() {
@@ -159,10 +160,12 @@ export class ClimateSchedulerCard extends LitElement {
       `;
     }
 
+    const entityFilter = normalizeEntityFilter(this._config);
     return html`
       <div class="wrapper">
         <climate-scheduler-panel 
-          .hass=${this.hass} 
+          .hass=${this.hass}
+          .entityFilter=${entityFilter}
           embed="1">
         </climate-scheduler-panel>
       </div>

@@ -183,3 +183,59 @@ function interpolateTemperature(nodes, timeStr) {
     
     return activeNode.temp;
 }
+
+// ============================================================================
+// LOVELACE CARD ENTITY SCOPE
+// ============================================================================
+
+/**
+ * Ordered entity ids for this card, or null when the editor is house-wide.
+ * A filtered card is a UI scope, not a security boundary.
+ */
+let climateSchedulerEntityFilter = null;
+
+function setClimateSchedulerEntityFilter(value) {
+    if (value == null) {
+        climateSchedulerEntityFilter = null;
+        return null;
+    }
+    const ids = [];
+    const seen = new Set();
+    const list = Array.isArray(value) ? value : [value];
+    list.forEach((item) => {
+        if (typeof item !== 'string') {
+            return;
+        }
+        const id = item.trim();
+        if (!id || seen.has(id)) {
+            return;
+        }
+        seen.add(id);
+        ids.push(id);
+    });
+    climateSchedulerEntityFilter = ids.length ? ids : null;
+    return climateSchedulerEntityFilter;
+}
+
+function isClimateSchedulerEntityInScope(entityId) {
+    if (!climateSchedulerEntityFilter) {
+        return true;
+    }
+    return climateSchedulerEntityFilter.includes(entityId);
+}
+
+/**
+ * A group is visible only when every member is in scope.
+ * Mixed groups are hidden because editing them would change the other thermostat.
+ * Empty groups are hidden while a filter is set; they are not one of these thermostats.
+ */
+function isClimateSchedulerGroupInScope(groupData) {
+    if (!climateSchedulerEntityFilter) {
+        return true;
+    }
+    const ids = groupData && Array.isArray(groupData.entities) ? groupData.entities : [];
+    if (!ids.length) {
+        return false;
+    }
+    return ids.every((id) => climateSchedulerEntityFilter.includes(id));
+}
