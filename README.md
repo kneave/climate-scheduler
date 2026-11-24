@@ -109,6 +109,22 @@ Check the **"No Change"** checkbox below the temperature input to modify HVAC se
 
 When checked, the node will skip temperature changes entirely and only apply the selected mode settings.
 
+### Apply modes (`apply_modes`)
+
+When a schedule node sets a temperature but does **not** name an HVAC mode, Climate Scheduler only calls `climate.set_temperature` if the thermostat is already in an intended mode. By default that list is `heat`. A cool, heat_cool, or auto thermostat will not receive a temperature from such a node unless you set `apply_modes` or name `hvac_mode` on the node.
+
+`apply_modes` is a storage option on the schedule, or on the group if the schedule omits it. There is no UI for it yet. An explicit empty list allows no mode. The option is ignored when the node itself names an HVAC mode: a `heat` node can still turn a unit on and set the setpoint, and an `off` node still writes its target temperature.
+
+Example in the stored group or schedule data:
+
+```yaml
+apply_modes:
+  - heat
+  - cool
+```
+
+The guard never turns a thermostat on or changes its mode by itself. Missing, unavailable, or unknown entities are skipped and retried on the next coordinator cycle.
+
 ## Screenshots
 
 ![Daily Scheduler](screenshots/daily-scheduler.png)
