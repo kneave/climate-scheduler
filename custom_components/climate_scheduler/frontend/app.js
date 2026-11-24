@@ -310,9 +310,14 @@ async function initApp() {
 // Load all climate entities
 async function loadClimateEntities() {
     try {
-        climateEntities = await haAPI.getClimateEntities();
+        const loadedEntities = await haAPI.getClimateEntities();
+        climateEntities = loadedEntities.filter((entity) => isClimateSchedulerEntityInScope(entity.entity_id));
         await renderEntityList();
-        // Entity list rendered
+        // A scoped card can paint its thermostat list before schedule service
+        // calls return. loadGroups() renders this again once groups are known.
+        if (climateSchedulerEntityFilter) {
+            renderIgnoredEntities();
+        }
     } catch (error) {
         console.error('Failed to load climate entities:', error);
         alert('Failed to load climate entities');
@@ -396,7 +401,7 @@ function renderGroups() {
         // Hide single-entity groups that are marked as ignored
         const isSingleEntity = groupData.entities && groupData.entities.length === 1;
         const isIgnored = groupData.ignored === true;
-        return !(isSingleEntity && isIgnored);
+        return !(isSingleEntity && isIgnored) && isClimateSchedulerGroupInScope(groupData);
     });
     
     // Update count
@@ -492,6 +497,7 @@ function renderIgnoredEntities() {
         
         const item = document.createElement('div');
         item.className = 'ignored-entity-item';
+        item.dataset.entityId = entityId;
         item.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer;';
         
         const nameSpan = document.createElement('span');
@@ -1770,7 +1776,7 @@ function getProfileEditorTargetGroup(container) {
     const firstMonitored = Object.keys(allGroups).find(groupName => {
         const groupData = allGroups[groupName] || {};
         const isIgnored = groupData.ignored === true;
-        return !isIgnored;
+        return !isIgnored && isClimateSchedulerGroupInScope(groupData);
     });
 
     return firstMonitored || null;
@@ -2730,9 +2736,9 @@ function showMoveToGroupModal(currentGroupName, entityId) {
         
         const groupData = allGroups[groupName];
         
-        // Skip ignored/unmonitored groups
+        // Skip ignored/unmonitored groups and groups outside this card's scope
         const isIgnored = groupData.ignored === true;
-        if (isIgnored) {
+        if (isIgnored || !isClimateSchedulerGroupInScope(groupData)) {
             return;
         }
         
@@ -2784,9 +2790,9 @@ function showAddToGroupModal(entityId) {
     Object.keys(allGroups).forEach(groupName => {
         const groupData = allGroups[groupName];
         
-        // Skip ignored/unmonitored groups
+        // Skip ignored/unmonitored groups and groups outside this card's scope
         const isIgnored = groupData.ignored === true;
-        if (isIgnored) {
+        if (isIgnored || !isClimateSchedulerGroupInScope(groupData)) {
             return; // Skip this group
         }
         
@@ -5112,6 +5118,7 @@ function handleStateUpdate(data) {
     const newState = data.new_state;
     
     if (!entityId || !newState || !entityId.startsWith('climate.')) return;
+    if (!isClimateSchedulerEntityInScope(entityId)) return;
     
     // Update entity in list
     const entityIndex = climateEntities.findIndex(e => e.entity_id === entityId);
@@ -7535,7 +7542,12 @@ async function loadAdvanceHistory(entityId) {
 }
 
 // Export initialization function for custom panel
-window.initClimateSchedulerApp = function(hass) {
+window.initClimateSchedulerApp = function(hass, entityFilterValue) {
+    // null/omitted keeps the house-wide editor. An array scopes this card.
+    if (typeof setClimateSchedulerEntityFilter === 'function') {
+        setClimateSchedulerEntityFilter(entityFilterValue);
+    }
+
     // Create API instance first if needed
     if (!haAPI) {
         haAPI = new HomeAssistantAPI();

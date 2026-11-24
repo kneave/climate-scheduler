@@ -3,6 +3,8 @@
  * Modern Home Assistant custom panel implementation (replaces legacy iframe approach)
  */
 
+import { normalizeEntityFilter } from './entity-filter';
+
 // Version checking - detect if browser cache is stale
 (async function() {
   try {
@@ -110,7 +112,7 @@ interface HassObject {
 declare global {
     interface Window {
         climateSchedulerPanelRoot: ClimateSchedulerPanel;
-        initClimateSchedulerApp?: (hass: HassObject) => void;
+        initClimateSchedulerApp?: (hass: HassObject, entityFilter?: string[] | null) => void;
         updateHassConnection?: (hass: HassObject) => void;
     }
 }
@@ -119,6 +121,8 @@ class ClimateSchedulerPanel extends HTMLElement {
     private _hass: HassObject | null = null;
     narrow: boolean = false;
     panel: any = null;
+    /** Entity ids this embedded editor may show and assign. Null is house-wide. */
+    entityFilter: string[] | null = null;
 
     constructor() {
         super();
@@ -130,8 +134,24 @@ class ClimateSchedulerPanel extends HTMLElement {
             hass: { type: Object },
             narrow: { type: Boolean },
             route: { type: Object },
-            panel: { type: Object }
+            panel: { type: Object },
+            entityFilter: { type: Array }
         };
+    }
+
+    /**
+     * Property wins. `entity-filter` is a JSON or comma-separated fallback.
+     * Null means the house-wide editor.
+     */
+    resolveEntityFilter(): string[] | null {
+        if (this.entityFilter != null) {
+            return normalizeEntityFilter(this.entityFilter);
+        }
+        const attr = this.getAttribute('entity-filter');
+        if (attr == null || !attr.trim()) {
+            return null;
+        }
+        return normalizeEntityFilter(attr);
     }
 
     async connectedCallback() {
@@ -178,9 +198,17 @@ class ClimateSchedulerPanel extends HTMLElement {
                 }
             }
 
-            // Initialize the app when panel is loaded and scripts are ready
+            // Initialize the app when panel is loaded and scripts are ready.
+            // entityFilter is a UI scope passed from the Lovelace card.
+            const entityFilter = this.resolveEntityFilter();
+            this.entityFilter = entityFilter;
+            if (entityFilter && entityFilter.length) {
+                this.setAttribute('entity-filter', entityFilter.join(','));
+            } else {
+                this.removeAttribute('entity-filter');
+            }
             if (window.initClimateSchedulerApp) {
-                window.initClimateSchedulerApp(this.hass!);
+                window.initClimateSchedulerApp(this.hass!, entityFilter);
             }
         } catch (error) {
             console.error('Failed to initialize Climate Scheduler:', error);
